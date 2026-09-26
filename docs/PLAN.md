@@ -17,7 +17,21 @@ Neyro is a Telegram-first NEAR trading terminal. The initial product focuses on 
 9. Portfolio and trade history
 10. Basic slippage/risk controls
 
-## 3. Phase 2
+## 3. Current implementation
+
+- TypeScript/Node.js application
+- Grammy Telegram layer
+- NEAR RPC client
+- RHEA unified Swap SDK 2.x
+- Live NEAR token-list boundary
+- Normalized RHEA quote model
+- Secure signer interface with no private-key exposure to bot handlers
+- Initial PostgreSQL schema
+- GitHub Actions typecheck
+
+RHEA's current SDK supports NEAR execution through a dedicated executor and exposes quote -> build -> execute flow. Neyro intentionally stops before signing until the production signer vault is implemented.
+
+## 4. Phase 2
 
 - NEARly launch discovery
 - Trending/new-token feed
@@ -26,7 +40,7 @@ Neyro is a Telegram-first NEAR trading terminal. The initial product focuses on 
 - Take-profit / stop-loss
 - Limit orders
 
-## 4. Phase 3
+## 5. Phase 3
 
 - Copy trading
 - DCA
@@ -34,7 +48,7 @@ Neyro is a Telegram-first NEAR trading terminal. The initial product focuses on 
 - Advanced analytics
 - NEAR Intents / cross-chain execution
 
-## 5. Architecture
+## 6. Architecture
 
 Telegram UI
   -> Application API
@@ -47,7 +61,7 @@ Telegram UI
 
 The trading engine must remain independent from Telegram so a web/mobile client can be added later.
 
-## 6. First implementation order
+## 7. First implementation order
 
 ### Milestone A — foundation
 - TypeScript project
@@ -65,10 +79,10 @@ The trading engine must remain independent from Telegram so a web/mobile client 
 - deposit/withdraw flow
 
 ### Milestone C — trading
-- RHEA API client
+- RHEA SDK
 - quote normalization
-- swap transaction builder
-- signer/executor
+- swap build
+- secure NEAR executor
 - transaction status
 - trade persistence
 
@@ -77,7 +91,7 @@ The trading engine must remain independent from Telegram so a web/mobile client 
 - token/pool index
 - new-launch detection
 
-## 7. Safety requirements
+## 8. Safety requirements
 
 - Never log private keys or seed phrases.
 - Never place a trade without an explicit user confirmation in MVP.
@@ -85,3 +99,12 @@ The trading engine must remain independent from Telegram so a web/mobile client 
 - Enforce maximum trade size and slippage.
 - Treat a timeout as unknown status, not automatic failure.
 - Keep RHEA API credentials server-side only.
+- Never modify RHEA's normalized quote/build context before execution.
+
+## 9. Reference
+
+RHEA unified Swap SDK:
+https://github.com/rhea-finance/crossChain-aggregation-sdk
+
+RHEA API documentation:
+https://github.com/rhea-finance/rhea-sdk-docs/blob/main/CrossChainDexAPI.md
