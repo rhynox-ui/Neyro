@@ -251,10 +251,19 @@ Done:
   human units, and the bot answers in private chats only.
 - §6.7 Unlisted tokens resolve by contract id via `ft_metadata`.
 - Mango-style token panel (DexScreener market card and inline trading keyboard).
+- RHEA's wallet-selector actions are converted before signing; only
+  FunctionCall and Transfer actions are signed.
+- 1% protocol fee capped at $60, appended to RHEA's swap transaction (team
+  wallet `widekingdom6862.near`).
+- Background reconciler for `unknown` and stale `executing` trades, with user
+  notifications.
+- NEARly feed (`/new`, Discover) from `nearlytrade.near` `get_launches`, plus
+  launch-backed cards for tokens not yet on DexScreener.
 
 Open:
-- Background reconciler for `unknown` and stale `executing` trades (the
-  shared `lookupTransaction` helper exists).
-- NEARly factory watcher and `/new` feed.
+- Automatic refund of fees taken on reverted swaps (recorded as
+  `fee_refund_due`; paid manually for now).
+- neara.fun and NEARfi launchpads: need an example token to confirm whether
+  they trade on RHEA pools or need their own adapter.
 - Separate signer service and function-call access keys (§5, §6.8).
 - Persist panel state and slippage preferences in the DB (in memory today).
