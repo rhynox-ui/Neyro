@@ -8,7 +8,7 @@ import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
 import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { userMessage } from "../errors.js";
-import { valueLossWarning } from "../trading/outcome.js";
+import { describeRoute, valueLossWarning } from "../trading/outcome.js";
 import { ageLabel, createTokenPanel } from "./panel.js";
 import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discovery/nearly.js";
 
@@ -241,7 +241,7 @@ export function registerBotHandlers(bot: Bot) {
         `Expected: ${output} ${symbolOut}\n` +
         `Minimum: ${minimum} ${symbolOut}\n` +
         `Slippage: ${prepared.request.slippageBps / 100}%\n` +
-        `Router: ${escapeHtml(prepared.quote.router ?? "RHEA")}\n\n` +
+        `Router: ${escapeHtml(describeRoute(prepared.quote.raw.route, prepared.quote.raw.alternatives?.length ?? 0))}\n\n` +
         (valueLossWarning(prepared.valueLoss) ? `${escapeHtml(valueLossWarning(prepared.valueLoss)!)}\n\n` : "") +
         (prepared.unlisted
           ? `⚠️ <b>Unlisted token.</b> ${code(side === "buy" ? prepared.request.tokenOut.address : prepared.request.tokenIn.address)} is not on RHEA's token list. Verify the contract; anyone can deploy a token with any symbol.\n\n`

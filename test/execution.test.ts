@@ -139,3 +139,10 @@ test("value loss flags high-fee pools and price impact", async () => {
   assert.equal(estimateValueLoss(10n * NEAR, 24, null, 1n, 6, 1), null);
   assert.equal(estimateValueLoss(10n * NEAR, 24, 3, 70_000n * 10n ** 6n, 6, 0.0005), 0);
 });
+
+test("route description names router, market and alternatives", async () => {
+  const { describeRoute } = await import("../src/trading/outcome.js");
+  assert.equal(describeRoute({ router: "rhea", market: "dcl" }, 2), "rhea · dcl (best of 3 routes)");
+  assert.equal(describeRoute({ router: "rhea" }), "rhea");
+  assert.equal(describeRoute(undefined), "RHEA");
+});

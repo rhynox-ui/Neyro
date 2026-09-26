@@ -72,3 +72,9 @@ export function valueLossWarning(loss: number | null): string | undefined {
     ? `🚨 You lose about ${pct}% of the trade's value to pool fees and price impact. This pool may charge a very high fee or have very little liquidity.`
     : `⚠️ About ${pct}% of the trade's value goes to pool fees and price impact.`;
 }
+
+/** "rhea · dcl (best of 3 routes)" from the SDK's route summary. */
+export function describeRoute(route: { router?: string; market?: string } | undefined, alternatives = 0): string {
+  const name = [route?.router, route?.market].filter(Boolean).join(" · ") || "RHEA";
+  return alternatives > 0 ? `${name} (best of ${alternatives + 1} routes)` : name;
+}
