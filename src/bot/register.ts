@@ -16,12 +16,12 @@ export function registerBotHandlers(bot: Bot) {
     const existing = await walletService.getWallet(telegramUserId);
     if (existing) {
       const balance = await getNearBalance(existing.accountId);
-      await ctx.reply(`👛 Your Neyro wallet\n\nNetwork: ${existing.network}\nAccount: \\`${existing.accountId}\\`\nBalance: ${balance} yoctoNEAR\n\nUse /deposit to show the funding address.`);
+      await ctx.reply(`👛 Your Neyro wallet\n\nNetwork: ${existing.network}\nAccount: \`${existing.accountId}\`\nBalance: ${balance} yoctoNEAR\n\nUse /deposit to show the funding address.`);
       return;
     }
     try {
       const wallet = await walletService.createWallet(telegramUserId);
-      await ctx.reply(`✅ Wallet created\n\nNetwork: ${wallet.network}\nAccount: \\`${wallet.accountId}\\`\n\nUse /deposit to fund this wallet.\n\n⚠️ Current wallet service is custodial. Do not deposit meaningful funds until persistent encrypted storage, recovery, and operational safeguards are fully deployed.`);
+      await ctx.reply(`✅ Wallet created\n\nNetwork: ${wallet.network}\nAccount: \`${wallet.accountId}\`\n\nUse /deposit to fund this wallet.\n\n⚠️ Current wallet service is custodial. Do not deposit meaningful funds until persistent encrypted storage, recovery, and operational safeguards are fully deployed.`);
     } catch (error) {
       console.error("Wallet creation error:", error);
       await ctx.reply("❌ Wallet creation is not configured yet.");
@@ -33,7 +33,7 @@ export function registerBotHandlers(bot: Bot) {
     if (!telegramUserId) return void await ctx.reply("❌ Telegram user identity is unavailable.");
     const wallet = await walletService.getWallet(telegramUserId);
     if (!wallet) return void await ctx.reply("👛 No wallet yet. Use /wallet to create one.");
-    await ctx.reply(`📥 Deposit address\n\nNetwork: ${wallet.network}\n\\`${wallet.accountId}\\`\n\nOnly send assets supported by Neyro on the selected network.`);
+    await ctx.reply(`📥 Deposit address\n\nNetwork: ${wallet.network}\n\`${wallet.accountId}\`\n\nOnly send assets supported by Neyro on the selected network.`);
   });
 
   bot.command("balance", async (ctx) => {
@@ -42,7 +42,7 @@ export function registerBotHandlers(bot: Bot) {
     const wallet = await walletService.getWallet(telegramUserId);
     if (!wallet) return void await ctx.reply("👛 No wallet yet. Use /wallet to create one.");
     const balance = await getNearBalance(wallet.accountId);
-    await ctx.reply(`💰 NEAR balance\n\n${balance} yoctoNEAR\n\nWallet: \\`${wallet.accountId}\\``);
+    await ctx.reply(`💰 NEAR balance\n\n${balance} yoctoNEAR\n\nWallet: \`${wallet.accountId}\``);
   });
 
   bot.command("buy", async (ctx) => { await ctx.reply("⚡ Buy\n\nUsage in MVP: /buy <token> <amount-near>"); });
