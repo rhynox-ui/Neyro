@@ -74,3 +74,13 @@ test("RPC failover does not retry definitive answers", async () => {
   }), AccountDoesNotExistError);
   assert.equal(calls, 1);
 });
+
+test("contract-id detection accepts NEAR contracts but not bare symbols", async () => {
+  const { looksLikeContractId, isValidAccountId } = await import("../src/near/tokens.js");
+  assert.ok(looksLikeContractId("meme.nearly.near"));
+  assert.ok(looksLikeContractId("a".repeat(64).replace(/a/g, "f")));
+  assert.ok(!looksLikeContractId("usdc"));
+  assert.ok(!looksLikeContractId("bad..near"));
+  assert.ok(!isValidAccountId("UPPER.near"));
+  assert.ok(!isValidAccountId("-lead.near"));
+});

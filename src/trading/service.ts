@@ -160,7 +160,7 @@ export class TradingService {
       status: "quoted"
     });
 
-    return { id, request, quote, expiresAt };
+    return { id, request, quote, expiresAt, unlisted: !token.listed };
   }
 
   async execute(userId: number, id: string): Promise<ExecutionResult> {

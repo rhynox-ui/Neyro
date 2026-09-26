@@ -7,6 +7,17 @@ import {
 } from "@rhea-finance/cross-chain-aggregation-dex";
 import { config } from "../config.js";
 import { UserFacingError } from "../errors.js";
+import { ftMetadata } from "../near/ft.js";
+import { looksLikeContractId } from "../near/tokens.js";
+
+/** A NEAR token Neyro can quote. `listed` is false for tokens only verified on chain. */
+export type NearToken = AssetRef & {
+  address: string;
+  symbol: string;
+  decimals: number;
+  contractAddress: string | null;
+  listed: boolean;
+};
 
 export type RheaQuoteRequest = {
   fromToken: AssetRef;
@@ -33,7 +44,7 @@ export class RheaClient {
     return this.client.getFromTokens({ chainId: 900001 });
   }
 
-  async resolveNearToken(query: string) {
+  async resolveNearToken(query: string): Promise<NearToken> {
     const needle = query.trim().toLowerCase();
     if (!needle) throw new UserFacingError("Token is required");
 
@@ -45,21 +56,37 @@ export class RheaClient {
       token.symbol.toLowerCase() === needle
     );
 
-    if (matches.length === 0) {
-      throw new UserFacingError("Token was not found in RHEA's current NEAR token list");
-    }
-
     if (matches.length > 1) {
       const exactAddress = matches.find((token) =>
         token.address.toLowerCase() === needle ||
         token.assetId.toLowerCase() === needle ||
         token.contractAddress?.toLowerCase() === needle
       );
-      if (exactAddress) return exactAddress;
+      if (exactAddress) return { ...exactAddress, listed: true };
       throw new UserFacingError("Multiple tokens match that symbol; use the token contract/address");
     }
+    if (matches[0]) return { ...matches[0], listed: true };
 
-    return matches[0];
+    // New launches (e.g. NEARly) are tradeable on RHEA pools before they
+    // appear in RHEA's price list. Accept them by exact contract id only,
+    // never by symbol, and verify they are NEP-141 on chain.
+    if (looksLikeContractId(needle)) {
+      const metadata = await ftMetadata(needle).catch(() => undefined);
+      if (metadata) {
+        return {
+          chain: "near",
+          address: needle,
+          contractAddress: needle,
+          symbol: metadata.symbol,
+          decimals: metadata.decimals,
+          isNative: false,
+          listed: false
+        };
+      }
+      throw new UserFacingError("That contract is not a NEP-141 token on NEAR");
+    }
+
+    throw new UserFacingError("Token was not found; for new tokens use the full contract id (e.g. token.near)");
   }
 
   async quote(request: RheaQuoteRequest): Promise<Quote> {

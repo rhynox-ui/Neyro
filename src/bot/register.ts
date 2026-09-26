@@ -190,6 +190,9 @@ export function registerBotHandlers(bot: Bot) {
         `Minimum: ${minimum} ${symbolOut}\n` +
         `Slippage: ${prepared.request.slippageBps / 100}%\n` +
         `Router: ${escapeHtml(prepared.quote.router ?? "RHEA")}\n\n` +
+        (prepared.unlisted
+          ? `⚠️ <b>Unlisted token.</b> ${code(side === "buy" ? prepared.request.tokenOut.address : prepared.request.tokenIn.address)} is not on RHEA's token list. Verify the contract; anyone can deploy a token with any symbol.\n\n`
+          : "") +
         `Quote expires in ${seconds}s.`,
         {
           ...HTML,
