@@ -10,6 +10,7 @@ import type { TradeQuote, TradeRequest } from "../domain/trading.js";
 import {
   NoopTradeRepository,
   PostgresTradeRepository,
+  type PendingPayload,
   type TradeRepository,
   type TradeStatus
 } from "./repository.js";
@@ -157,7 +158,9 @@ export class TradingService {
       slippageBps,
       router: quote.router,
       idempotencyKey: id,
-      status: "quoted"
+      status: "quoted",
+      expiresAt: new Date(expiresAt),
+      payload: { request, quote }
     });
 
     return { id, request, quote, expiresAt, unlisted: !token.listed };
@@ -166,26 +169,36 @@ export class TradingService {
   async execute(userId: number, id: string): Promise<ExecutionResult> {
     cleanupPending();
 
-    const trade = pending.get(id);
-    if (!trade || trade.userId !== userId) {
-      throw new UserFacingError("Trade confirmation expired or is invalid");
-    }
     if (executing.has(userId)) {
       throw new UserFacingError("Another trade is still executing; wait for it to finish");
     }
 
+    // With a database, the quoted → executing update is the single source of
+    // truth: only one tap, process or replica can claim a quote. Without one,
+    // fall back to this process's memory.
+    const claim = await this.repository.claim(userId, id);
+    const local = pending.get(id);
     pending.delete(id);
+
+    let payload: PendingPayload | undefined;
+    if (claim.kind === "claimed") {
+      payload = claim.payload;
+    } else if (claim.kind === "untracked" && local?.userId === userId) {
+      payload = local;
+    }
+    if (!payload) {
+      throw new UserFacingError("Trade confirmation expired or is invalid");
+    }
+
     executing.add(userId);
     try {
-      return await this.executeTrade(userId, id, trade);
+      return await this.executeTrade(userId, id, payload);
     } finally {
       executing.delete(userId);
     }
   }
 
-  private async executeTrade(userId: number, id: string, trade: PendingTrade): Promise<ExecutionResult> {
-    await this.repository.updateStatus(userId, id, { status: "executing" });
-
+  private async executeTrade(userId: number, id: string, trade: PendingPayload): Promise<ExecutionResult> {
     const { request } = trade;
     const ftContract = contractOf(request.side === "buy" ? request.tokenOut : request.tokenIn);
     const before = await ftBalanceOf(ftContract, request.accountId).catch(() => undefined);
@@ -251,11 +264,9 @@ export class TradingService {
     return { status, txHashes, filledAmount: fill.amount.toString(), reason };
   }
 
-  cancel(userId: number, id: string): void {
+  async cancel(userId: number, id: string): Promise<void> {
     const trade = pending.get(id);
-    if (trade?.userId === userId) {
-      pending.delete(id);
-      void this.repository.updateStatus(userId, id, { status: "cancelled" });
-    }
+    if (trade?.userId === userId) pending.delete(id);
+    await this.repository.cancel(userId, id);
   }
 }

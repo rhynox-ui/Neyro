@@ -223,7 +223,7 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.callbackQuery(/^trade:cancel:([a-f0-9]{16})$/, async (ctx) => {
-    tradingService.cancel(ctx.from.id, ctx.match[1]!);
+    await tradingService.cancel(ctx.from.id, ctx.match[1]!);
     await ctx.answerCallbackQuery("Trade cancelled");
     await ctx.editMessageText("❌ Trade cancelled.");
   });

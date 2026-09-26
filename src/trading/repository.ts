@@ -1,4 +1,16 @@
 import { neon } from "@neondatabase/serverless";
+import type { TradeQuote, TradeRequest } from "../domain/trading.js";
+
+/** Everything needed to execute a confirmed quote; stored as JSON. */
+export type PendingPayload = { request: TradeRequest; quote: TradeQuote };
+
+export type ClaimResult =
+  /** The trade moved from quoted to executing; only one caller can get this. */
+  | { kind: "claimed"; payload: PendingPayload }
+  /** Unknown, expired, cancelled, or already claimed. */
+  | { kind: "unavailable" }
+  /** This repository does not persist trades; the caller uses its own state. */
+  | { kind: "untracked" };
 
 export type TradeRecord = {
   userId: number;
@@ -14,6 +26,8 @@ export type TradeRecord = {
   status: TradeStatus;
   txHash?: string;
   errorCode?: string;
+  expiresAt?: Date;
+  payload?: PendingPayload;
 };
 
 /**
@@ -43,12 +57,18 @@ export type TradeEvent = {
 
 export interface TradeRepository {
   create(record: TradeRecord): Promise<void>;
+  /** Atomically moves a live quote to executing and returns its payload. */
+  claim(userId: number, idempotencyKey: string): Promise<ClaimResult>;
+  /** Cancels a quote that has not been claimed yet. */
+  cancel(userId: number, idempotencyKey: string): Promise<void>;
   updateStatus(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<void>;
   recordEvent(userId: number, idempotencyKey: string, event: TradeEvent): Promise<void>;
 }
 
 export class NoopTradeRepository implements TradeRepository {
   async create(_record: TradeRecord): Promise<void> {}
+  async claim(_userId: number, _idempotencyKey: string): Promise<ClaimResult> { return { kind: "untracked" }; }
+  async cancel(_userId: number, _idempotencyKey: string): Promise<void> {}
   async updateStatus(_userId: number, _idempotencyKey: string, _update: TradeStatusUpdate): Promise<void> {}
   async recordEvent(_userId: number, _idempotencyKey: string, _event: TradeEvent): Promise<void> {}
 }
@@ -71,20 +91,41 @@ export class PostgresTradeRepository implements TradeRepository {
 
     await this.sql`insert into trades (
       user_id,wallet_id,side,token_in,token_out,amount_in,expected_out,
-      slippage_bps,idempotency_key,router,tx_hash,status,error_code
+      slippage_bps,idempotency_key,router,tx_hash,status,error_code,
+      quote_expires_at,pending_payload
     ) values (
       ${userId},${walletId},${record.side},${record.tokenIn},${record.tokenOut},
       ${record.amountIn},${record.expectedOut},${record.slippageBps},
       ${record.idempotencyKey},${record.router ?? null},${record.txHash ?? null},
-      ${record.status},${record.errorCode ?? null}
+      ${record.status},${record.errorCode ?? null},
+      ${record.expiresAt?.toISOString() ?? null},
+      ${record.payload ? JSON.stringify(record.payload) : null}::jsonb
     ) on conflict (user_id,idempotency_key) do nothing`;
+  }
+
+  async claim(userId: number, idempotencyKey: string): Promise<ClaimResult> {
+    const rows = (await this.sql`update trades t set status='executing', updated_at=now()
+      from users u where t.user_id=u.id and u.telegram_user_id=${userId}
+      and t.idempotency_key=${idempotencyKey} and t.status='quoted'
+      and t.quote_expires_at > now() and t.pending_payload is not null
+      returning t.pending_payload`) as unknown as { pending_payload: PendingPayload }[];
+    const payload = rows[0]?.pending_payload;
+    return payload ? { kind: "claimed", payload } : { kind: "unavailable" };
+  }
+
+  async cancel(userId: number, idempotencyKey: string): Promise<void> {
+    await this.sql`update trades t set status='cancelled', pending_payload=null, updated_at=now()
+      from users u where t.user_id=u.id and u.telegram_user_id=${userId}
+      and t.idempotency_key=${idempotencyKey} and t.status='quoted'`;
   }
 
   async updateStatus(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<void> {
     await this.sql`update trades t set status=${update.status},
       tx_hash=coalesce(${update.txHash ?? null},t.tx_hash),
       actual_out=coalesce(${update.actualOut ?? null},t.actual_out),
-      error_code=${update.errorCode ?? null}, updated_at=now()
+      error_code=${update.errorCode ?? null},
+      pending_payload=case when ${update.status} in ('quoted','executing') then t.pending_payload else null end,
+      updated_at=now()
       from users u where t.user_id=u.id and u.telegram_user_id=${userId}
       and t.idempotency_key=${idempotencyKey}`;
   }

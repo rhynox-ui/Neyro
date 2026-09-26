@@ -63,6 +63,11 @@ create table if not exists trades (
   unique(user_id, idempotency_key)
 );
 
+-- Quote + request JSON needed to execute a confirmation; cleared once the
+-- trade leaves quoted/executing. Lets confirmations survive restarts and
+-- makes the quoted → executing claim atomic across replicas.
+alter table trades add column if not exists pending_payload jsonb;
+
 create index if not exists trades_wallet_status_idx
   on trades(wallet_id, status, created_at desc);
 
