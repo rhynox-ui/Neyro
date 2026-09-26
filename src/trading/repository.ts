@@ -59,7 +59,25 @@ export type TradeEvent = {
   details?: Record<string, unknown>;
 };
 
+/** A trade whose on-chain outcome still has to be established. */
+export type UnresolvedTrade = {
+  telegramUserId: number;
+  idempotencyKey: string;
+  accountId: string;
+  status: "unknown" | "executing";
+  updatedAt: Date;
+  /** Journaled before broadcast, in order. */
+  txHashes: string[];
+};
+
 export interface TradeRepository {
+  /** Trades left unknown, or executing for longer than `staleMs` (e.g. after a crash). */
+  listUnresolved(staleMs: number, limit: number): Promise<UnresolvedTrade[]>;
+  /**
+   * Moves an unresolved trade to its final status. Returns false if another
+   * worker already resolved it.
+   */
+  resolve(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<boolean>;
   create(record: TradeRecord): Promise<void>;
   /** Atomically moves a live quote to executing and returns its payload. */
   claim(userId: number, idempotencyKey: string): Promise<ClaimResult>;
@@ -75,6 +93,8 @@ export class NoopTradeRepository implements TradeRepository {
   async cancel(_userId: number, _idempotencyKey: string): Promise<void> {}
   async updateStatus(_userId: number, _idempotencyKey: string, _update: TradeStatusUpdate): Promise<void> {}
   async recordEvent(_userId: number, _idempotencyKey: string, _event: TradeEvent): Promise<void> {}
+  async listUnresolved(_staleMs: number, _limit: number): Promise<UnresolvedTrade[]> { return []; }
+  async resolve(_userId: number, _idempotencyKey: string, _update: TradeStatusUpdate): Promise<boolean> { return false; }
 }
 
 export class PostgresTradeRepository implements TradeRepository {
@@ -142,5 +162,42 @@ export class PostgresTradeRepository implements TradeRepository {
       where u.telegram_user_id=${userId} and t.idempotency_key=${idempotencyKey}
       returning id`) as unknown as { id: string }[];
     if (rows.length === 0) throw new Error("Trade event could not be recorded");
+  }
+
+  async listUnresolved(staleMs: number, limit: number): Promise<UnresolvedTrade[]> {
+    const rows = (await this.sql`select u.telegram_user_id, t.idempotency_key, w.near_account_id,
+        t.status, t.updated_at,
+        coalesce(array_agg(e.tx_hash order by e.created_at) filter (where e.tx_hash is not null), '{}') as tx_hashes
+      from trades t
+      join users u on u.id=t.user_id
+      join wallets w on w.id=t.wallet_id
+      left join trade_events e on e.trade_id=t.id and e.event_type='tx_signed'
+      where t.status='unknown'
+        or (t.status='executing' and t.updated_at < now() - (${staleMs} * interval '1 millisecond'))
+      group by u.telegram_user_id, t.idempotency_key, w.near_account_id, t.status, t.updated_at
+      order by t.updated_at
+      limit ${limit}`) as unknown as {
+        telegram_user_id: string | number; idempotency_key: string; near_account_id: string;
+        status: "unknown" | "executing"; updated_at: string | Date; tx_hashes: string[];
+      }[];
+    return rows.map((row) => ({
+      telegramUserId: Number(row.telegram_user_id),
+      idempotencyKey: row.idempotency_key,
+      accountId: row.near_account_id,
+      status: row.status,
+      updatedAt: new Date(row.updated_at),
+      txHashes: row.tx_hashes
+    }));
+  }
+
+  async resolve(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<boolean> {
+    const rows = (await this.sql`update trades t set status=${update.status},
+      tx_hash=coalesce(${update.txHash ?? null},t.tx_hash),
+      error_code=${update.errorCode ?? null},
+      pending_payload=null, updated_at=now()
+      from users u where t.user_id=u.id and u.telegram_user_id=${userId}
+      and t.idempotency_key=${idempotencyKey} and t.status in ('unknown','executing')
+      returning t.id`) as unknown as { id: string }[];
+    return rows.length > 0;
   }
 }

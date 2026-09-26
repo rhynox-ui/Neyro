@@ -27,7 +27,7 @@ export function formatNear(yocto: bigint): string {
   return formatUnits(yocto.toString(), 24);
 }
 
-function explorerTx(txHash: string): string {
+export function explorerTx(txHash: string): string {
   const host = config.NEAR_NETWORK === "mainnet" ? "nearblocks.io" : "testnet.nearblocks.io";
   return `https://${host}/txns/${txHash}`;
 }
