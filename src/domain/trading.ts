@@ -1,8 +1,10 @@
+import type { AssetRef } from "@rhea-finance/cross-chain-aggregation-dex";
+
 export type TradeSide = "buy" | "sell";
 
 export type TradeQuote = {
-  tokenIn: string;
-  tokenOut: string;
+  tokenIn: AssetRef;
+  tokenOut: AssetRef;
   amountIn: string;
   expectedOut: string;
   minAmountOut: string;
@@ -14,8 +16,8 @@ export type TradeQuote = {
 export type TradeRequest = {
   accountId: string;
   side: TradeSide;
-  tokenIn: string;
-  tokenOut: string;
+  tokenIn: AssetRef;
+  tokenOut: AssetRef;
   amountIn: string;
   slippageBps: number;
 };
