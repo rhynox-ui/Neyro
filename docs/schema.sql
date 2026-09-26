@@ -1,76 +1,86 @@
--- Neyro initial relational schema.
--- Production migrations should run through the chosen migration tool.
+-- Neyro PostgreSQL schema (initial production shape)
 
-CREATE TABLE IF NOT EXISTS users (
-  id BIGSERIAL PRIMARY KEY,
-  telegram_user_id BIGINT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+create table if not exists users (
+  id uuid primary key default gen_random_uuid(),
+  telegram_user_id bigint not null unique,
+  created_at timestamptz not null default now()
 );
 
-CREATE TABLE IF NOT EXISTS wallets (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  near_account_id TEXT NOT NULL UNIQUE,
-  signer_ref TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id)
+create table if not exists wallets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  near_account_id text not null unique,
+  signer_ref text not null unique,
+  created_at timestamptz not null default now()
 );
 
-CREATE TABLE IF NOT EXISTS tokens (
-  id BIGSERIAL PRIMARY KEY,
-  chain TEXT NOT NULL DEFAULT 'near',
-  address TEXT NOT NULL,
-  symbol TEXT,
-  name TEXT,
-  decimals INTEGER,
-  price_usd NUMERIC,
-  logo_uri TEXT,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (chain, address)
+-- Encrypted key material only. The plaintext secret must never be stored.
+-- Encryption keys belong in a deployment secret manager, not PostgreSQL.
+create table if not exists wallet_secrets (
+  wallet_id uuid primary key references wallets(id) on delete cascade,
+  cipher_version integer not null default 1,
+  iv_base64 text not null,
+  auth_tag_base64 text not null,
+  ciphertext_base64 text not null,
+  created_at timestamptz not null default now(),
+  rotated_at timestamptz
 );
 
-CREATE TABLE IF NOT EXISTS trades (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  near_account_id TEXT NOT NULL,
-  side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
-  token_in TEXT NOT NULL,
-  token_out TEXT NOT NULL,
-  amount_in TEXT NOT NULL,
-  expected_out TEXT,
-  actual_out TEXT,
-  slippage_bps INTEGER NOT NULL,
-  router TEXT,
-  tx_hash TEXT,
-  status TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+create table if not exists tokens (
+  id uuid primary key default gen_random_uuid(),
+  chain text not null,
+  address text not null,
+  symbol text,
+  decimals integer not null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique(chain, address)
 );
 
-CREATE INDEX IF NOT EXISTS trades_user_created_idx
-  ON trades (user_id, created_at DESC);
-
-CREATE TABLE IF NOT EXISTS positions (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_address TEXT NOT NULL,
-  quantity TEXT NOT NULL DEFAULT '0',
-  average_entry TEXT,
-  realized_pnl TEXT,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, token_address)
+create table if not exists trades (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  wallet_id uuid not null references wallets(id),
+  side text not null check (side in ('buy', 'sell')),
+  token_in text not null,
+  token_out text not null,
+  amount_in numeric not null,
+  expected_out numeric,
+  actual_out numeric,
+  slippage_bps integer not null,
+  quote_expires_at timestamptz,
+  idempotency_key text not null,
+  router text,
+  tx_hash text,
+  status text not null,
+  error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(user_id, idempotency_key)
 );
 
-CREATE TABLE IF NOT EXISTS orders (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_address TEXT NOT NULL,
-  side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
-  order_type TEXT NOT NULL CHECK (order_type IN ('market', 'limit', 'take_profit', 'stop_loss')),
-  amount TEXT NOT NULL,
-  trigger_price TEXT,
-  status TEXT NOT NULL,
-  tx_hash TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+create index if not exists trades_wallet_status_idx
+  on trades(wallet_id, status, created_at desc);
+
+create table if not exists positions (
+  id uuid primary key default gen_random_uuid(),
+  wallet_id uuid not null references wallets(id) on delete cascade,
+  token_id uuid not null references tokens(id),
+  amount numeric not null default 0,
+  average_entry numeric,
+  updated_at timestamptz not null default now(),
+  unique(wallet_id, token_id)
+);
+
+create table if not exists orders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  wallet_id uuid not null references wallets(id) on delete cascade,
+  token_in text not null,
+  token_out text not null,
+  order_type text not null check (order_type in ('market', 'limit', 'take_profit', 'stop_loss')),
+  amount numeric not null,
+  trigger_price numeric,
+  status text not null,
+  created_at timestamptz not null default now()
 );
