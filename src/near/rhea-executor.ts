@@ -2,8 +2,11 @@ import {
   createNearExecutor,
   type NearWalletAdapter
 } from "@rhea-finance/cross-chain-aggregation-dex/executors/near";
-import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
-import type { ChainRef } from "@rhea-finance/cross-chain-aggregation-dex";
+import type {
+  ChainExecutor,
+  ChainRef,
+  NearTransaction
+} from "@rhea-finance/cross-chain-aggregation-dex";
 
 export interface NearTransactionSigner {
   getAccountId(): string;
@@ -21,7 +24,9 @@ export interface NearTransactionSigner {
  * RHEA execution adapter. The signer implementation is deliberately injected
  * so Telegram handlers never receive or manipulate private keys.
  */
-export function createNeyroNearExecutor(signer: NearTransactionSigner) {
+export function createNeyroNearExecutor(
+  signer: NearTransactionSigner
+): ChainExecutor {
   const adapter: NearWalletAdapter = {
     getChain(): ChainRef {
       return "near";
@@ -31,11 +36,8 @@ export function createNeyroNearExecutor(signer: NearTransactionSigner) {
     },
     async waitForTransactions(txHashes, options) {
       return signer.waitForTransactions(txHashes, options);
-    },
-    isUserRejectedError(error) {
-      return error instanceof Error && /reject|denied|cancel/i.test(error.message);
     }
   };
 
-  return createNearExecutor(adapter);
+  return createNearExecutor(adapter) as ChainExecutor;
 }
