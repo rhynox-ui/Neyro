@@ -20,6 +20,7 @@ import type { TradingService, ExecutionResult } from "../trading/service.js";
 import type { WalletService } from "../wallet/service.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { userMessage } from "../errors.js";
+import { valueLossWarning } from "../trading/outcome.js";
 
 /** Buy presets in NEAR, largest first (Mango shows 0.1 / 0.05 SOL). */
 export const BUY_PRESETS = ["5", "1"] as const;
@@ -332,6 +333,7 @@ export function createTokenPanel({ tradingService, walletService, renderExecutio
               : []),
             `Slippage: ${state.slippagePct}%`,
             `Router: ${escapeHtml(prepared.quote.router ?? "RHEA")}`,
+            ...(valueLossWarning(prepared.valueLoss) ? ["", escapeHtml(valueLossWarning(prepared.valueLoss)!)] : []),
             "",
             `Quote expires in ${seconds}s. Confirm trade?`
           ].join("\n"),

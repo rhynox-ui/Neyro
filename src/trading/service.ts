@@ -14,7 +14,7 @@ import {
   type TradeRepository,
   type TradeStatus
 } from "./repository.js";
-import { assessFill, classifyBatch, quoteDeadline } from "./outcome.js";
+import { assessFill, classifyBatch, estimateValueLoss, quoteDeadline } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, injectFee, type FeePlan } from "./fee.js";
 import { storageRegistrationCost } from "../near/ft.js";
@@ -180,7 +180,14 @@ export class TradingService {
       feeAsset: fee?.contractId
     });
 
-    return { id, request, quote, expiresAt, unlisted: !token.listed, fee, total };
+    // Pool fees and price impact, measured in USD against reference prices.
+    const [priceIn, priceOut] = await Promise.all([this.priceUsd(tokenIn), this.priceUsd(tokenOut)]);
+    const valueLoss = estimateValueLoss(
+      BigInt(amountIn), tokenIn.decimals ?? 0, priceIn,
+      BigInt(quote.expectedOut), tokenOut.decimals ?? 0, priceOut
+    );
+
+    return { id, request, quote, expiresAt, unlisted: !token.listed, fee, total, valueLoss };
   }
 
   /**
