@@ -46,7 +46,8 @@ function fakeAccount(steps: Step[], log: string[]): Account {
   } as unknown as Account;
 }
 
-const tx = (receiverId: string): NearTransaction => ({ receiverId, actions: [{}] } as unknown as NearTransaction);
+const call = { type: "FunctionCall", params: { methodName: "ft_transfer_call", args: { amount: "1" }, gas: "30000000000000", deposit: "1" } };
+const tx = (receiverId: string): NearTransaction => ({ receiverId, actions: [call] } as unknown as NearTransaction);
 
 test("signer journals each hash before broadcast and confirms executed batches", async () => {
   const log: string[] = [];
@@ -112,4 +113,13 @@ test("quoteDeadline honours RHEA expiry in seconds or milliseconds, capped by th
   assert.equal(quoteDeadline(now, 120_000, (now + 30_000) / 1000), now + 30_000);
   assert.equal(quoteDeadline(now, 120_000, now + 30_000), now + 30_000);
   assert.equal(quoteDeadline(now, 120_000, now + 600_000), now + 120_000);
+});
+
+test("signer refuses non-swap actions before signing anything", async () => {
+  const log: string[] = [];
+  const signer = new NearAccountSigner(fakeAccount([{ outcome: success }], log));
+  const addKey = { receiverId: "alice.near", actions: [{ type: "AddKey", params: {} }] } as unknown as NearTransaction;
+  await assert.rejects(signer.signAndSendTransactions([tx("swap.near"), addKey], {}), /Refusing to sign/);
+  assert.deepEqual(log, []);
+  assert.equal(classifyBatch(signer.sent), "failed");
 });

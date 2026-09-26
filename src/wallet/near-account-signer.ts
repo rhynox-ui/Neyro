@@ -2,6 +2,7 @@ import type { Account } from "near-api-js";
 import { ActionExecutionError } from "near-api-js/rpc-errors";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 import type { NearTransactionSigner } from "../near/rhea-executor.js";
+import { parseWalletAction, toNearApiAction, type WalletAction } from "../near/actions.js";
 import {
   findExecutionFailure,
   isDefinitiveRejection,
@@ -18,7 +19,14 @@ export type SentTransaction = {
   failure?: string;
 };
 
+export type PlannedTransaction = { receiverId: string; actions: WalletAction[] };
+
 export type SignerJournal = {
+  /**
+   * Adjusts the validated batch before anything is signed, e.g. to add the
+   * protocol fee to the swap transaction. Throwing aborts before broadcast.
+   */
+  transform?(transactions: PlannedTransaction[]): PlannedTransaction[];
   /**
    * Called with the final hash after signing and before broadcast. If it
    * throws, the transaction is not sent, so an unrecorded broadcast can't happen.
@@ -66,12 +74,19 @@ export class NearAccountSigner implements NearTransactionSigner {
   ): Promise<{ txHashes: string[]; raw?: unknown }> {
     const raw: unknown[] = [];
 
-    for (const transaction of transactions) {
+    // Validate the whole batch before signing any of it.
+    let planned: PlannedTransaction[] = transactions.map((transaction) => ({
+      receiverId: transaction.receiverId,
+      actions: transaction.actions.map(parseWalletAction)
+    }));
+    if (this.journal.transform) planned = this.journal.transform(planned);
+
+    for (const transaction of planned) {
       isAbort(options.signal);
 
       const signed = await this.account.createSignedTransaction({
         receiverId: transaction.receiverId,
-        actions: transaction.actions as never
+        actions: transaction.actions.map(toNearApiAction)
       });
       const txHash = transactionHash(signed);
       await this.journal.beforeBroadcast?.(txHash, transaction.receiverId);
