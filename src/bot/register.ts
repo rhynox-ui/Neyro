@@ -216,8 +216,8 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.reply("⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
   });
 
-  pm.command("wallet", async (ctx) => {
-    const telegramUserId = ctx.from.id;
+  async function showWallet(ctx: Context) {
+    const telegramUserId = ctx.from!.id;
     try {
       const existing = await walletService.getWallet(telegramUserId);
       if (existing) {
@@ -237,7 +237,8 @@ export function registerBotHandlers(bot: Bot) {
       console.error("Wallet error:", error);
       await ctx.reply(`❌ ${userMessage(error, "Wallet is temporarily unavailable")}`);
     }
-  });
+  }
+  pm.command("wallet", showWallet);
 
   pm.command("deposit", async (ctx) => {
     const wallet = await requireWallet(ctx);
@@ -396,7 +397,7 @@ export function registerBotHandlers(bot: Bot) {
       await ctx.reply("❌ Couldn't load that launch right now.");
     }
   });
-  pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("👛 Wallet\n\nUse /wallet to create or view your Neyro wallet."); });
+  pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await showWallet(ctx); });
   async function showSettings(ctx: Context, edit: boolean) {
     const { text, keyboard } = renderSettings(await settingsService.slippage(ctx.from!.id));
     const options = { ...HTML, reply_markup: keyboard };
