@@ -61,3 +61,22 @@ export async function ftMetadata(contractId: string): Promise<FtMetadata> {
   metadataCache.set(contractId, metadata);
   return metadata;
 }
+
+/**
+ * yoctoNEAR needed to register `accountId` for storage on an FT contract;
+ * 0 when it is already registered.
+ */
+export async function storageRegistrationCost(contractId: string, accountId: string): Promise<bigint> {
+  return withRpcFallback(async (provider) => {
+    const balance = await provider.callFunction({
+      contractId,
+      method: "storage_balance_of",
+      args: { account_id: accountId }
+    });
+    if (balance) return 0n;
+    const bounds = await provider.callFunction({ contractId, method: "storage_balance_bounds", args: {} });
+    const min = (bounds as { min?: unknown } | undefined)?.min;
+    if (typeof min !== "string" || !/^\d+$/.test(min)) throw new Error("Invalid storage_balance_bounds response");
+    return BigInt(min);
+  });
+}

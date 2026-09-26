@@ -1,8 +1,9 @@
 import { neon } from "@neondatabase/serverless";
 import type { TradeQuote, TradeRequest } from "../domain/trading.js";
+import type { FeePlan } from "./fee.js";
 
 /** Everything needed to execute a confirmed quote; stored as JSON. */
-export type PendingPayload = { request: TradeRequest; quote: TradeQuote };
+export type PendingPayload = { request: TradeRequest; quote: TradeQuote; fee?: FeePlan };
 
 export type ClaimResult =
   /** The trade moved from quoted to executing; only one caller can get this. */
@@ -28,6 +29,9 @@ export type TradeRecord = {
   errorCode?: string;
   expiresAt?: Date;
   payload?: PendingPayload;
+  /** Protocol fee in base units of feeAsset. */
+  feeAmount?: string;
+  feeAsset?: string;
 };
 
 /**
@@ -92,14 +96,15 @@ export class PostgresTradeRepository implements TradeRepository {
     await this.sql`insert into trades (
       user_id,wallet_id,side,token_in,token_out,amount_in,expected_out,
       slippage_bps,idempotency_key,router,tx_hash,status,error_code,
-      quote_expires_at,pending_payload
+      quote_expires_at,pending_payload,fee_amount,fee_asset
     ) values (
       ${userId},${walletId},${record.side},${record.tokenIn},${record.tokenOut},
       ${record.amountIn},${record.expectedOut},${record.slippageBps},
       ${record.idempotencyKey},${record.router ?? null},${record.txHash ?? null},
       ${record.status},${record.errorCode ?? null},
       ${record.expiresAt?.toISOString() ?? null},
-      ${record.payload ? JSON.stringify(record.payload) : null}::jsonb
+      ${record.payload ? JSON.stringify(record.payload) : null}::jsonb,
+      ${record.feeAmount ?? null},${record.feeAsset ?? null}
     ) on conflict (user_id,idempotency_key) do nothing`;
   }
 

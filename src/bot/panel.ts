@@ -6,7 +6,7 @@ import { looksLikeContractId } from "../near/tokens.js";
 import type { NearToken } from "../rhea/client.js";
 import type { TradingService, ExecutionResult } from "../trading/service.js";
 import type { WalletService } from "../wallet/service.js";
-import { TRADING_ENABLED } from "../config.js";
+import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { userMessage } from "../errors.js";
 
 /** Buy presets in NEAR, largest first (Mango shows 0.1 / 0.05 SOL). */
@@ -17,8 +17,10 @@ export const DEFAULT_SLIPPAGE_PCT = 5;
 export const MIN_SLIPPAGE_PCT = 0.1;
 /** Matches DEFAULT_RISK_POLICY.maxSlippageBps. */
 export const MAX_SLIPPAGE_PCT = 15;
-/** Neyro charges no protocol fee; shown so the panel states it explicitly. */
-export const PROTOCOL_FEE_PCT = 0;
+/** "1% (max $60)", or "0%" when no treasury is configured. */
+export function feeLabel(bps = FEE_BPS, capUsd = config.PROTOCOL_FEE_CAP_USD): string {
+  return bps > 0 ? `${bps / 100}% (max $${capUsd})` : "0%";
+}
 
 export type Side = "buy" | "sell";
 
@@ -110,7 +112,7 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
     side === "buy" ? `🟢 BUY ${symbol}` : `🔴 SELL ${symbol}`,
     `💳 Amount: ${selected}`,
     `⚙️ Slippage: ${state.slippagePct}%`,
-    `💸 Protocol fee: ${PROTOCOL_FEE_PCT}%`,
+    `💸 Protocol fee: ${feeLabel()}`,
     ...(ownedHuman && Number(ownedHuman) > 0 ? [`💰 Your balance: ${escapeHtml(ownedHuman)} ${symbol}`] : [])
   ].join("\n");
 }
@@ -313,8 +315,13 @@ export function createTokenPanel({ tradingService, walletService, renderExecutio
             `You spend: ${escapeHtml(state.amountHuman)} ${inSymbol}`,
             `Expected: ${expected} ${outSymbol}`,
             `Minimum: ${minimum} ${outSymbol}`,
+            ...(prepared.fee
+              ? [
+                  `Fee: ${formatUnits(prepared.fee.amount, prepared.request.tokenIn.decimals ?? 0)} ${inSymbol}${prepared.fee.capped ? " (capped)" : ""}`,
+                  `Swapping: ${formatUnits(prepared.request.amountIn, prepared.request.tokenIn.decimals ?? 0)} ${inSymbol}`
+                ]
+              : []),
             `Slippage: ${state.slippagePct}%`,
-            `Protocol fee: ${PROTOCOL_FEE_PCT}%`,
             `Router: ${escapeHtml(prepared.quote.router ?? "RHEA")}`,
             "",
             `Quote expires in ${seconds}s. Confirm trade?`

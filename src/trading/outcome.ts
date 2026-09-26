@@ -23,9 +23,11 @@ export function classifyBatch(sent: readonly SentTransaction[]): BatchOutcome {
 export function assessFill(
   side: TradeSide,
   before: bigint,
-  after: bigint
+  after: bigint,
+  /** Fee paid in the same token as the FT side (sells), excluded from the fill. */
+  feeOnFtSide = 0n
 ): { filled: boolean; amount: bigint } {
-  const amount = side === "buy" ? after - before : before - after;
+  const amount = side === "buy" ? after - before : before - after - feeOnFtSide;
   return { filled: amount > 0n, amount: amount > 0n ? amount : 0n };
 }
 

@@ -45,7 +45,7 @@ export function renderExecution(result: ExecutionResult): string {
     case "submitted":
       return `✅ <b>Trade executed on chain.</b> Fill could not be verified yet; check /portfolio.${txs}`;
     case "reverted":
-      return `↩️ <b>Trade did not fill.</b> ${reason ?? "The swap failed on chain"}.\nYour tokens were not exchanged; only gas (and any storage deposit) was spent.${txs}`;
+      return `↩️ <b>Trade did not fill.</b> ${reason ?? "The swap failed on chain"}.\nYour tokens were not exchanged; only gas (and any storage deposit) was spent.${result.feeRefundDue ? "\nThe protocol fee taken on this swap has been recorded for refund." : ""}${txs}`;
     case "partial":
       return `⚠️ <b>Trade partially executed.</b> Some transactions were rejected; check /portfolio before retrying.${txs}`;
     case "unknown":
@@ -189,7 +189,10 @@ export function registerBotHandlers(bot: Bot) {
       await ctx.reply(
         "🔎 <b>Confirm trade</b>\n\n" +
         `Side: ${side.toUpperCase()}\n` +
-        `You spend: ${input} ${symbolIn}\n` +
+        `You spend: ${prepared.fee ? formatUnits(prepared.total, prepared.request.tokenIn.decimals ?? 0) : input} ${symbolIn}\n` +
+        (prepared.fee
+          ? `Fee: ${formatUnits(prepared.fee.amount, prepared.request.tokenIn.decimals ?? 0)} ${symbolIn}${prepared.fee.capped ? " (capped)" : ""}\nSwapping: ${input} ${symbolIn}\n`
+          : "") +
         `Expected: ${output} ${symbolOut}\n` +
         `Minimum: ${minimum} ${symbolOut}\n` +
         `Slippage: ${prepared.request.slippageBps / 100}%\n` +

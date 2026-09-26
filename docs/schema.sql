@@ -68,6 +68,11 @@ create table if not exists trades (
 -- makes the quoted → executing claim atomic across replicas.
 alter table trades add column if not exists pending_payload jsonb;
 
+-- Protocol fee charged on the trade, in base units of fee_asset (wrap.near
+-- on buys, the sold token on sells).
+alter table trades add column if not exists fee_amount numeric;
+alter table trades add column if not exists fee_asset text;
+
 create index if not exists trades_wallet_status_idx
   on trades(wallet_id, status, created_at desc);
 

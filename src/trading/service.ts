@@ -15,7 +15,10 @@ import {
   type TradeStatus
 } from "./repository.js";
 import { assessFill, classifyBatch, quoteDeadline } from "./outcome.js";
-import { config, TRADING_ENABLED } from "../config.js";
+import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
+import { computeFee, injectFee, type FeePlan } from "./fee.js";
+import { storageRegistrationCost } from "../near/ft.js";
+import { fetchNearMarket } from "../market/dexscreener.js";
 import { UserFacingError, userMessage } from "../errors.js";
 
 const WRAPPED_NEAR = "wrap.near";
@@ -27,6 +30,7 @@ type PendingTrade = {
   request: TradeRequest;
   quote: TradeQuote;
   expiresAt: number;
+  fee?: FeePlan;
 };
 
 export type ExecutionResult = {
@@ -34,6 +38,8 @@ export type ExecutionResult = {
   txHashes: string[];
   /** Base units of the FT side that moved, when the fill was verified. */
   filledAmount?: string;
+  /** The fee was taken but the swap reverted; a refund is recorded. */
+  feeRefundDue?: boolean;
   reason?: string;
 };
 
@@ -116,13 +122,14 @@ export class TradingService {
 
     const tokenIn = side === "buy" ? near : token;
     const tokenOut = side === "buy" ? token : near;
-    const amountIn = parseUnits(amountText, tokenIn.decimals);
+    // What the user spends in total; the fee comes out of it.
+    const total = parseUnits(amountText, tokenIn.decimals);
 
     assertSlippageAllowed(slippageBps);
 
     if (side === "buy") {
       const balance = tradableNear(await getNearBalance(wallet.accountId));
-      const amount = BigInt(amountIn);
+      const amount = BigInt(total);
       if (amount > balance) {
         throw new UserFacingError("Insufficient NEAR balance (0.05 NEAR is kept for gas and storage)");
       }
@@ -133,8 +140,11 @@ export class TradingService {
       assertTradeShareAllowed(shareBps);
     } else {
       const balance = await ftBalanceOf(contractOf(tokenIn), wallet.accountId);
-      if (BigInt(amountIn) > balance) throw new UserFacingError(`Insufficient ${tokenIn.symbol} balance`);
+      if (BigInt(total) > balance) throw new UserFacingError(`Insufficient ${tokenIn.symbol} balance`);
     }
+
+    const fee = await this.planFee(side, BigInt(total), tokenIn);
+    const amountIn = (BigInt(total) - BigInt(fee?.amount ?? "0")).toString();
 
     const request: TradeRequest = {
       accountId: wallet.accountId,
@@ -150,7 +160,7 @@ export class TradingService {
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
     const expiresAt = quoteDeadline(Date.now(), PENDING_TTL_MS, quote.raw.expiresAt);
 
-    pending.set(id, { userId, request, quote, expiresAt });
+    pending.set(id, { userId, request, quote, expiresAt, fee });
 
     await this.repository.create({
       userId,
@@ -165,10 +175,50 @@ export class TradingService {
       idempotencyKey: id,
       status: "quoted",
       expiresAt: new Date(expiresAt),
-      payload: { request, quote }
+      payload: { request, quote, fee },
+      feeAmount: fee?.amount,
+      feeAsset: fee?.contractId
     });
 
-    return { id, request, quote, expiresAt, unlisted: !token.listed };
+    return { id, request, quote, expiresAt, unlisted: !token.listed, fee, total };
+  }
+
+  /**
+   * FEE_BPS of the amount spent, capped at PROTOCOL_FEE_CAP_USD, paid in the
+   * asset being spent: NEAR (as wNEAR) on buys, the token on sells.
+   */
+  private async planFee(side: "buy" | "sell", total: bigint, tokenIn: TradeRequest["tokenIn"]): Promise<FeePlan | undefined> {
+    const treasury = config.TREASURY_ACCOUNT_ID;
+    if (!treasury || FEE_BPS === 0) return undefined;
+
+    const contractId = side === "buy" ? WRAPPED_NEAR : contractOf(tokenIn);
+    const decimals = tokenIn.decimals ?? 0;
+    const price = await this.priceUsd(tokenIn);
+    const computed = computeFee(total, decimals, price, FEE_BPS, config.PROTOCOL_FEE_CAP_USD);
+    if (!computed) {
+      // Without a USD price the cap can't be enforced; don't overcharge.
+      console.warn("No USD price for fee cap; trade proceeds without a fee", { contractId });
+      return undefined;
+    }
+    if (computed.fee === 0n) return undefined;
+
+    const registration = await storageRegistrationCost(contractId, treasury);
+    return {
+      side,
+      treasury,
+      contractId,
+      amount: computed.fee.toString(),
+      ...(registration > 0n ? { registerTreasury: registration.toString() } : {}),
+      capped: computed.capped
+    };
+  }
+
+  private async priceUsd(token: TradeRequest["tokenIn"]): Promise<number | null> {
+    const listed = Number((token as { price?: unknown }).price);
+    if (Number.isFinite(listed) && listed > 0) return listed;
+    const market = await fetchNearMarket(contractOf(token)).catch(() => null);
+    const price = Number(market?.priceUsd);
+    return Number.isFinite(price) && price > 0 ? price : null;
   }
 
   async execute(userId: number, id: string): Promise<ExecutionResult> {
@@ -210,11 +260,20 @@ export class TradingService {
 
     let signer: NearAccountSigner | undefined;
     let sdkError: unknown;
+    const feeState: { mode: ReturnType<typeof injectFee>["mode"] } = { mode: "none" };
+    const fee = trade.fee;
     try {
       const account = await this.walletService.getSigningAccount(userId);
       signer = new NearAccountSigner(account, {
         beforeBroadcast: (txHash, receiverId) =>
-          this.repository.recordEvent(userId, id, { type: "tx_signed", txHash, details: { receiverId } })
+          this.repository.recordEvent(userId, id, { type: "tx_signed", txHash, details: { receiverId } }),
+        ...(fee ? {
+          transform: (transactions) => {
+            const injected = injectFee(transactions, fee);
+            feeState.mode = injected.mode;
+            return injected.transactions;
+          }
+        } : {})
       });
       await new RheaTradingEngine(signer).execute(request, trade.quote);
     } catch (error) {
@@ -238,11 +297,21 @@ export class TradingService {
         errorCode: chainFailure ?? errorCode(sdkError)
       });
       console.error("Trade did not complete", { id, status: batch, txHashes, error: sdkError });
+      // A fee in the swap's own transaction is taken even when the swap
+      // later reverts inside ft_transfer_call; record it so it's refunded.
+      const feeRefundDue = fee !== undefined && feeState.mode === "same-transaction" && batch === "reverted";
+      if (feeRefundDue) {
+        await this.repository.recordEvent(userId, id, {
+          type: "fee_refund_due",
+          details: { contractId: fee.contractId, amount: fee.amount, treasury: fee.treasury }
+        }).catch((error) => console.error("Could not record fee refund", { id, error }));
+      }
       // On-chain failure text is public; SDK/RPC error text is not shown to users.
       return {
         status: batch,
         txHashes,
-        reason: chainFailure ?? userMessage(sdkError, "Execution error")
+        reason: chainFailure ?? userMessage(sdkError, "Execution error"),
+        ...(feeRefundDue ? { feeRefundDue: true } : {})
       };
     }
 
@@ -257,7 +326,9 @@ export class TradingService {
       return { status: "submitted", txHashes };
     }
 
-    const fill = assessFill(request.side, before, after);
+    // On a sell the fee leaves in the same token, so it isn't part of the fill.
+    const feeOnFtSide = request.side === "sell" && fee ? BigInt(fee.amount) : 0n;
+    const fill = assessFill(request.side, before, after, feeOnFtSide);
     const status = fill.filled ? "filled" : "reverted";
     const reason = fill.filled ? undefined : "Swap was refunded; no tokens were exchanged";
     await this.repository.updateStatus(userId, id, {
