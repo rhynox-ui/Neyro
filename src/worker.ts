@@ -1,15 +1,14 @@
 // Cloudflare Workers entry point: Telegram webhook, optional Queue consumer,
 // and a cron trigger for the trade reconciler. src/index.ts is the Node
 // (long polling) equivalent.
+//
+// Nothing that reads configuration is imported at module level. Cloudflare
+// runs the module's top level once while validating an upload, before any
+// secrets exist on a first deploy; a config error there would block the
+// deploy. The app loads on the first request instead, and /health reports
+// what is missing.
 import type { Bot } from "grammy";
 import type { Update } from "grammy/types";
-import { config } from "./config.js";
-import { BOT_COMMANDS, createBot } from "./bot/create.js";
-import { explorerTx } from "./bot/register.js";
-import { PostgresTradeRepository } from "./trading/repository.js";
-import { reconcileOnce } from "./trading/reconciler.js";
-import { lookupTransaction } from "./near/execution.js";
-import { withRpcFallback } from "./near/rpc.js";
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -28,12 +27,44 @@ type QueueBatch = {
   messages: readonly { body: Update; ack(): void }[];
 };
 
+/** Secrets set with `wrangler secret put`; checked by name only, never logged. */
+const REQUIRED_SECRETS = ["TELEGRAM_BOT_TOKEN", "DATABASE_URL", "NEYRO_MASTER_KEY"] as const;
+
+function missingSecrets(): string[] {
+  return REQUIRED_SECRETS.filter((name) => !process.env[name]);
+}
+
+type App = Awaited<ReturnType<typeof loadModules>>;
+
+async function loadModules() {
+  const [configModule, create, register, repository, reconciler, execution, rpc] = await Promise.all([
+    import("./config.js"),
+    import("./bot/create.js"),
+    import("./bot/register.js"),
+    import("./trading/repository.js"),
+    import("./trading/reconciler.js"),
+    import("./near/execution.js"),
+    import("./near/rpc.js")
+  ]);
+  return { config: configModule.config, create, register, repository, reconciler, execution, rpc };
+}
+
+let appPromise: Promise<App> | undefined;
 let botPromise: Promise<Bot> | undefined;
+
+function getApp(): Promise<App> {
+  appPromise ??= loadModules().catch((error) => {
+    appPromise = undefined;
+    throw error;
+  });
+  return appPromise;
+}
 
 /** One bot per isolate; init() fetches the bot's own info once. */
 function getBot(): Promise<Bot> {
   botPromise ??= (async () => {
-    const bot = createBot(config.TELEGRAM_BOT_TOKEN);
+    const app = await getApp();
+    const bot = app.create.createBot(app.config.TELEGRAM_BOT_TOKEN);
     await bot.init();
     return bot;
   })().catch((error) => {
@@ -48,19 +79,28 @@ async function processUpdate(update: Update): Promise<void> {
   await bot.handleUpdate(update);
 }
 
-function configurationError(): string | undefined {
+/** Why the Worker can't serve yet, or undefined when it can. */
+async function configurationProblem(): Promise<string | undefined> {
+  const missing = missingSecrets();
+  if (missing.length) return `Missing secrets: ${missing.join(", ")}`;
+  let app: App;
+  try {
+    app = await getApp();
+  } catch (error) {
+    const issues = (error as { issues?: { path?: unknown[]; message?: string }[] }).issues;
+    return issues
+      ? `Invalid configuration: ${issues.map((issue) => `${issue.path?.join(".")}: ${issue.message}`).join("; ")}`
+      : "Configuration failed to load";
+  }
   // The deployed bot is mainnet-only.
-  if (config.NEAR_NETWORK !== "mainnet") return "The Worker only runs on NEAR mainnet";
-  // Each update can run in a different isolate, so wallets, quotes and
-  // panels must live in the database; in-memory fallbacks would lose keys.
-  if (!config.DATABASE_URL) return "DATABASE_URL is required on Cloudflare Workers";
-  if (!config.NEYRO_MASTER_KEY) return "NEYRO_MASTER_KEY is required to create and use wallets";
+  if (app.config.NEAR_NETWORK !== "mainnet") return "The Worker only runs on NEAR mainnet";
   return undefined;
 }
 
 async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   if (request.method !== "POST") return new Response("Neyro webhook is up.");
 
+  const { config } = await getApp();
   const secret = config.TELEGRAM_WEBHOOK_SECRET;
   if (secret && request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
     return new Response("Unauthorized", { status: 401 });
@@ -92,6 +132,7 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext):
 
 /** GET /setup-webhook?secret=SETUP_SECRET points Telegram at this Worker. */
 async function handleSetup(request: Request): Promise<Response> {
+  const { config, create } = await getApp();
   const url = new URL(request.url);
   if (!config.SETUP_SECRET || url.searchParams.get("secret") !== config.SETUP_SECRET) {
     return new Response("Unauthorized. Set SETUP_SECRET and pass ?secret=<SETUP_SECRET>.", { status: 401 });
@@ -104,17 +145,22 @@ async function handleSetup(request: Request): Promise<Response> {
     allowed_updates: ["message", "callback_query"],
     drop_pending_updates: false
   });
-  await bot.api.setMyCommands(BOT_COMMANDS);
-  return Response.json({ ok: true, webhookUrl, commands: BOT_COMMANDS.length });
+  await bot.api.setMyCommands(create.BOT_COMMANDS);
+  return Response.json({ ok: true, webhookUrl, commands: create.BOT_COMMANDS.length });
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const problem = configurationError();
+    const problem = await configurationProblem();
 
     if (url.pathname === "/health") {
-      return Response.json({ ok: !problem, problem, network: config.NEAR_NETWORK, queue: Boolean(env.NEYRO_TELEGRAM_UPDATES) });
+      return Response.json({
+        ok: !problem,
+        ...(problem ? { problem } : {}),
+        network: process.env.NEAR_NETWORK,
+        queue: Boolean(env.NEYRO_TELEGRAM_UPDATES)
+      });
     }
     if (problem) return new Response(problem, { status: 500 });
     if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
@@ -140,16 +186,18 @@ export default {
 
   /** Cron trigger (every minute): settle unknown or stale trades. */
   async scheduled(_event: unknown, _env: Env, ctx: ExecutionContext): Promise<void> {
-    if (!config.DATABASE_URL) return;
+    if (await configurationProblem()) return;
+    const app = await getApp();
+    const databaseUrl = app.config.DATABASE_URL!;
     const bot = await getBot();
-    ctx.waitUntil(reconcileOnce({
-      repository: new PostgresTradeRepository(config.DATABASE_URL),
+    ctx.waitUntil(app.reconciler.reconcileOnce({
+      repository: new app.repository.PostgresTradeRepository(databaseUrl),
       lookup: (txHash, accountId) =>
-        withRpcFallback((provider) => lookupTransaction(provider, txHash, accountId)),
+        app.rpc.withRpcFallback((provider) => app.execution.lookupTransaction(provider, txHash, accountId)),
       notify: async (telegramUserId, text) => {
         await bot.api.sendMessage(telegramUserId, text, { link_preview_options: { is_disabled: true } });
       },
-      explorerLink: explorerTx
+      explorerLink: app.register.explorerTx
     }).catch((error) => console.error("Reconciler pass failed:", error)));
   }
 };
