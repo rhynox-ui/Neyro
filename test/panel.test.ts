@@ -141,7 +141,7 @@ test("DexScreener refusals fall back to the last good result", async () => {
   const cached = (await fetchNearMarket(ADDRESS, limited, store))!;
   assert.equal(cached.dex, "rhea");
   assert.equal(typeof cached.cachedAtMs, "number");
-  assert.match(panelText({ token, market: cached, side: "buy", amountHuman: null, slippagePct: 5 }, null), /24h stats from \d+m ago \(DexScreener busy\)/);
+  assert.match(panelText({ token, market: cached, side: "buy", amountHuman: null, slippagePct: 5 }, null), /24h stats from \d+m ago \(market data busy\)/);
 });
 
 test("RHEA asset ids with nep141: prefixes and native NEAR are recognised", async () => {
@@ -154,4 +154,53 @@ test("RHEA asset ids with nep141: prefixes and native NEAR are recognised", asyn
 
   const listed = { ...token, address: `nep141:${ADDRESS}`, contractAddress: ADDRESS };
   assert.match(panelText({ token: listed, market: null, side: "buy", amountHuman: null, slippagePct: 5 }, null), new RegExp(`<code>${ADDRESS}</code>`));
+});
+
+const geckoFixture = {
+  data: { id: `near_${ADDRESS}`, type: "token", attributes: {
+    address: ADDRESS, name: "Bagwork", symbol: "BAG", image_url: "https://assets.geckoterminal.com/bag.png",
+    price_usd: "0.0005207", fdv_usd: "506720", market_cap_usd: null, total_reserve_in_usd: "80000", volume_usd: { h24: "6180000" }
+  } },
+  included: [
+    { id: "near_shallow", type: "pool", attributes: { name: "BAG / USDC", address: "shallow", reserve_in_usd: "10" }, relationships: { dex: { data: { id: "ref-finance" } } } },
+    { id: "near_deep", type: "pool", attributes: {
+      name: "BAG / wNEAR", address: "refv2-bag|wrap.near|10000", reserve_in_usd: "77270", pool_created_at: "2026-09-26T00:00:00Z",
+      price_change_percentage: { h24: "953" }, transactions: { h24: { buys: 45186, sells: 35133 } }, volume_usd: { h24: "6180000" }
+    }, relationships: { dex: { data: { id: "rhea-finance" } } } }
+  ]
+};
+
+test("GeckoTerminal token + top pools parse into a market card", async () => {
+  const { parseGeckoTerminalToken } = await import("../src/market/geckoterminal.js");
+  const market = parseGeckoTerminalToken(geckoFixture, ADDRESS)!;
+  assert.equal(market.dex, "rhea-finance");
+  assert.equal(market.pairLabel, "BAG / wNEAR");
+  assert.equal(market.priceUsd, "0.0005207");
+  assert.equal(market.marketCapUsd, 506720); // falls back to FDV
+  assert.equal(market.liquidityUsd, 77270);
+  assert.equal(market.priceChange24hPct, 953);
+  assert.equal(market.txns24hBuys, 45186);
+  assert.equal(market.imageUrl, "https://assets.geckoterminal.com/bag.png");
+  assert.equal(parseGeckoTerminalToken({ data: { attributes: {} }, included: [] }, ADDRESS), null);
+  assert.equal(parseGeckoTerminalToken({ ...geckoFixture, data: { ...geckoFixture.data, attributes: { ...geckoFixture.data.attributes, image_url: "missing.png" } } }, ADDRESS)!.imageUrl, null);
+});
+
+test("market data falls back from DexScreener to GeckoTerminal", async () => {
+  const { fetchNearMarket } = await import("../src/market/dexscreener.js");
+  const { InMemoryStateStore } = await import("../src/state/store.js");
+  const { resetCooldowns } = await import("../src/net/fallback.js");
+  resetCooldowns();
+  const fetcher = (async (url: string) => url.includes("dexscreener")
+    ? new Response("error code: 1015", { status: 429 })
+    : new Response(JSON.stringify(geckoFixture), { status: 200 })) as unknown as typeof fetch;
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const market = (await fetchNearMarket(ADDRESS, fetcher, new InMemoryStateStore()))!;
+    assert.equal(market.dex, "rhea-finance");
+    assert.equal(market.volume24hUsd, 6180000);
+    assert.equal(market.cachedAtMs, undefined);
+  } finally {
+    console.warn = warn;
+  }
 });

@@ -10,7 +10,12 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
     return null;
   });
   if (!isNearlyToken(address)) return market;
-  if (market && market.cachedAtMs === undefined) return market;
+  if (market && market.cachedAtMs === undefined) {
+    // GeckoTerminal has no project links; NEARly launches carry their own.
+    if (market.links.length) return market;
+    const launch = await fetchLaunchByToken(address).catch(() => null);
+    return launch?.links.length ? { ...market, links: launch.links } : market;
+  }
 
   // DexScreener refused (rate limit) or has no pair: NEARly tokens are
   // priced live from their RHEA DCL pool. A cached DexScreener result still
@@ -120,7 +125,7 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
         `🔄 24h Txns: ${market.txns24hBuys ?? "—"} buys / ${market.txns24hSells ?? "—"} sells`,
         `⏳ Pair age: ${ageLabel(market.pairCreatedAtMs)}`,
         ...(market.cachedAtMs !== undefined
-          ? [`🕒 24h stats from ${ageLabel(market.cachedAtMs)} ago (DexScreener busy)`]
+          ? [`🕒 24h stats from ${ageLabel(market.cachedAtMs)} ago (market data busy)`]
           : []),
         ...(market.links.length
           ? [`🔗 ${market.links.map((link) => `<a href="${escapeHtml(link.url)}">${escapeHtml(link.label)}</a>`).join("  •  ")}`]

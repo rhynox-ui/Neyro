@@ -1,4 +1,6 @@
 import { defaultStateStore, type StateStore } from "../state/store.js";
+import { firstSuccess } from "../net/fallback.js";
+import { fetchGeckoTerminalMarket } from "./geckoterminal.js";
 
 const DEXSCREENER_NEAR_TOKENS_URL = "https://api.dexscreener.com/tokens/v1/near/";
 const TIMEOUT_MS = 8_000;
@@ -161,16 +163,21 @@ export async function fetchNearMarket(
 ): Promise<NearMarket | null> {
   const key = `dex:${address}`;
   try {
-    const market = await requestMarket(address, fetcher);
+    // DexScreener first, then GeckoTerminal. A source that fails (e.g. a
+    // rate limit) is skipped for a minute; "no pair" moves on to the next.
+    const market = await firstSuccess<NearMarket | null>([
+      { name: "market:dexscreener", run: () => requestMarket(address, fetcher) },
+      { name: "market:geckoterminal", run: () => fetchGeckoTerminalMarket(address, fetcher) }
+    ], { cooldownMs: 60_000, isMiss: (value) => value === null });
     if (market) {
       await store.set(GLOBAL, key, { market, fetchedAtMs: Date.now() } satisfies Cached, LAST_GOOD_TTL_MS)
-        .catch((error) => console.warn("Could not cache DexScreener result", error));
+        .catch((error) => console.warn("Could not cache market result", error));
     }
     return market;
   } catch (error) {
     const cached = await store.get<Cached>(GLOBAL, key).catch(() => null);
     if (cached) {
-      console.warn("DexScreener unavailable; using cached market", { address, error: String(error) });
+      console.warn("Market sources unavailable; using cached market", { address, error: String(error) });
       return { ...cached.market, cachedAtMs: cached.fetchedAtMs };
     }
     throw error;
