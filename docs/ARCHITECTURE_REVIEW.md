@@ -234,3 +234,27 @@ Key design rules:
 - [Nearly — token launchpad on NEAR](https://nearly.trade/) · [Nearlytrade contracts](https://github.com/sam3dsol/Nearlytrade)
 - [Introducing RHEA Finance](https://learnnear.club/introducing-rhea-finance/) · [RHEA white paper](https://guide.rhea.finance/docs/rhea-finance-white-paper)
 - [NEAR Intents 1Click in Unstoppable Wallet (NEAR Protocol on X)](https://x.com/NEARProtocol/status/2064009013948248086)
+
+## Progress (branch `claude/telegram-trading-bot-near-9rbug6`)
+
+Done:
+- §6.1 CI green; `npm ci` against the committed lockfile.
+- §6.2 Transactions are signed, their hashes journaled, then broadcast.
+  Receipt-level failures and FT balance deltas decide filled/reverted.
+  A timeout is `unknown`, never `failed`. Quote expiry comes from RHEA.
+- §6.3 Trading is mainnet-only, and config rejects mismatched RPCs and a
+  missing DB on mainnet.
+- §6.4 Wallet keys are AES-GCM v2 with the account id as AAD, the
+  key/account match is checked on decrypt, and wallet writes are atomic.
+- §6.5 Pending quotes are persisted, with an atomic quoted → executing claim.
+- §6.6 Portfolio uses FastNEAR, the UX is HTML-escaped, balances are in
+  human units, and the bot answers in private chats only.
+- §6.7 Unlisted tokens resolve by contract id via `ft_metadata`.
+- Mango-style token panel (DexScreener market card and inline trading keyboard).
+
+Open:
+- Background reconciler for `unknown` and stale `executing` trades (the
+  shared `lookupTransaction` helper exists).
+- NEARly factory watcher and `/new` feed.
+- Separate signer service and function-call access keys (§5, §6.8).
+- Persist panel state and slippage preferences in the DB (in memory today).
