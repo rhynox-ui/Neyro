@@ -34,12 +34,12 @@ export class PostgresTradeRepository implements TradeRepository {
     await this.sql`insert into users (telegram_user_id)
       values (${record.userId}) on conflict (telegram_user_id) do nothing`;
 
-    const users = await this.sql`select id from users where telegram_user_id=${record.userId} limit 1`;
-    const userId = (users[0] as {id:string}|undefined)?.id;
+    const users = (await this.sql`select id from users where telegram_user_id=${record.userId} limit 1`) as unknown as { id: string }[];
+    const userId = users[0]?.id;
     if (!userId) throw new Error("Trade user record was not found");
 
-    const wallets = await this.sql`select id from wallets where user_id=${userId} and near_account_id=${record.accountId} limit 1`;
-    const walletId = (wallets[0] as {id:string}|undefined)?.id;
+    const wallets = (await this.sql`select id from wallets where user_id=${userId} and near_account_id=${record.accountId} limit 1`) as unknown as { id: string }[];
+    const walletId = wallets[0]?.id;
     if (!walletId) throw new Error("Trade wallet record was not found");
 
     await this.sql`insert into trades (
