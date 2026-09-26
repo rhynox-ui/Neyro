@@ -22,4 +22,5 @@ export type TradeRequest = {
 
 export interface TradingEngine {
   quote(request: TradeRequest): Promise<TradeQuote>;
+  execute(request: TradeRequest, quote: TradeQuote): Promise<{ transactionHash: string }>;
 }
