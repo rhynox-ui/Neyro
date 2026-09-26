@@ -1,9 +1,12 @@
-import type { Bot } from "grammy";
+import { InlineKeyboard, type Bot } from "grammy";
 import { mainMenu } from "./menu.js";
 import { WalletService } from "../wallet/service.js";
 import { getNearBalance } from "../near/account.js";
+import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
+import { TradingService } from "../trading/service.js";
 
 const walletService = new WalletService();
+const tradingService = new TradingService(walletService);
 
 export function registerBotHandlers(bot: Bot) {
   bot.command("start", async (ctx) => {
@@ -45,8 +48,67 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.reply(`💰 NEAR balance\n\n${balance} yoctoNEAR\n\nWallet: \`${wallet.accountId}\``);
   });
 
-  bot.command("buy", async (ctx) => { await ctx.reply("⚡ Buy\n\nUsage in MVP: /buy <token> <amount-near>"); });
-  bot.command("sell", async (ctx) => { await ctx.reply("💰 Sell\n\nUsage in MVP: /sell <token> <amount-token>"); });
+  async function prepareTrade(ctx: Parameters<Bot["command"]>[1] extends never ? never : any, side: "buy" | "sell") {
+    const userId = ctx.from?.id;
+    if (!userId) return void await ctx.reply("❌ Telegram user identity is unavailable.");
+
+    const parts = String(ctx.match ?? "").trim().split(/\\s+/).filter(Boolean);
+    if (parts.length !== 2) {
+      return void await ctx.reply(side === "buy"
+        ? "⚡ Usage: /buy <token> <amount-near>"
+        : "💰 Usage: /sell <token> <amount-token>");
+    }
+
+    try {
+      const prepared = await tradingService.prepare(userId, side, parts[0], parts[1]);
+      const input = formatUnits(prepared.request.amountIn, prepared.request.tokenIn.decimals);
+      const output = formatUnits(prepared.quote.expectedOut, prepared.quote.tokenOut.decimals);
+      const minimum = formatUnits(prepared.quote.minAmountOut, prepared.quote.tokenOut.decimals);
+      const symbolIn = prepared.request.tokenIn.symbol ?? prepared.request.tokenIn.address;
+      const symbolOut = prepared.request.tokenOut.symbol ?? prepared.request.tokenOut.address;
+
+      await ctx.reply(
+        "🔎 Confirm trade\\n\\n" +
+        `Side: ${side.toUpperCase()}\\n` +
+        `You spend: ${input} ${symbolIn}\\n` +
+        `Expected: ${output} ${symbolOut}\\n` +
+        `Minimum: ${minimum} ${symbolOut}\\n` +
+        `Slippage: ${prepared.request.slippageBps / 100}%\\n` +
+        `Router: ${prepared.quote.router ?? "RHEA"}\\n\\n` +
+        "Quote expires in about 2 minutes.",
+        { reply_markup: new InlineKeyboard()
+          .text("✅ Confirm", `trade:confirm:${prepared.id}`)
+          .text("❌ Cancel", `trade:cancel:${prepared.id}`) }
+      );
+    } catch (error) {
+      console.error("Trade quote error:", error);
+      await ctx.reply(`❌ ${error instanceof Error ? error.message : "Unable to create quote"}`);
+    }
+  }
+
+  bot.command("buy", async (ctx) => { await prepareTrade(ctx, "buy"); });
+  bot.command("sell", async (ctx) => { await prepareTrade(ctx, "sell"); });
+
+  bot.callbackQuery(/^trade:confirm:([a-f0-9]{16})$/, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return void await ctx.answerCallbackQuery("Telegram identity unavailable");
+    await ctx.answerCallbackQuery("Executing trade…");
+    try {
+      const result = await tradingService.execute(userId, ctx.match[1]);
+      await ctx.editMessageText(`✅ Trade submitted\\n\\nTransaction: ${result.transactionHash}`);
+    } catch (error) {
+      console.error("Trade execution error:", error);
+      await ctx.editMessageText(`❌ Trade failed\\n\\n${error instanceof Error ? error.message : "Unknown execution error"}`);
+    }
+  });
+
+  bot.callbackQuery(/^trade:cancel:([a-f0-9]{16})$/, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return void await ctx.answerCallbackQuery("Telegram identity unavailable");
+    tradingService.cancel(userId, ctx.match[1]);
+    await ctx.answerCallbackQuery("Trade cancelled");
+    await ctx.editMessageText("❌ Trade cancelled.");
+  });
   bot.callbackQuery(/^trade:(buy|sell)$/, async (ctx) => {
     const side = ctx.match[1];
     await ctx.answerCallbackQuery();
