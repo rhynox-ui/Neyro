@@ -52,6 +52,7 @@ await bot.api.setMyCommands([
   { command: "deposit", description: "Show your deposit address" },
   { command: "balance", description: "NEAR balance" },
   { command: "portfolio", description: "Token holdings" },
+  { command: "withdraw", description: "Send NEAR or tokens out: /withdraw <amount|all> <token> <to>" },
   { command: "new", description: "Newest NEARly launches" },
   { command: "buy", description: "Buy a token with NEAR: /buy <token> <amount>" },
   { command: "sell", description: "Sell a token for NEAR: /sell <token> <amount>" },

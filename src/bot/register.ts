@@ -8,6 +8,7 @@ import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
 import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { userMessage } from "../errors.js";
+import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
 import { describeRoute, valueLossWarning } from "../trading/outcome.js";
 import { ageLabel, createTokenPanel } from "./panel.js";
 import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discovery/nearly.js";
@@ -15,6 +16,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
 const portfolioService = new PortfolioService();
+const withdrawService = new WithdrawService(walletService, (query) => tradingService.resolveToken(query));
 const tokenPanel = createTokenPanel({ tradingService, walletService, renderExecution: (result) => renderExecution(result) });
 
 const HTML = { parse_mode: "HTML" as const, link_preview_options: { is_disabled: true } };
@@ -54,6 +56,34 @@ export function renderExecution(result: ExecutionResult): string {
       return `⏳ <b>Trade status unknown.</b> The transaction may still land. <b>Do not retry</b>; check the explorer link.${txs}`;
     case "failed":
       return `❌ <b>Trade failed before reaching the chain.</b> Nothing was spent; you can retry.${reason ? `\n\n${reason}` : ""}`;
+  }
+}
+
+export function renderWithdrawConfirm(plan: WithdrawPlan): string {
+  return [
+    "📤 <b>Confirm withdrawal</b>",
+    "",
+    `Amount: ${escapeHtml(formatWithdrawAmount(plan))}`,
+    `To: ${code(plan.to)}`,
+    ...(plan.asset.kind === "ft" ? [`Token: ${code(plan.asset.contractId)}`] : []),
+    ...(plan.registration > 0n ? [`Receiver registration: ${formatNear(plan.registration)} NEAR (one time, for this token)`] : []),
+    "",
+    "⚠️ Check the address carefully. NEAR transfers can't be reversed. Don't send to an exchange deposit address that needs a memo."
+  ].join("\n");
+}
+
+export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount" | "to">, result: WithdrawResult): string {
+  const links = result.txHashes.map((hash) => `<a href="${explorerTx(hash)}">${escapeHtml(hash.slice(0, 8))}…</a>`).join("\n");
+  const txs = links ? `\n\n${links}` : "";
+  switch (result.status) {
+    case "executed":
+      return `✅ <b>Sent ${escapeHtml(formatWithdrawAmount(plan))}</b> to ${code(plan.to)}${txs}`;
+    case "unknown":
+      return `⏳ <b>Withdrawal status unknown.</b> It may still land. <b>Do not retry</b>; check the explorer link.${txs}`;
+    case "failed":
+      return "❌ <b>Withdrawal failed before reaching the chain.</b> Nothing was sent; you can retry.";
+    default:
+      return `❌ <b>Withdrawal failed on chain.</b> ${result.reason ? escapeHtml(result.reason) : ""}${txs}`;
   }
 }
 
@@ -170,7 +200,7 @@ export function registerBotHandlers(bot: Bot) {
       if (existing) {
         const balance = await getNearBalance(existing.accountId);
         await ctx.reply(
-          `👛 <b>Your Neyro wallet</b>\n\nNetwork: ${existing.network}\nAccount: ${code(existing.accountId)}\nBalance: ${renderBalance(balance)}\n\nUse /deposit to show the funding address.`,
+          `👛 <b>Your Neyro wallet</b>\n\nNetwork: ${existing.network}\nAccount: ${code(existing.accountId)}\nBalance: ${renderBalance(balance)}\n\nUse /deposit to fund it and /withdraw to send funds out.`,
           HTML
         );
         return;
@@ -208,6 +238,46 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.command("portfolio", showPortfolio);
+
+  pm.command("withdraw", async (ctx) => {
+    const parts = String(ctx.match ?? "").trim().split(/\s+/).filter(Boolean);
+    if (parts.length !== 3) {
+      return void await ctx.reply(
+        "📤 Usage: /withdraw <amount|all> <token> <to-account>\n\nExamples:\n/withdraw 5 near alice.near\n/withdraw all usdt.tether-token.near alice.near"
+      );
+    }
+    try {
+      const plan = await withdrawService.prepare(ctx.from.id, parts[0]!, parts[1]!, parts[2]!);
+      await ctx.reply(renderWithdrawConfirm(plan), {
+        ...HTML,
+        reply_markup: new InlineKeyboard()
+          .text("✅ Send", `wd:confirm:${plan.id}`)
+          .text("❌ Cancel", `wd:cancel:${plan.id}`)
+      });
+    } catch (error) {
+      console.error("Withdraw prepare error:", error);
+      await ctx.reply(`❌ ${userMessage(error, "Withdrawal is temporarily unavailable")}`);
+    }
+  });
+
+  pm.callbackQuery(/^wd:confirm:([a-f0-9]{16})$/, async (ctx) => {
+    await ctx.answerCallbackQuery("Sending…");
+    await ctx.editMessageReplyMarkup();
+    try {
+      const plan = { ...(await withdrawService.peek(ctx.from.id, ctx.match[1]!)) };
+      const result = await withdrawService.execute(ctx.from.id, ctx.match[1]!);
+      await ctx.editMessageText(renderWithdrawResult(plan, result), HTML);
+    } catch (error) {
+      console.error("Withdraw error:", error);
+      await ctx.editMessageText(`❌ ${userMessage(error, "Withdrawal could not be sent")}`);
+    }
+  });
+
+  pm.callbackQuery(/^wd:cancel:([a-f0-9]{16})$/, async (ctx) => {
+    withdrawService.cancel(ctx.from.id, ctx.match[1]!);
+    await ctx.answerCallbackQuery("Cancelled");
+    await ctx.editMessageText("❌ Withdrawal cancelled.");
+  });
 
   async function prepareTrade(ctx: Context, side: "buy" | "sell") {
     const userId = ctx.from?.id;
