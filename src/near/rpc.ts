@@ -16,3 +16,22 @@ export const RPC_ENDPOINTS: readonly RpcEndpoint[] = [
 export function createRpcProvider(url: string): JsonRpcProvider {
   return new JsonRpcProvider({ url });
 }
+
+export async function withRpcFallback<T>(
+  operation: (provider: JsonRpcProvider, endpoint: RpcEndpoint) => Promise<T>
+): Promise<T> {
+  let lastError: unknown;
+
+  for (const endpoint of RPC_ENDPOINTS) {
+    try {
+      return await operation(createRpcProvider(endpoint.url), endpoint);
+    } catch (error) {
+      lastError = error;
+      console.warn(`NEAR RPC ${endpoint.name} failed; trying next endpoint`);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("All configured NEAR RPC endpoints failed");
+}
