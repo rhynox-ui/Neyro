@@ -4,6 +4,7 @@ import "dotenv/config";
 import { config } from "./config.js";
 import { BOT_COMMANDS, createBot } from "./bot/create.js";
 import { explorerTx } from "./bot/register.js";
+import { deleteDueMessages } from "./bot/autodelete.js";
 import { PostgresTradeRepository } from "./trading/repository.js";
 import { startReconciler } from "./trading/reconciler.js";
 import { lookupTransaction } from "./near/execution.js";
@@ -25,8 +26,15 @@ const stopReconciler = config.DATABASE_URL
     })
   : () => {};
 
+// Deletes exported-key messages when their time is up.
+const cleanup = setInterval(() => {
+  deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error));
+}, 15_000);
+cleanup.unref();
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
+    clearInterval(cleanup);
     stopReconciler();
     void bot.stop();
   });

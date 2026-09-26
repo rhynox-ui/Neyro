@@ -97,6 +97,17 @@ export class WalletService {
   }
 
   /**
+   * The active wallet's private key ("ed25519:..."), for the user to back up
+   * or import into another wallet app. Only ever sent to the owner in a
+   * private chat; never logged.
+   */
+  async exportPrivateKey(telegramUserId: number): Promise<{ accountId: string; privateKey: string }> {
+    const wallet = await this.repository.getByTelegramUserId(telegramUserId);
+    if (!wallet) throw new UserFacingError("No wallet yet. Use /wallet to create one.");
+    return { accountId: wallet.accountId, privateKey: unlockWalletKey(wallet, requireMasterKey()) };
+  }
+
+  /**
    * Signing account for the active wallet, or for `accountId` when given.
    * A quote or withdrawal passes the account it was made for, so switching
    * wallets before confirming can't sign with a different one.

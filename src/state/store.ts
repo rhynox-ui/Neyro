@@ -14,6 +14,11 @@ export interface StateStore {
   delete(userId: number, key: string): Promise<void>;
   /** Atomically reads and deletes, so a value can be consumed only once. */
   take<T>(userId: number, key: string): Promise<T | null>;
+  /**
+   * Removes and returns entries under `prefix` whose value has `dueAtMs` in
+   * the past (used for scheduled work such as deleting messages).
+   */
+  takeDue<T extends { dueAtMs: number }>(prefix: string, nowMs: number): Promise<{ userId: number; value: T }[]>;
 }
 
 export class InMemoryStateStore implements StateStore {
@@ -36,6 +41,19 @@ export class InMemoryStateStore implements StateStore {
     this.rows.delete(this.id(userId, key));
     return value;
   }
+  async takeDue<T extends { dueAtMs: number }>(prefix: string, nowMs: number) {
+    const due: { userId: number; value: T }[] = [];
+    for (const [id, row] of this.rows) {
+      const [userId, ...rest] = id.split(":");
+      if (!rest.join(":").startsWith(prefix)) continue;
+      const value = JSON.parse(row.value) as T;
+      if (value.dueAtMs <= nowMs) {
+        this.rows.delete(id);
+        due.push({ userId: Number(userId), value });
+      }
+    }
+    return due;
+  }
 }
 
 export class PostgresStateStore implements StateStore {
@@ -55,6 +73,13 @@ export class PostgresStateStore implements StateStore {
   async delete(userId: number, key: string): Promise<void> {
     await this.sql`delete from bot_state where telegram_user_id=${userId} and key=${key}`;
   }
+  async takeDue<T extends { dueAtMs: number }>(prefix: string, nowMs: number) {
+    const rows = (await this.sql`delete from bot_state
+      where key like ${prefix + "%"} and (value->>'dueAtMs')::bigint <= ${nowMs}
+      returning telegram_user_id, value`) as unknown as { telegram_user_id: string | number; value: T }[];
+    return rows.map((row) => ({ userId: Number(row.telegram_user_id), value: row.value }));
+  }
+
   async take<T>(userId: number, key: string): Promise<T | null> {
     const rows = (await this.sql`delete from bot_state
       where telegram_user_id=${userId} and key=${key}

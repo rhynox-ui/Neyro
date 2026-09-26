@@ -8,6 +8,8 @@ import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
 import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { userMessage } from "../errors.js";
+import { RateLimiter } from "./rate-limit.js";
+import { scheduleDeletion } from "./autodelete.js";
 import type { WalletSummary } from "../wallet/repository.js";
 import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
 import { describeRoute, valueLossWarning } from "../trading/outcome.js";
@@ -20,6 +22,8 @@ const tradingService = new TradingService(walletService);
 const portfolioService = new PortfolioService();
 const withdrawService = new WithdrawService(walletService, (query) => tradingService.resolveToken(query));
 const settingsService = new SettingsService();
+/** Key exports per user: 3 per hour. */
+const keyExports = new RateLimiter(3, 60 * 60 * 1000);
 const tokenPanel = createTokenPanel({ tradingService, walletService, settings: settingsService, renderExecution: (result) => renderExecution(result) });
 
 const HTML = { parse_mode: "HTML" as const, link_preview_options: { is_disabled: true } };
@@ -138,7 +142,38 @@ export function renderWalletScreen(wallets: readonly WalletSummary[], activeBala
     keyboard.text(`${wallet.active ? "✅ " : ""}W${index + 1} · ${shortAccount(wallet.accountId)}`, `w:use:${index}`);
   });
   if (wallets.length < maxWallets) keyboard.row().text("➕ New wallet", "w:new");
+  keyboard.row().text("🔑 Export private key", "w:export");
   return { text, keyboard };
+}
+
+export const KEY_MESSAGE_TTL_MS = 60_000;
+
+export function renderExportWarning(accountId: string): string {
+  return [
+    "🔑 <b>Export private key</b>",
+    "",
+    `Wallet: ${code(accountId)}`,
+    "",
+    "⚠️ Anyone who has this key controls this wallet and can take all its funds.",
+    "• Never share it, paste it into websites or send it to anyone.",
+    "• Neyro will never ask you for it.",
+    "• Store it offline, e.g. written down or in a password manager.",
+    "",
+    "The key message deletes itself after about a minute."
+  ].join("\n");
+}
+
+export function renderPrivateKey(accountId: string, privateKey: string): string {
+  return [
+    "🔑 <b>Your private key</b>",
+    "",
+    `Wallet: ${code(accountId)}`,
+    `Key (tap to reveal): <tg-spoiler>${code(privateKey)}</tg-spoiler>`,
+    "",
+    "Import it in Meteor Wallet, HOT Wallet or MyNearWallet with \"Import private key\".",
+    "",
+    "🕒 This message deletes itself in about a minute. Save the key now."
+  ].join("\n");
 }
 
 export function renderBalance(balance: NearBalance): string {
@@ -260,7 +295,7 @@ export function registerBotHandlers(bot: Bot) {
       const { text, keyboard } = renderWalletScreen(wallets, balance, MAX_WALLETS);
       const header = note ?? (created ? "✅ <b>Wallet created</b>\n\n" : "");
       const body = header + text + (created
-        ? "\n\n⚠️ This wallet is custodial. Do not deposit meaningful funds until recovery and operational safeguards are fully deployed."
+        ? "\n\n🔑 Back up this wallet: tap \"Export private key\" below and store the key somewhere safe."
         : "");
       const options = { ...HTML, reply_markup: keyboard };
       if (edit) await ctx.editMessageText(body, options).catch(() => ctx.reply(body, options));
@@ -278,6 +313,38 @@ export function registerBotHandlers(bot: Bot) {
     await walletService.switchWallet(ctx.from.id, target.accountId);
     await ctx.answerCallbackQuery(`Switched to W${Number(ctx.match[1]) + 1}`);
     await showWallet(ctx, true);
+  });
+
+  pm.callbackQuery("w:export", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const wallet = await walletService.getWallet(ctx.from.id);
+    if (!wallet) return void await ctx.reply("👛 No wallet yet. Use /wallet to create one.");
+    await ctx.editMessageText(renderExportWarning(wallet.accountId), {
+      ...HTML,
+      reply_markup: new InlineKeyboard().text("✅ Show my private key", "w:export:yes").row().text("❌ Cancel", "w:export:no")
+    });
+  });
+
+  pm.callbackQuery("w:export:no", async (ctx) => {
+    await ctx.answerCallbackQuery("Cancelled");
+    await showWallet(ctx, true);
+  });
+
+  pm.callbackQuery("w:export:yes", async (ctx) => {
+    if (!keyExports.take(`x:${ctx.from.id}`)) {
+      return void await ctx.answerCallbackQuery("Too many key exports. Try again in an hour.");
+    }
+    await ctx.answerCallbackQuery();
+    try {
+      const { accountId, privateKey } = await walletService.exportPrivateKey(ctx.from.id);
+      const sent = await ctx.reply(renderPrivateKey(accountId, privateKey), HTML);
+      await scheduleDeletion(ctx.from.id, sent.chat.id, sent.message_id, KEY_MESSAGE_TTL_MS);
+      console.info("Wallet key exported", { userId: ctx.from.id, accountId });
+      await ctx.editMessageText("🔑 Key sent below. It deletes itself in about a minute.", HTML);
+    } catch (error) {
+      console.error("Key export failed:", error);
+      await ctx.reply(`❌ ${userMessage(error, "Couldn't export the key right now")}`);
+    }
   });
 
   pm.callbackQuery("w:new", async (ctx) => {

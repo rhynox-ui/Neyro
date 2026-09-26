@@ -53,8 +53,41 @@ test("wallet screen marks the active wallet and offers a new one below the cap",
   assert.match(text, /✅ W2 · <code>bbbbbb…bbbb<\/code>/);
   assert.match(text, /Balance: 1 NEAR/);
   const rows = keyboard.inline_keyboard.map((row) => row.map((b) => (b as { callback_data: string }).callback_data));
-  assert.deepEqual(rows, [["w:use:0"], ["w:use:1"], ["w:new"]]);
+  assert.deepEqual(rows, [["w:use:0"], ["w:use:1"], ["w:new"], ["w:export"]]);
 
   const full = renderWalletScreen(Array.from({ length: 5 }, (_, i) => ({ accountId: `${i}`.repeat(64), active: i === 0 })), balance, 5);
   assert.ok(!full.keyboard.inline_keyboard.flat().some((b) => (b as { callback_data: string }).callback_data === "w:new"));
+});
+
+test("exported private key controls the active wallet and is shown hidden", async () => {
+  const { KeyPair, keyToImplicitAddress } = await import("near-api-js");
+  const { renderPrivateKey, renderExportWarning } = await import("../src/bot/register.js");
+  const service = new WalletService(new InMemoryWalletRepository());
+  const wallet = await service.createWallet(9);
+  const { accountId, privateKey } = await service.exportPrivateKey(9);
+  assert.equal(accountId, wallet.accountId);
+  assert.match(privateKey, /^ed25519:/);
+  assert.equal(keyToImplicitAddress(KeyPair.fromString(privateKey as `ed25519:${string}`).getPublicKey()), accountId);
+
+  const message = renderPrivateKey(accountId, privateKey);
+  assert.ok(message.includes(`<tg-spoiler><code>${privateKey}</code></tg-spoiler>`));
+  assert.match(renderExportWarning(accountId), /Anyone who has this key controls this wallet/);
+  await assert.rejects(service.exportPrivateKey(10), UserFacingError);
+});
+
+test("scheduled key messages are deleted once due, and only once", async () => {
+  const { scheduleDeletion, deleteDueMessages } = await import("../src/bot/autodelete.js");
+  const { InMemoryStateStore } = await import("../src/state/store.js");
+  const store = new InMemoryStateStore();
+  const deleted: number[] = [];
+  const api = { deleteMessage: async (_chat: number, id: number) => { deleted.push(id); return true; } } as never;
+
+  await scheduleDeletion(1, 100, 55, 60_000, store);
+  await scheduleDeletion(1, 100, 56, 120_000, store);
+  assert.equal(await deleteDueMessages(api, store, Date.now()), 0);
+  assert.equal(await deleteDueMessages(api, store, Date.now() + 61_000), 1);
+  assert.deepEqual(deleted, [55]);
+  assert.equal(await deleteDueMessages(api, store, Date.now() + 61_000), 0);
+  assert.equal(await deleteDueMessages(api, store, Date.now() + 121_000), 1);
+  assert.deepEqual(deleted, [55, 56]);
 });

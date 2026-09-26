@@ -37,7 +37,7 @@ function missingSecrets(): string[] {
 type App = Awaited<ReturnType<typeof loadModules>>;
 
 async function loadModules() {
-  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens] = await Promise.all([
+  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete] = await Promise.all([
     import("./config.js"),
     import("./bot/create.js"),
     import("./bot/register.js"),
@@ -51,9 +51,10 @@ async function loadModules() {
     import("./rhea/client.js"),
     import("./near/ft.js"),
     import("./market/icon.js"),
-    import("./near/tokens.js")
+    import("./near/tokens.js"),
+    import("./bot/autodelete.js")
   ]);
-  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens };
+  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete };
 }
 
 let appPromise: Promise<App> | undefined;
@@ -283,12 +284,13 @@ export default {
     }
   },
 
-  /** Cron trigger (every minute): settle unknown or stale trades. */
+  /** Cron trigger (every minute): delete expired key messages, settle unknown or stale trades. */
   async scheduled(_event: unknown, _env: Env, ctx: ExecutionContext): Promise<void> {
     if (await configurationProblem()) return;
     const app = await getApp();
     const databaseUrl = app.config.DATABASE_URL!;
     const bot = await getBot();
+    ctx.waitUntil(app.autodelete.deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error)));
     ctx.waitUntil(app.reconciler.reconcileOnce({
       repository: new app.repository.PostgresTradeRepository(databaseUrl),
       lookup: (txHash, accountId) =>
