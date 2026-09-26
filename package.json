@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/security.test.ts"
+    "test": "tsx --test test/security.test.ts test/rpc.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
