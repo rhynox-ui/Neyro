@@ -4,9 +4,11 @@ import { WalletService } from "../wallet/service.js";
 import { getNearBalance } from "../near/account.js";
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { TradingService } from "../trading/service.js";
+import { PortfolioService } from "../portfolio/service.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
+const portfolioService = new PortfolioService();
 
 export function registerBotHandlers(bot: Bot) {
   bot.command("start", async (ctx) => {
