@@ -146,7 +146,17 @@ export function renderWalletScreen(wallets: readonly WalletSummary[], activeBala
   return { text, keyboard };
 }
 
-export const KEY_MESSAGE_TTL_MS = 60_000;
+/** The key message stays 24h (Telegram lets bots delete messages up to 48h old). */
+export const KEY_MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
+/** A reminder to save the key is sent this long before it is deleted. */
+export const KEY_REMINDER_BEFORE_MS = 60 * 60 * 1000;
+
+export const KEY_REMINDER_TEXT = [
+  "⏳ <b>Reminder: your private key message will be deleted in 1 hour.</b>",
+  "",
+  "If you haven't saved it yet, do it now: write it down or store it in a password manager.",
+  "You can export it again anytime from /wallet."
+].join("\n");
 
 export function renderExportWarning(accountId: string): string {
   return [
@@ -159,7 +169,7 @@ export function renderExportWarning(accountId: string): string {
     "• Neyro will never ask you for it.",
     "• Store it offline, e.g. written down or in a password manager.",
     "",
-    "The key message deletes itself after about a minute."
+    "The key message stays for 24 hours, then deletes itself. You'll get a reminder 1 hour before."
   ].join("\n");
 }
 
@@ -172,7 +182,8 @@ export function renderPrivateKey(accountId: string, privateKey: string): string 
     "",
     "Import it in Meteor Wallet, HOT Wallet or MyNearWallet with \"Import private key\".",
     "",
-    "🕒 This message deletes itself in about a minute. Save the key now."
+    "💾 Save your key now: write it down or store it in a password manager.",
+    "🕒 This message deletes itself in 24 hours (reminder 1 hour before)."
   ].join("\n");
 }
 
@@ -338,9 +349,12 @@ export function registerBotHandlers(bot: Bot) {
     try {
       const { accountId, privateKey } = await walletService.exportPrivateKey(ctx.from.id);
       const sent = await ctx.reply(renderPrivateKey(accountId, privateKey), HTML);
-      await scheduleDeletion(ctx.from.id, sent.chat.id, sent.message_id, KEY_MESSAGE_TTL_MS);
+      await scheduleDeletion(ctx.from.id, sent.chat.id, sent.message_id, KEY_MESSAGE_TTL_MS, undefined, {
+        text: KEY_REMINDER_TEXT,
+        remindBeforeMs: KEY_REMINDER_BEFORE_MS
+      });
       console.info("Wallet key exported", { userId: ctx.from.id, accountId });
-      await ctx.editMessageText("🔑 Key sent below. It deletes itself in about a minute.", HTML);
+      await ctx.editMessageText("🔑 Key sent below. Save it: the message deletes itself in 24 hours.", HTML);
     } catch (error) {
       console.error("Key export failed:", error);
       await ctx.reply(`❌ ${userMessage(error, "Couldn't export the key right now")}`);

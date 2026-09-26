@@ -75,19 +75,35 @@ test("exported private key controls the active wallet and is shown hidden", asyn
   await assert.rejects(service.exportPrivateKey(10), UserFacingError);
 });
 
-test("scheduled key messages are deleted once due, and only once", async () => {
+test("key message: reminder 1h before, deletion after 24h, each once", async () => {
   const { scheduleDeletion, deleteDueMessages } = await import("../src/bot/autodelete.js");
   const { InMemoryStateStore } = await import("../src/state/store.js");
+  const { KEY_MESSAGE_TTL_MS, KEY_REMINDER_BEFORE_MS, KEY_REMINDER_TEXT } = await import("../src/bot/register.js");
   const store = new InMemoryStateStore();
   const deleted: number[] = [];
-  const api = { deleteMessage: async (_chat: number, id: number) => { deleted.push(id); return true; } } as never;
+  const reminders: { text: string; replyTo?: number }[] = [];
+  const api = {
+    deleteMessage: async (_chat: number, id: number) => { deleted.push(id); return true; },
+    sendMessage: async (_chat: number, text: string, options: { reply_parameters?: { message_id: number } }) => {
+      reminders.push({ text, replyTo: options.reply_parameters?.message_id });
+      return {};
+    }
+  } as never;
+  const HOUR = 60 * 60 * 1000;
+  const start = Date.now();
 
-  await scheduleDeletion(1, 100, 55, 60_000, store);
-  await scheduleDeletion(1, 100, 56, 120_000, store);
-  assert.equal(await deleteDueMessages(api, store, Date.now()), 0);
-  assert.equal(await deleteDueMessages(api, store, Date.now() + 61_000), 1);
+  await scheduleDeletion(1, 100, 55, KEY_MESSAGE_TTL_MS, store, { text: KEY_REMINDER_TEXT, remindBeforeMs: KEY_REMINDER_BEFORE_MS });
+  await deleteDueMessages(api, store, start + 22 * HOUR);
+  assert.deepEqual([reminders.length, deleted.length], [0, 0]);
+
+  await deleteDueMessages(api, store, start + 23 * HOUR + 1000);
+  assert.equal(reminders.length, 1);
+  assert.equal(reminders[0]!.replyTo, 55);
+  assert.match(reminders[0]!.text, /deleted in 1 hour/);
+  assert.equal(deleted.length, 0);
+
+  await deleteDueMessages(api, store, start + 24 * HOUR + 1000);
+  await deleteDueMessages(api, store, start + 25 * HOUR);
   assert.deepEqual(deleted, [55]);
-  assert.equal(await deleteDueMessages(api, store, Date.now() + 61_000), 0);
-  assert.equal(await deleteDueMessages(api, store, Date.now() + 121_000), 1);
-  assert.deepEqual(deleted, [55, 56]);
+  assert.equal(reminders.length, 1);
 });
