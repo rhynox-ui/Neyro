@@ -11,7 +11,16 @@
   "keep_vars": true,
   // Settle trades whose outcome was unknown (timeouts, cut-off invocations).
   "triggers": { "crons": ["* * * * *"] },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Mainnet is fixed in the deployed config so the Worker can never start on
+  // testnet by accident. Secrets (bot token, master key, database URL) are
+  // set in the dashboard, not here.
+  "vars": {
+    "NEAR_NETWORK": "mainnet",
+    "NEAR_RPC_URL": "https://rpc.mainnet.fastnear.com",
+    "NEAR_RPC_FALLBACK_URL": "https://rpc.mainnet.near.org",
+    "TREASURY_ACCOUNT_ID": "widekingdom6862.near"
+  }
 
   // Optional, recommended for production: process updates from a Queue so
   // long trades are never cut off. Create it first with

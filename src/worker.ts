@@ -49,9 +49,13 @@ async function processUpdate(update: Update): Promise<void> {
 }
 
 function configurationError(): string | undefined {
+  // The deployed bot is mainnet-only.
+  if (config.NEAR_NETWORK !== "mainnet") return "The Worker only runs on NEAR mainnet";
   // Each update can run in a different isolate, so wallets, quotes and
   // panels must live in the database; in-memory fallbacks would lose keys.
-  return config.DATABASE_URL ? undefined : "DATABASE_URL is required on Cloudflare Workers";
+  if (!config.DATABASE_URL) return "DATABASE_URL is required on Cloudflare Workers";
+  if (!config.NEYRO_MASTER_KEY) return "NEYRO_MASTER_KEY is required to create and use wallets";
+  return undefined;
 }
 
 async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

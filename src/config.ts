@@ -2,8 +2,10 @@ import { z } from "zod";
 
 const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(1),
-  NEAR_NETWORK: z.enum(["mainnet", "testnet"]).default("testnet"),
-  NEAR_RPC_URL: z.string().url().default("https://rpc.testnet.fastnear.com"),
+  // Neyro launches on mainnet; testnet must be chosen explicitly.
+  NEAR_NETWORK: z.enum(["mainnet", "testnet"]).default("mainnet"),
+  /** Defaults to FastNEAR for the selected network. */
+  NEAR_RPC_URL: z.string().url().optional(),
   NEAR_RPC_FALLBACK_URL: z.string().url().optional(),
   FASTNEAR_API_URL: z.string().url().optional(),
   RHEA_API_URL: z.string().url().default("https://api.rhea.finance"),
@@ -45,7 +47,12 @@ const env = Object.fromEntries(
   Object.entries(process.env).filter(([, value]) => value !== "")
 );
 
-export const config = schema.parse(env);
+const parsed = schema.parse(env);
+
+export const config = {
+  ...parsed,
+  NEAR_RPC_URL: parsed.NEAR_RPC_URL ?? `https://rpc.${parsed.NEAR_NETWORK}.fastnear.com`
+};
 
 export const FASTNEAR_API_URL = config.FASTNEAR_API_URL ??
   (config.NEAR_NETWORK === "mainnet" ? "https://api.fastnear.com" : "https://test.api.fastnear.com");

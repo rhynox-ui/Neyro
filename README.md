@@ -33,9 +33,7 @@ updates by webhook, and a cron trigger settles unresolved trades every minute.
 1. Run `docs/schema.sql` on the Postgres database (Neon works well).
 2. In the Worker's Settings → Variables and Secrets, set:
    - `TELEGRAM_BOT_TOKEN`, `NEYRO_MASTER_KEY`, `DATABASE_URL` (secrets)
-   - `NEAR_NETWORK=mainnet`, `NEAR_RPC_URL=https://rpc.mainnet.fastnear.com`,
-     `NEAR_RPC_FALLBACK_URL=https://rpc.mainnet.near.org`
-   - `TREASURY_ACCOUNT_ID=widekingdom6862.near`
+   - Network, RPCs and the fee wallet are fixed in `wrangler.jsonc` (mainnet).
    - `TELEGRAM_WEBHOOK_SECRET` and `SETUP_SECRET`: any long random strings
 3. Deploy: build command `npm run build`, deploy command `npx wrangler deploy`.
 4. Open `https://<worker>.workers.dev/setup-webhook?secret=<SETUP_SECRET>` once.
@@ -47,7 +45,9 @@ isolate, so wallets, quotes, panels and pending withdrawals live in Postgres.
 For production, enable the optional Queue in `wrangler.jsonc` so long trades
 are never cut off.
 
-Run the bot locally with `npm run dev` (long polling via `src/index.ts`).
+Neyro runs on NEAR mainnet: it is the default, and the Worker refuses any
+other network. Run the bot locally with `npm run dev` (long polling via
+`src/index.ts`).
 
 ## Security
 
