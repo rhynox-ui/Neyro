@@ -1,7 +1,9 @@
 import {
   SwapClient,
   type AssetRef,
-  type QuoteRequest
+  type Quote,
+  type QuoteRequest,
+  type ChainExecutor
 } from "@rhea-finance/cross-chain-aggregation-dex";
 import { config } from "../config.js";
 
@@ -17,11 +19,12 @@ export type RheaQuoteRequest = {
 export class RheaClient {
   private readonly client: SwapClient;
 
-  constructor() {
+  constructor(executors: readonly ChainExecutor[] = []) {
     this.client = new SwapClient({
       baseUrl: config.RHEA_API_URL,
       apiKey: config.RHEA_API_TOKEN,
-      timeoutMs: 15_000
+      timeoutMs: 15_000,
+      executors
     });
   }
 
@@ -29,7 +32,7 @@ export class RheaClient {
     return this.client.getFromTokens({ chainId: 900001 });
   }
 
-  async quote(request: RheaQuoteRequest) {
+  async quote(request: RheaQuoteRequest): Promise<Quote> {
     const payload: QuoteRequest = {
       fromChain: "near",
       toChain: "near",
@@ -45,5 +48,12 @@ export class RheaClient {
     };
 
     return this.client.quote(payload);
+  }
+
+  async swap(quote: Quote) {
+    return this.client.swap({
+      quote,
+      waitFor: "source-confirmed"
+    });
   }
 }
