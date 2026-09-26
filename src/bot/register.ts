@@ -1,4 +1,4 @@
-import { InlineKeyboard, type Bot } from "grammy";
+import { InlineKeyboard, type Bot, type CommandContext } from "grammy";
 import { mainMenu } from "./menu.js";
 import { WalletService } from "../wallet/service.js";
 import { getNearBalance } from "../near/account.js";
@@ -48,7 +48,7 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.reply(`💰 NEAR balance\n\n${balance} yoctoNEAR\n\nWallet: \`${wallet.accountId}\``);
   });
 
-  async function prepareTrade(ctx: Parameters<Bot["command"]>[1] extends never ? never : any, side: "buy" | "sell") {
+  async function prepareTrade(ctx: CommandContext, side: "buy" | "sell") {
     const userId = ctx.from?.id;
     if (!userId) return void await ctx.reply("❌ Telegram user identity is unavailable.");
 
@@ -68,13 +68,13 @@ export function registerBotHandlers(bot: Bot) {
       const symbolOut = prepared.request.tokenOut.symbol ?? prepared.request.tokenOut.address;
 
       await ctx.reply(
-        "🔎 Confirm trade\\n\\n" +
-        `Side: ${side.toUpperCase()}\\n` +
-        `You spend: ${input} ${symbolIn}\\n` +
-        `Expected: ${output} ${symbolOut}\\n` +
-        `Minimum: ${minimum} ${symbolOut}\\n` +
-        `Slippage: ${prepared.request.slippageBps / 100}%\\n` +
-        `Router: ${prepared.quote.router ?? "RHEA"}\\n\\n` +
+        "🔎 Confirm trade\n\n" +
+        `Side: ${side.toUpperCase()}\n` +
+        `You spend: ${input} ${symbolIn}\n` +
+        `Expected: ${output} ${symbolOut}\n` +
+        `Minimum: ${minimum} ${symbolOut}\n` +
+        `Slippage: ${prepared.request.slippageBps / 100}%\n` +
+        `Router: ${prepared.quote.router ?? "RHEA"}\n\n` +
         "Quote expires in about 2 minutes.",
         { reply_markup: new InlineKeyboard()
           .text("✅ Confirm", `trade:confirm:${prepared.id}`)
@@ -95,10 +95,10 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.answerCallbackQuery("Executing trade…");
     try {
       const result = await tradingService.execute(userId, ctx.match[1]);
-      await ctx.editMessageText(`✅ Trade submitted\\n\\nTransaction: ${result.transactionHash}`);
+      await ctx.editMessageText(`✅ Trade submitted\n\nTransaction: ${result.transactionHash}`);
     } catch (error) {
       console.error("Trade execution error:", error);
-      await ctx.editMessageText(`❌ Trade failed\\n\\n${error instanceof Error ? error.message : "Unknown execution error"}`);
+      await ctx.editMessageText(`❌ Trade failed\n\n${error instanceof Error ? error.message : "Unknown execution error"}`);
     }
   });
 
