@@ -27,7 +27,8 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
     liquidityUsd: live.liquidityUsd ?? market.liquidityUsd
   };
 }
-import { ftBalanceOf } from "../near/ft.js";
+import { ftBalanceOf, ftMetadata } from "../near/ft.js";
+import { decodeIcon } from "../market/icon.js";
 import { looksLikeContractId } from "../near/tokens.js";
 import { stripAssetPrefix, type NearToken } from "../rhea/client.js";
 import type { TradingService, ExecutionResult } from "../trading/service.js";
@@ -179,10 +180,22 @@ export function panelKeyboard(state: PanelState, ownedHuman: string | null): Inl
 }
 
 /** The token logo as Telegram's link preview above the text, like Mango. */
-function previewOptions(market: NearMarket | null) {
-  return market?.imageUrl
-    ? { link_preview_options: { url: market.imageUrl, prefer_small_media: true, show_above_text: true } }
+function previewOptions(imageUrl: string | null) {
+  return imageUrl
+    ? { link_preview_options: { url: imageUrl, prefer_small_media: true, show_above_text: true } }
     : { link_preview_options: { is_disabled: true } };
+}
+
+/**
+ * Logo URL: DexScreener's image when available, otherwise the token's
+ * on-chain icon served by this bot (needs PUBLIC_BASE_URL).
+ */
+async function logoUrl(token: NearToken, market: NearMarket | null): Promise<string | null> {
+  if (market?.imageUrl) return market.imageUrl;
+  if (!config.PUBLIC_BASE_URL) return null;
+  const contract = contractIdOf(token);
+  const metadata = await ftMetadata(contract).catch(() => null);
+  return decodeIcon(metadata?.icon) ? `${config.PUBLIC_BASE_URL}/icon/${encodeURIComponent(contract)}` : null;
 }
 
 function isNotModified(error: unknown): boolean {
@@ -225,7 +238,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
     const text = panelText(state, owned?.human ?? null);
     const options = {
       parse_mode: "HTML" as const,
-      ...previewOptions(state.market),
+      ...previewOptions(await logoUrl(state.token, state.market)),
       reply_markup: panelKeyboard(state, owned?.human ?? null)
     };
     if (edit && ctx.callbackQuery) {

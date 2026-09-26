@@ -25,6 +25,8 @@ const schema = z.object({
   LOG_LEVEL: z.string().default("info"),
   /** Telegram sends this in X-Telegram-Bot-Api-Secret-Token on webhook calls (Workers). */
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
+  /** Public URL of the deployed bot (e.g. the workers.dev address); enables token icons. */
+  PUBLIC_BASE_URL: z.string().url().optional(),
   /** Protects the Worker's /setup-webhook endpoint. */
   SETUP_SECRET: z.string().optional()
 }).superRefine((env, ctx) => {

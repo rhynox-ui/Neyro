@@ -37,7 +37,7 @@ function missingSecrets(): string[] {
 type App = Awaited<ReturnType<typeof loadModules>>;
 
 async function loadModules() {
-  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea] = await Promise.all([
+  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens] = await Promise.all([
     import("./config.js"),
     import("./bot/create.js"),
     import("./bot/register.js"),
@@ -48,9 +48,12 @@ async function loadModules() {
     import("./market/dexscreener.js"),
     import("./market/dcl.js"),
     import("./discovery/nearly.js"),
-    import("./rhea/client.js")
+    import("./rhea/client.js"),
+    import("./near/ft.js"),
+    import("./market/icon.js"),
+    import("./near/tokens.js")
   ]);
-  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea };
+  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens };
 }
 
 let appPromise: Promise<App> | undefined;
@@ -153,6 +156,24 @@ async function handleSetup(request: Request): Promise<Response> {
   return Response.json({ ok: true, webhookUrl, commands: create.BOT_COMMANDS.length });
 }
 
+/** GET /icon/<token>: the token's on-chain icon, for Telegram link previews. */
+async function handleIcon(pathname: string): Promise<Response> {
+  const app = await getApp();
+  const token = decodeURIComponent(pathname.slice("/icon/".length)).toLowerCase();
+  if (!app.tokens.isValidAccountId(token)) return new Response("Bad token", { status: 400 });
+  const metadata = await app.ft.ftMetadata(token).catch(() => null);
+  const source = app.icon.decodeIcon(metadata?.icon);
+  if (!source) return new Response("No icon", { status: 404 });
+  if (source.kind === "redirect") return Response.redirect(source.url, 302);
+  return new Response(source.bytes as unknown as BodyInit, {
+    headers: {
+      "Content-Type": source.contentType,
+      "Cache-Control": "public, max-age=86400",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
 /**
  * GET /debug/price?secret=SETUP_SECRET&token=<contract>: runs each market-data
  * step for one token and reports its result or error, for diagnosing blank
@@ -205,7 +226,22 @@ async function handleDebugPrice(request: Request): Promise<Response> {
     ? await step(() => app.nearly.nearlyPriceUsd(launchValue, typeof nearUsd === "number" ? nearUsd : null))
     : { ok: false, error: "no launch" };
 
-  return Response.json({ token, fastnearKey: Boolean(app.config.FASTNEAR_API_KEY), rpc, rheaNear, dclNear, dexscreener, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
+  // Candidate sources for 24h stats, fetched from the Worker's own IP.
+  const probe = (target: string) => step(async () => {
+    const response = await fetch(target, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; NeyroBot/1.0)" } });
+    return { status: response.status, body: (await response.text()).slice(0, 400) };
+  });
+  const sources = {
+    intear: await probe(`https://prices.intear.tech/token?token_id=${encodeURIComponent(token)}`),
+    geckoterminal: await probe(`https://api.geckoterminal.com/api/v2/networks/near/tokens/${encodeURIComponent(token)}/pools?page=1`)
+  };
+  const iconCheck = await step(async () => {
+    const metadata = await app.ft.ftMetadata(token);
+    const source = app.icon.decodeIcon(metadata.icon);
+    return source ? (source.kind === "image" ? `${source.contentType}, ${source.bytes.length} bytes` : `redirect ${source.url}`) : `no usable icon (${metadata.icon ? metadata.icon.slice(0, 30) : "none"})`;
+  });
+
+  return Response.json({ token, icon: iconCheck, sources, fastnearKey: Boolean(app.config.FASTNEAR_API_KEY), rpc, rheaNear, dclNear, dexscreener, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
 }
 
 export default {
@@ -226,6 +262,7 @@ export default {
     if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
     if (url.pathname === "/setup-webhook") return handleSetup(request);
     if (url.pathname === "/debug/price") return handleDebugPrice(request);
+    if (url.pathname.startsWith("/icon/")) return handleIcon(url.pathname);
     return new Response("Neyro is running.");
   },
 

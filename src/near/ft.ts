@@ -26,11 +26,13 @@ export type FtMetadata = {
   symbol: string;
   name?: string;
   decimals: number;
+  /** Raw icon: usually a data: URI, sometimes an https/ipfs URL. */
+  icon?: string;
 };
 
 export function parseFtMetadata(contractId: string, value: unknown): FtMetadata {
   if (!value || typeof value !== "object") throw new Error("Invalid ft_metadata response");
-  const { symbol, name, decimals, spec } = value as Record<string, unknown>;
+  const { symbol, name, decimals, spec, icon } = value as Record<string, unknown>;
   if (typeof spec !== "string" || !spec.startsWith("ft-")) {
     throw new Error(`${contractId} is not a NEP-141 token`);
   }
@@ -41,7 +43,9 @@ export function parseFtMetadata(contractId: string, value: unknown): FtMetadata 
     contractId,
     symbol: symbol.slice(0, 32),
     ...(typeof name === "string" ? { name: name.slice(0, 64) } : {}),
-    decimals: decimals as number
+    decimals: decimals as number,
+    // Icons are capped by the token's own storage; ignore anything unreasonably large.
+    ...(typeof icon === "string" && icon.length > 0 && icon.length <= 200_000 ? { icon } : {})
   };
 }
 
