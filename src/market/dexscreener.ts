@@ -65,7 +65,11 @@ function extractLinks(info: Pair | undefined): TokenLink[] {
     seen.add(url);
     links.push({ label, url });
   };
-  for (const site of Array.isArray(info?.websites) ? info.websites : []) push("Website", site?.url);
+  for (const site of Array.isArray(info?.websites) ? info.websites : []) {
+    // Team-supplied labels ("Docs") are kept only when short and plain.
+    const label = String(site?.label ?? "").trim();
+    push(/^[A-Za-z0-9 ]{1,12}$/.test(label) ? label : "Website", site?.url);
+  }
   for (const social of Array.isArray(info?.socials) ? info.socials : []) {
     const label = SOCIAL_LABELS[String(social?.type ?? "").toLowerCase()];
     if (label) push(label, social?.url);
@@ -115,9 +119,19 @@ export async function fetchNearMarket(
   address: string,
   fetcher: typeof fetch = fetch
 ): Promise<NearMarket | null> {
-  const response = await fetcher(`${DEXSCREENER_NEAR_TOKENS_URL}${encodeURIComponent(address)}`, {
+  const url = `${DEXSCREENER_NEAR_TOKENS_URL}${encodeURIComponent(address)}`;
+  const response = await fetcher(url, {
+    // DexScreener sits behind bot protection; requests without these headers
+    // (the Workers default) can be refused.
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; NeyroBot/1.0; +https://t.me)" },
     signal: AbortSignal.timeout(TIMEOUT_MS)
   });
-  if (!response.ok) throw new Error(`DexScreener returned HTTP ${response.status}`);
-  return parseDexScreenerPairs(await response.json(), address);
+  if (!response.ok) {
+    const body = (await response.text().catch(() => "")).slice(0, 200);
+    throw new Error(`DexScreener returned HTTP ${response.status} for ${address}: ${body}`);
+  }
+  const json = await response.json();
+  const market = parseDexScreenerPairs(json, address);
+  if (!market) console.warn("DexScreener has no NEAR pair", { address, pairs: Array.isArray(json) ? json.length : "n/a" });
+  return market;
 }

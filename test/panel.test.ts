@@ -110,3 +110,17 @@ test("formatting helpers", () => {
   assert.equal(ageLabel(null), "unknown");
   assert.equal(ageLabel(1_000, 1_000 + 3 * 86_400_000), "3d");
 });
+
+test("parses DexScreener's real response for NEARLY (rhea-finance DCL pair)", () => {
+  // Trimmed from GET /tokens/v1/near/nearly-993927.nearlytrade.near on 2026-09-26.
+  const live = [{"chainId":"near","dexId":"rhea-finance","url":"https://dexscreener.com/near/refv2-nearly-993927.nearlytrade.near:wrap.near:10000","pairAddress":"refv2-nearly-993927.nearlytrade.near:wrap.near:10000","baseToken":{"address":"nearly-993927.nearlytrade.near","name":"NEARLY","symbol":"NEARLY"},"quoteToken":{"address":"wrap.near","name":"Wrapped NEAR fungible token","symbol":"wNEAR"},"priceNative":"0.0002275","priceUsd":"0.001108","txns":{"h24":{"buys":920,"sells":786}},"volume":{"h24":495742.02},"priceChange":{"h24":106},"liquidity":{"usd":145746.94,"base":69227539,"quote":14155},"fdv":1108878,"marketCap":1108878,"pairCreatedAt":1790037431000,"info":{"imageUrl":"https://cdn.dexscreener.com/cms/images/pQvqE5Oh4ipJ_63a?width=800&height=800&quality=95&format=auto","websites":[{"url":"https://nearly.trade","label":"Website"},{"url":"https://github.com/sam3dsol/NearlyTrade","label":"Docs"}],"socials":[{"url":"https://x.com/NearlyTrade","type":"twitter"},{"url":"https://t.me/NearlyTrade","type":"telegram"}]}}];
+  const market = parseDexScreenerPairs(live, "nearly-993927.nearlytrade.near")!;
+  assert.equal(market.dex, "rhea-finance");
+  assert.equal(market.priceUsd, "0.001108");
+  assert.equal(market.marketCapUsd, 1108878);
+  assert.equal(market.liquidityUsd, 145746.94);
+  assert.equal(market.txns24hBuys, 920);
+  assert.equal(market.priceChange24hPct, 106);
+  assert.ok(market.imageUrl?.startsWith("https://cdn.dexscreener.com/"));
+  assert.deepEqual(market.links.map((l) => l.label), ["Website", "Docs", "X", "Telegram"]);
+});
