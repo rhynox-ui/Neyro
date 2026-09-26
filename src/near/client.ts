@@ -8,7 +8,6 @@ export type NearConnection = {
 
 export function createNearConnection(): NearConnection {
   const provider = new JsonRpcProvider({ url: config.NEAR_RPC_URL });
-
   return {
     provider,
     account(accountId: string) {
