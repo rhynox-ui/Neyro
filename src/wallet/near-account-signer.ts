@@ -1,10 +1,11 @@
 import type { Account } from "near-api-js";
-import { ActionExecutionError, UnknownTransactionError } from "near-api-js/rpc-errors";
+import { ActionExecutionError } from "near-api-js/rpc-errors";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 import type { NearTransactionSigner } from "../near/rhea-executor.js";
 import {
   findExecutionFailure,
   isDefinitiveRejection,
+  lookupTransaction,
   transactionHash
 } from "../near/execution.js";
 
@@ -136,18 +137,11 @@ export class NearAccountSigner implements NearTransactionSigner {
     for (const record of this.sentTransactions) {
       if (record.result !== "unknown") continue;
       try {
-        const outcome = await this.account.provider.viewTransactionStatus({
-          txHash: record.txHash,
-          accountId: this.account.accountId,
-          waitUntil: WAIT_UNTIL
-        });
-        const failure = findExecutionFailure(outcome);
-        record.result = failure ? "reverted" : "executed";
-        if (failure) record.failure = failure;
-      } catch (error) {
-        if (!(error instanceof UnknownTransactionError)) {
-          console.warn("NEAR transaction reconciliation failed");
-        }
+        const lookup = await lookupTransaction(this.account.provider, record.txHash, this.account.accountId);
+        record.result = lookup.result;
+        if (lookup.failure) record.failure = lookup.failure;
+      } catch {
+        console.warn("NEAR transaction reconciliation failed");
       }
     }
   }

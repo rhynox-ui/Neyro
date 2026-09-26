@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { baseEncode, type SignedTransaction } from "near-api-js";
+import { baseEncode, type Provider, type SignedTransaction } from "near-api-js";
 import {
   CostOverflowError,
   InvalidChainError,
@@ -13,7 +13,8 @@ import {
   ShardCongestedError,
   SignerDoesNotExistError,
   TransactionExpiredError,
-  TransactionSizeExceededError
+  TransactionSizeExceededError,
+  UnknownTransactionError
 } from "near-api-js/rpc-errors";
 
 /** NEAR transaction hash: base58(sha256(borsh(transaction))). */
@@ -87,4 +88,29 @@ const DEFINITIVE_REJECTIONS = [
  */
 export function isDefinitiveRejection(error: unknown): boolean {
   return DEFINITIVE_REJECTIONS.some((type) => error instanceof type);
+}
+
+export type TxLookup = {
+  result: "executed" | "reverted" | "unknown";
+  failure?: string;
+};
+
+/** On-chain result of a transaction; "unknown" when the node has not seen it. */
+export async function lookupTransaction(
+  provider: Provider,
+  txHash: string,
+  signerId: string
+): Promise<TxLookup> {
+  try {
+    const outcome = await provider.viewTransactionStatus({
+      txHash,
+      accountId: signerId,
+      waitUntil: "EXECUTED_OPTIMISTIC"
+    });
+    const failure = findExecutionFailure(outcome);
+    return failure ? { result: "reverted", failure } : { result: "executed" };
+  } catch (error) {
+    if (error instanceof UnknownTransactionError) return { result: "unknown" };
+    throw error;
+  }
 }
