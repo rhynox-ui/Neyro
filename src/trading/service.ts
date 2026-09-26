@@ -1,5 +1,4 @@
 import { parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
-import type { AssetRef } from "@rhea-finance/cross-chain-aggregation-dex";
 import { RheaClient } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
@@ -16,7 +15,9 @@ type PendingTrade = { userId: number; request: TradeRequest; quote: TradeQuote; 
 
 const pending = new Map<string, PendingTrade>();
 
-function findNearNative(tokens: readonly AssetRef[]) {
+type NearToken = Awaited<ReturnType<RheaClient["getNearTokens"]>>[number];
+
+function findNearNative(tokens: readonly NearToken[]): NearToken {
   const token = tokens.find((item) => item.address.toLowerCase() === WRAPPED_NEAR);
   if (!token) throw new Error("RHEA did not return wrap.near in the NEAR token list");
   return token;
