@@ -1,17 +1,18 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { formatUnits, parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { fetchNearMarket, type NearMarket } from "../market/dexscreener.js";
-import { fetchLaunchByToken, isNearlyToken, launchAsMarket } from "../discovery/nearly.js";
+import { fetchLaunchByToken, isNearlyToken, nearlyMarket } from "../discovery/nearly.js";
 
 /** DexScreener first; brand-new NEARly tokens fall back to the factory's launch record. */
-async function loadMarket(address: string): Promise<NearMarket | null> {
+async function loadMarket(address: string, nearUsd: () => Promise<number | null>): Promise<NearMarket | null> {
   const market = await fetchNearMarket(address).catch((error) => {
     console.warn("DexScreener lookup failed:", error);
     return null;
   });
   if (market || !isNearlyToken(address)) return market;
+  // DexScreener doesn't list many NEARly pools: price them from the chain.
   const launch = await fetchLaunchByToken(address).catch(() => null);
-  return launch ? launchAsMarket(launch) : null;
+  return launch ? nearlyMarket(launch, await nearUsd()) : null;
 }
 import { ftBalanceOf } from "../near/ft.js";
 import { looksLikeContractId } from "../near/tokens.js";
@@ -227,7 +228,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
     await ctx.replyWithChatAction("typing").catch(() => {});
     try {
       const token = await tradingService.resolveToken(query);
-      const market = await loadMarket(token.address);
+      const market = await loadMarket(token.address, () => tradingService.nearUsdPrice());
       await render(ctx, userId, {
         token,
         market,
@@ -301,7 +302,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
 
     pm.callbackQuery("tp:refresh", (ctx) => withPanel(ctx, async (userId, state) => {
       await ctx.answerCallbackQuery("Refreshing…");
-      const market = (await loadMarket(state.token.address)) ?? state.market;
+      const market = (await loadMarket(state.token.address, () => tradingService.nearUsdPrice())) ?? state.market;
       await render(ctx, userId, { ...state, market }, true);
     }));
 

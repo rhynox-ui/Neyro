@@ -19,6 +19,7 @@ import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, injectFee, type FeePlan } from "./fee.js";
 import { storageRegistrationCost } from "../near/ft.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
+import { fetchLaunchByToken, isNearlyToken, nearlyPriceUsd } from "../discovery/nearly.js";
 import { UserFacingError, userMessage } from "../errors.js";
 
 const WRAPPED_NEAR = "wrap.near";
@@ -220,12 +221,28 @@ export class TradingService {
     };
   }
 
+  /** USD per NEAR, from RHEA's token list. */
+  async nearUsdPrice(): Promise<number | null> {
+    const tokens = await this.rhea.getNearTokens().catch(() => []);
+    const price = Number(tokens.find((item) => item.address.toLowerCase() === WRAPPED_NEAR)?.price);
+    return Number.isFinite(price) && price > 0 ? price : null;
+  }
+
+  /**
+   * USD per whole token: RHEA's list, then DexScreener, then (for NEARly
+   * launches DexScreener doesn't index) the token's own RHEA DCL pool.
+   */
   private async priceUsd(token: TradeRequest["tokenIn"]): Promise<number | null> {
     const listed = Number((token as { price?: unknown }).price);
     if (Number.isFinite(listed) && listed > 0) return listed;
-    const market = await fetchNearMarket(contractOf(token)).catch(() => null);
+    const contractId = contractOf(token);
+    const market = await fetchNearMarket(contractId).catch(() => null);
     const price = Number(market?.priceUsd);
-    return Number.isFinite(price) && price > 0 ? price : null;
+    if (Number.isFinite(price) && price > 0) return price;
+    if (!isNearlyToken(contractId)) return null;
+    const launch = await fetchLaunchByToken(contractId).catch(() => null);
+    const pricing = launch ? await nearlyPriceUsd(launch, await this.nearUsdPrice()).catch(() => null) : null;
+    return pricing?.priceUsd ?? null;
   }
 
   async execute(userId: number, id: string): Promise<ExecutionResult> {
