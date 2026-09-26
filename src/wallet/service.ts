@@ -1,4 +1,4 @@
-import { Account, KeyPair, keyToImplicitAddress } from "near-api-js";
+import { Account, KeyPair, keyToImplicitAddress, type KeyPairString } from "near-api-js";
 import { config } from "../config.js";
 import { createNearConnection } from "../near/client.js";
 import { decryptSecret, encryptSecret, type EncryptedSecret } from "../security/secrets.js";
@@ -20,7 +20,7 @@ function requireMasterKey(): string {
 
 function accountFor(accountId: string, privateKey: string): Account {
   const near = createNearConnection();
-  return new Account(accountId, near.provider, privateKey);
+  return new Account(accountId, near.provider, privateKey as KeyPairString);
 }
 
 export type WalletInfo = {
@@ -45,8 +45,7 @@ export class WalletService {
     }
 
     const keyPair = KeyPair.fromRandom("ed25519");
-    const publicKey = keyPair.getPublicKey();
-    const accountId = keyToImplicitAddress(publicKey);
+    const accountId = keyToImplicitAddress(keyPair.getPublicKey());
     const encryptedKey = encryptSecret(keyPair.toString(), requireMasterKey());
 
     wallets.set(telegramUserId, {
