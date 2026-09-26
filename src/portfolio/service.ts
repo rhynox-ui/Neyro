@@ -28,9 +28,12 @@ async function ftBalanceOf(contractId: string, accountId: string): Promise<strin
       args: { account_id: accountId }
     });
 
-    const raw = typeof result === "string"
-      ? result
-      : new TextDecoder().decode(result.result);
+    if (typeof result === "string") return result;
+    if (!result || typeof result !== "object" || !("result" in result)) {
+      throw new Error("Unexpected ft_balance_of RPC response");
+    }
+    const bytes = (result as { result: Uint8Array }).result;
+    return new TextDecoder().decode(bytes);
 
     return raw;
   });
