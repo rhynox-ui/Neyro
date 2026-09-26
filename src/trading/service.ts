@@ -64,7 +64,8 @@ export class TradingService {
       const balance = BigInt(await getNearBalance(wallet.accountId));
       const amount = BigInt(amountIn);
       if (amount > balance) throw new Error("Insufficient NEAR balance");
-      const shareBps = Number((amount * 10000n) / (balance === 0n ? 1n : balance));\n      assertTradeShareAllowed(shareBps);
+      const shareBps = Number((amount * 10000n) / (balance === 0n ? 1n : balance));
+      assertTradeShareAllowed(shareBps);
     }
 
     const request: TradeRequest = {
