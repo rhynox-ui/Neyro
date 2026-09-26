@@ -1,6 +1,6 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { mainMenu } from "./menu.js";
-import { WalletService } from "../wallet/service.js";
+import { MAX_WALLETS, WalletService } from "../wallet/service.js";
 import { getNearBalance, type NearBalance } from "../near/account.js";
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { TradingService } from "../trading/service.js";
@@ -8,6 +8,7 @@ import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
 import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { userMessage } from "../errors.js";
+import type { WalletSummary } from "../wallet/repository.js";
 import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
 import { describeRoute, valueLossWarning } from "../trading/outcome.js";
 import { ageLabel, createTokenPanel, feeLabel, SLIPPAGE_PRESETS } from "./panel.js";
@@ -107,6 +108,36 @@ export function renderSettings(prefs: SlippagePrefs) {
       keyboard.text(`${value}%${prefs[side] === value ? " ✓" : ""}`, `st:${side}:${value}`);
     }
   }
+  return { text, keyboard };
+}
+
+export function shortAccount(accountId: string): string {
+  return accountId.length > 20 ? `${accountId.slice(0, 6)}…${accountId.slice(-4)}` : accountId;
+}
+
+/** Wallet list with the active one marked, plus switch / new buttons. */
+export function renderWalletScreen(wallets: readonly WalletSummary[], activeBalance: NearBalance, maxWallets: number) {
+  const active = wallets.find((wallet) => wallet.active) ?? wallets[0];
+  const lines = wallets.map((wallet, index) =>
+    `${wallet.active ? "✅" : "▫️"} W${index + 1} · ${code(shortAccount(wallet.accountId))}`
+  );
+  const text = [
+    `👛 <b>Your wallets</b> (${wallets.length}/${maxWallets})`,
+    "",
+    ...lines,
+    "",
+    `Active: ${active ? code(active.accountId) : "—"}`,
+    `Balance: ${renderBalance(activeBalance)}`,
+    "",
+    "Trades, /deposit and /withdraw use the active wallet. Tap a wallet to switch."
+  ].join("\n");
+
+  const keyboard = new InlineKeyboard();
+  wallets.forEach((wallet, index) => {
+    if (index > 0) keyboard.row();
+    keyboard.text(`${wallet.active ? "✅ " : ""}W${index + 1} · ${shortAccount(wallet.accountId)}`, `w:use:${index}`);
+  });
+  if (wallets.length < maxWallets) keyboard.row().text("➕ New wallet", "w:new");
   return { text, keyboard };
 }
 
@@ -216,29 +247,50 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.reply("⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
   });
 
-  async function showWallet(ctx: Context) {
+  async function showWallet(ctx: Context, edit = false, note?: string) {
     const telegramUserId = ctx.from!.id;
     try {
-      const existing = await walletService.getWallet(telegramUserId);
-      if (existing) {
-        const balance = await getNearBalance(existing.accountId);
-        await ctx.reply(
-          `👛 <b>Your Neyro wallet</b>\n\nNetwork: ${existing.network}\nAccount: ${code(existing.accountId)}\nBalance: ${renderBalance(balance)}\n\nUse /deposit to fund it and /withdraw to send funds out.`,
-          HTML
-        );
-        return;
+      let created: string | undefined;
+      if (!(await walletService.getWallet(telegramUserId))) {
+        created = (await walletService.createWallet(telegramUserId)).accountId;
       }
-      const wallet = await walletService.createWallet(telegramUserId);
-      await ctx.reply(
-        `✅ <b>Wallet created</b>\n\nNetwork: ${wallet.network}\nAccount: ${code(wallet.accountId)}\n\nUse /deposit to fund this wallet.\n\n⚠️ This wallet is custodial. Do not deposit meaningful funds until recovery and operational safeguards are fully deployed.`,
-        HTML
-      );
+      const wallets = await walletService.listWallets(telegramUserId);
+      const active = wallets.find((wallet) => wallet.active) ?? wallets[0]!;
+      const balance = await getNearBalance(active.accountId);
+      const { text, keyboard } = renderWalletScreen(wallets, balance, MAX_WALLETS);
+      const header = note ?? (created ? "✅ <b>Wallet created</b>\n\n" : "");
+      const body = header + text + (created
+        ? "\n\n⚠️ This wallet is custodial. Do not deposit meaningful funds until recovery and operational safeguards are fully deployed."
+        : "");
+      const options = { ...HTML, reply_markup: keyboard };
+      if (edit) await ctx.editMessageText(body, options).catch(() => ctx.reply(body, options));
+      else await ctx.reply(body, options);
     } catch (error) {
       console.error("Wallet error:", error);
       await ctx.reply(`❌ ${userMessage(error, "Wallet is temporarily unavailable")}`);
     }
   }
-  pm.command("wallet", showWallet);
+
+  pm.callbackQuery(/^w:use:(\d)$/, async (ctx) => {
+    const wallets = await walletService.listWallets(ctx.from.id);
+    const target = wallets[Number(ctx.match[1])];
+    if (!target) return void await ctx.answerCallbackQuery("That wallet no longer exists");
+    await walletService.switchWallet(ctx.from.id, target.accountId);
+    await ctx.answerCallbackQuery(`Switched to W${Number(ctx.match[1]) + 1}`);
+    await showWallet(ctx, true);
+  });
+
+  pm.callbackQuery("w:new", async (ctx) => {
+    try {
+      await walletService.addWallet(ctx.from.id);
+      await ctx.answerCallbackQuery("New wallet created");
+      await showWallet(ctx, true, "✅ <b>New wallet created and selected</b>\n\n");
+    } catch (error) {
+      await ctx.answerCallbackQuery(userMessage(error, "Couldn't create a wallet"));
+    }
+  });
+
+  pm.command("wallet", (ctx) => showWallet(ctx, false));
 
   pm.command("deposit", async (ctx) => {
     const wallet = await requireWallet(ctx);
@@ -397,7 +449,7 @@ export function registerBotHandlers(bot: Bot) {
       await ctx.reply("❌ Couldn't load that launch right now.");
     }
   });
-  pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await showWallet(ctx); });
+  pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await showWallet(ctx, false); });
   async function showSettings(ctx: Context, edit: boolean) {
     const { text, keyboard } = renderSettings(await settingsService.slippage(ctx.from!.id));
     const options = { ...HTML, reply_markup: keyboard };

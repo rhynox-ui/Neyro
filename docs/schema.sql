@@ -18,8 +18,11 @@ create table if not exists wallets (
   created_at timestamptz not null default now()
 );
 
--- MVP: one wallet per Telegram user; prevents concurrent /wallet from creating two.
-create unique index if not exists wallets_user_id_key on wallets(user_id);
+-- Users can hold several wallets (up to 5); users.active_wallet_id picks the
+-- one used for trading. The earlier one-wallet-per-user index is removed.
+drop index if exists wallets_user_id_key;
+create index if not exists wallets_user_idx on wallets(user_id, created_at);
+alter table users add column if not exists active_wallet_id uuid references wallets(id) on delete set null;
 
 -- Encrypted key material only. The plaintext secret must never be stored.
 -- Encryption keys belong in a deployment secret manager, not PostgreSQL.

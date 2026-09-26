@@ -287,7 +287,7 @@ export class TradingService {
     const feeState: { mode: ReturnType<typeof injectFee>["mode"] } = { mode: "none" };
     const fee = trade.fee;
     try {
-      const account = await this.walletService.getSigningAccount(userId);
+      const account = await this.walletService.getSigningAccount(userId, request.accountId);
       signer = new NearAccountSigner(account, {
         beforeBroadcast: (txHash, receiverId) =>
           this.repository.recordEvent(userId, id, { type: "tx_signed", txHash, details: { receiverId } }),

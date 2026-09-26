@@ -165,7 +165,7 @@ export class WithdrawService {
     }
     const plan = fromStored(stored);
 
-    const account = await this.walletService.getSigningAccount(userId);
+    const account = await this.walletService.getSigningAccount(userId, plan.from);
     const signer = new NearAccountSigner(account);
     let error: unknown;
     try {
