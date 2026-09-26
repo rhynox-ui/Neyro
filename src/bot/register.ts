@@ -1,5 +1,8 @@
 import type { Bot } from "grammy";
 import { mainMenu } from "./menu.js";
+import { WalletService } from "../wallet/service.js";
+
+const walletService = new WalletService();
 
 export function registerBotHandlers(bot: Bot) {
   bot.command("start", async (ctx) => {
@@ -10,9 +13,29 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   bot.command("wallet", async (ctx) => {
-    await ctx.reply(
-      "👛 Wallet\n\nWallet management is the next milestone.\nYour signer will be isolated from the Telegram layer."
-    );
+    const telegramUserId = ctx.from?.id;
+    if (!telegramUserId) {
+      await ctx.reply("❌ Telegram user identity is unavailable.");
+      return;
+    }
+
+    const existing = await walletService.getWallet(telegramUserId);
+    if (existing) {
+      await ctx.reply(
+        `👛 Your Neyro wallet\n\nNetwork: ${existing.network}\nAccount: \`${existing.accountId}\`\n\nFund this account with NEAR to start trading.`
+      );
+      return;
+    }
+
+    try {
+      const wallet = await walletService.createWallet(telegramUserId);
+      await ctx.reply(
+        `✅ Wallet created\n\nNetwork: ${wallet.network}\nAccount: \`${wallet.accountId}\`\n\nSend NEAR to this account to fund it.\n\n⚠️ Neyro's current wallet service is an early custodial implementation. Do not deposit meaningful funds until persistent encrypted storage and recovery are enabled.`
+      );
+    } catch (error) {
+      console.error("Wallet creation error:", error);
+      await ctx.reply("❌ Wallet creation is not configured yet.");
+    }
   });
 
   bot.command("buy", async (ctx) => {
@@ -43,7 +66,7 @@ export function registerBotHandlers(bot: Bot) {
 
   bot.callbackQuery("wallet", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.reply("👛 Wallet\n\nWallet creation and secure signing are the next milestone.");
+    await ctx.reply("👛 Wallet\n\nUse /wallet to create or view your Neyro wallet.");
   });
 
   bot.callbackQuery("settings", async (ctx) => {
