@@ -201,7 +201,10 @@ export async function nearlyPriceUsd(launch: NearlyLaunch, nearUsd: number | nul
 /** Market card from the launch record plus on-chain pool pricing. */
 export async function nearlyMarket(launch: NearlyLaunch, nearUsd: number | null): Promise<NearMarket> {
   const base = launchAsMarket(launch);
-  const pricing = await nearlyPriceUsd(launch, nearUsd).catch(() => null);
+  const pricing = await nearlyPriceUsd(launch, nearUsd).catch((error) => {
+    console.warn("NEARly pool pricing failed:", { token: launch.token, error: String(error) });
+    return null;
+  });
   if (!pricing) return base;
   return {
     ...base,

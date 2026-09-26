@@ -37,16 +37,20 @@ function missingSecrets(): string[] {
 type App = Awaited<ReturnType<typeof loadModules>>;
 
 async function loadModules() {
-  const [configModule, create, register, repository, reconciler, execution, rpc] = await Promise.all([
+  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea] = await Promise.all([
     import("./config.js"),
     import("./bot/create.js"),
     import("./bot/register.js"),
     import("./trading/repository.js"),
     import("./trading/reconciler.js"),
     import("./near/execution.js"),
-    import("./near/rpc.js")
+    import("./near/rpc.js"),
+    import("./market/dexscreener.js"),
+    import("./market/dcl.js"),
+    import("./discovery/nearly.js"),
+    import("./rhea/client.js")
   ]);
-  return { config: configModule.config, create, register, repository, reconciler, execution, rpc };
+  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea };
 }
 
 let appPromise: Promise<App> | undefined;
@@ -149,6 +153,52 @@ async function handleSetup(request: Request): Promise<Response> {
   return Response.json({ ok: true, webhookUrl, commands: create.BOT_COMMANDS.length });
 }
 
+/**
+ * GET /debug/price?secret=SETUP_SECRET&token=<contract>: runs each market-data
+ * step for one token and reports its result or error, for diagnosing blank
+ * token cards. Returns only public market data.
+ */
+async function handleDebugPrice(request: Request): Promise<Response> {
+  const app = await getApp();
+  const url = new URL(request.url);
+  if (!app.config.SETUP_SECRET || url.searchParams.get("secret") !== app.config.SETUP_SECRET) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  const token = (url.searchParams.get("token") ?? "").trim().toLowerCase();
+  const step = async (run: () => Promise<unknown>) => {
+    const started = Date.now();
+    try {
+      return { ok: true, ms: Date.now() - started, value: await run() };
+    } catch (error) {
+      return { ok: false, ms: Date.now() - started, error: String(error).slice(0, 300) };
+    }
+  };
+
+  const rheaNear = await step(async () => {
+    const tokens = await new app.rhea.RheaClient().getNearTokens();
+    return tokens.find((item) => item.address.toLowerCase() === "wrap.near")?.price ?? "wrap.near not in list";
+  });
+  const dclNear = await step(() => app.dcl.nearUsdFromDcl());
+  const dexscreener = await step(async () => {
+    const market = await app.dex.fetchNearMarket(token);
+    return market ? { priceUsd: market.priceUsd, liquidityUsd: market.liquidityUsd, cachedAtMs: market.cachedAtMs ?? null } : null;
+  });
+  const launch = await step(() => app.nearly.fetchLaunchByToken(token));
+  const launchValue = launch.ok ? (launch as { value: Awaited<ReturnType<typeof app.nearly.fetchLaunchByToken>> }).value : null;
+  const pool = launchValue?.poolId
+    ? await step(async () => {
+        const result = await app.dcl.fetchDclPool(launchValue.poolId!);
+        return result ? { currentPoint: result.currentPoint, totalX: String(result.totalX), totalY: String(result.totalY) } : null;
+      })
+    : { ok: false, error: "no pool id on launch" };
+  const nearUsd = (dclNear as { value?: unknown }).value;
+  const pricing = launchValue
+    ? await step(() => app.nearly.nearlyPriceUsd(launchValue, typeof nearUsd === "number" ? nearUsd : null))
+    : { ok: false, error: "no launch" };
+
+  return Response.json({ token, rheaNear, dclNear, dexscreener, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -165,6 +215,7 @@ export default {
     if (problem) return new Response(problem, { status: 500 });
     if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
     if (url.pathname === "/setup-webhook") return handleSetup(request);
+    if (url.pathname === "/debug/price") return handleDebugPrice(request);
     return new Response("Neyro is running.");
   },
 

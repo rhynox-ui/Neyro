@@ -19,6 +19,7 @@ import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, injectFee, type FeePlan } from "./fee.js";
 import { storageRegistrationCost } from "../near/ft.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
+import { nearUsdFromDcl } from "../market/dcl.js";
 import { fetchLaunchByToken, isNearlyToken, nearlyPriceUsd } from "../discovery/nearly.js";
 import { UserFacingError, userMessage } from "../errors.js";
 
@@ -223,9 +224,17 @@ export class TradingService {
 
   /** USD per NEAR, from RHEA's token list. */
   async nearUsdPrice(): Promise<number | null> {
-    const tokens = await this.rhea.getNearTokens().catch(() => []);
+    const tokens = await this.rhea.getNearTokens().catch((error) => {
+      console.warn("RHEA token list unavailable:", String(error));
+      return [];
+    });
     const price = Number(tokens.find((item) => item.address.toLowerCase() === WRAPPED_NEAR)?.price);
-    return Number.isFinite(price) && price > 0 ? price : null;
+    if (Number.isFinite(price) && price > 0) return price;
+    // On-chain fallback: RHEA's deepest NEAR/stablecoin DCL pool.
+    return nearUsdFromDcl().catch((error) => {
+      console.warn("NEAR/USD pool price unavailable:", String(error));
+      return null;
+    });
   }
 
   /**
