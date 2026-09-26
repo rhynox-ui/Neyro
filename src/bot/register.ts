@@ -8,7 +8,8 @@ import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
 import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { userMessage } from "../errors.js";
-import { createTokenPanel } from "./panel.js";
+import { ageLabel, createTokenPanel } from "./panel.js";
+import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discovery/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -73,6 +74,49 @@ export function renderPortfolio(near: NearBalance, assets: readonly PortfolioAss
     `• ${renderBalance(near)}`,
     ...(lines.length ? lines : ["No token balances yet."])
   ].join("\n");
+}
+
+function pairName(quote: string): string {
+  return quote === "wrap.near" ? "NEAR" : quote.split(".")[0]!.toUpperCase().slice(0, 12);
+}
+
+/** HTML list of recent NEARly launches plus one button per token. */
+export function renderLaunchFeed(launches: readonly NearlyLaunch[], now = Date.now()) {
+  const lines = launches.map((launch, index) =>
+    `${index + 1}. <b>${escapeHtml(launch.name)}</b> ($${escapeHtml(launch.symbol)}) · ${ageLabel(launch.createdAtMs, now)} · vs ${escapeHtml(pairName(launch.quote))}\n   ${code(launch.token)}`
+  );
+  const text = [
+    "🆕 <b>New on NEARly</b>",
+    "",
+    ...(lines.length ? lines : ["No completed launches yet."]),
+    "",
+    "Tap a token to open its trading panel."
+  ].join("\n");
+
+  const keyboard = new InlineKeyboard();
+  launches.forEach((launch, index) => {
+    keyboard.text(`$${launch.symbol}`, `nl:${launch.id}`);
+    if (index % 2 === 1) keyboard.row();
+  });
+  keyboard.row().text("🔄 Refresh", "nl:feed");
+  return { text, keyboard };
+}
+
+async function showLaunchFeed(ctx: Context, edit: boolean) {
+  try {
+    const { text, keyboard } = renderLaunchFeed(await fetchRecentLaunches(8));
+    const options = { ...HTML, reply_markup: keyboard };
+    if (edit) {
+      await ctx.editMessageText(text, options).catch((error) => {
+        if (!String(error?.description ?? error).includes("message is not modified")) throw error;
+      });
+    } else {
+      await ctx.reply(text, options);
+    }
+  } catch (error) {
+    console.error("NEARly feed error:", error);
+    await ctx.reply("❌ New launches are temporarily unavailable. Try again shortly.");
+  }
 }
 
 async function requireWallet(ctx: Context) {
@@ -243,7 +287,20 @@ export function registerBotHandlers(bot: Bot) {
       : "💰 Sell\n\nPaste a token contract id to open its trading panel, or send /sell <token> <amount-token>.");
   });
   pm.callbackQuery("portfolio", async (ctx) => { await ctx.answerCallbackQuery(); await showPortfolio(ctx); });
-  pm.callbackQuery("discover", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("🔎 Discover\n\nNEARly token discovery will be connected after core trading."); });
+  pm.command("new", async (ctx) => { await showLaunchFeed(ctx, false); });
+  pm.callbackQuery("discover", async (ctx) => { await ctx.answerCallbackQuery(); await showLaunchFeed(ctx, false); });
+  pm.callbackQuery("nl:feed", async (ctx) => { await ctx.answerCallbackQuery("Refreshing…"); await showLaunchFeed(ctx, true); });
+  pm.callbackQuery(/^nl:(\d{1,12})$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    try {
+      const launch = await fetchLaunch(Number(ctx.match[1]));
+      if (!launch) return void await ctx.reply("That launch isn't tradable yet.");
+      await tokenPanel.open(ctx, launch.token);
+    } catch (error) {
+      console.error("NEARly launch error:", error);
+      await ctx.reply("❌ Couldn't load that launch right now.");
+    }
+  });
   pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("👛 Wallet\n\nUse /wallet to create or view your Neyro wallet."); });
   pm.callbackQuery("settings", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("⚙️ Settings\n\nSlippage and trading limits will be configurable here."); });
 
