@@ -11,23 +11,34 @@ function keyFromEnv(value: string): Buffer {
 }
 
 export type EncryptedSecret = {
-  version: 1;
+  /** 1 = no associated data (legacy); 2 = bound to associated data. */
+  version: 1 | 2;
   iv: string;
   tag: string;
   ciphertext: string;
 };
 
-export function encryptSecret(secret: string, masterKeyBase64: string): EncryptedSecret {
+/**
+ * AES-256-GCM. When `associatedData` is given (version 2), the ciphertext is
+ * bound to it: decrypting with different associated data fails, so a stored
+ * secret can't be moved to another wallet row.
+ */
+export function encryptSecret(
+  secret: string,
+  masterKeyBase64: string,
+  associatedData?: string
+): EncryptedSecret {
   const key = keyFromEnv(masterKeyBase64);
   const iv = randomBytes(12);
   const cipher = createCipheriv(ALGORITHM, key, iv);
+  if (associatedData !== undefined) cipher.setAAD(Buffer.from(associatedData, "utf8"));
   const ciphertext = Buffer.concat([
     cipher.update(secret, "utf8"),
     cipher.final()
   ]);
 
   return {
-    version: 1,
+    version: associatedData === undefined ? 1 : 2,
     iv: iv.toString("base64"),
     tag: cipher.getAuthTag().toString("base64"),
     ciphertext: ciphertext.toString("base64")
@@ -36,9 +47,15 @@ export function encryptSecret(secret: string, masterKeyBase64: string): Encrypte
 
 export function decryptSecret(
   encrypted: EncryptedSecret,
-  masterKeyBase64: string
+  masterKeyBase64: string,
+  associatedData?: string
 ): string {
-  if (encrypted.version !== 1) throw new Error("Unsupported secret version");
+  if (encrypted.version !== 1 && encrypted.version !== 2) {
+    throw new Error("Unsupported secret version");
+  }
+  if (encrypted.version === 2 && associatedData === undefined) {
+    throw new Error("Associated data is required for version 2 secrets");
+  }
 
   const key = keyFromEnv(masterKeyBase64);
   const decipher = createDecipheriv(
@@ -46,6 +63,7 @@ export function decryptSecret(
     key,
     Buffer.from(encrypted.iv, "base64")
   );
+  if (encrypted.version === 2) decipher.setAAD(Buffer.from(associatedData!, "utf8"));
   decipher.setAuthTag(Buffer.from(encrypted.tag, "base64"));
 
   return Buffer.concat([

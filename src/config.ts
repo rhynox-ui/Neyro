@@ -11,6 +11,28 @@ const schema = z.object({
   NEYRO_MASTER_KEY: z.string().optional(),
   DATABASE_URL: z.string().url().optional(),
   LOG_LEVEL: z.string().default("info")
+}).superRefine((env, ctx) => {
+  const rpcs = [env.NEAR_RPC_URL, env.NEAR_RPC_FALLBACK_URL].filter(Boolean) as string[];
+  const mismatched = rpcs.filter((url) =>
+    env.NEAR_NETWORK === "mainnet" ? /testnet/i.test(url) : /mainnet/i.test(url)
+  );
+  for (const url of mismatched) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NEAR_RPC_URL"],
+      message: `RPC ${url} does not match NEAR_NETWORK=${env.NEAR_NETWORK}`
+    });
+  }
+  if (env.NEAR_NETWORK === "mainnet" && !env.DATABASE_URL) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["DATABASE_URL"],
+      message: "DATABASE_URL is required on mainnet; in-memory wallets would lose keys on restart"
+    });
+  }
 });
 
 export const config = schema.parse(process.env);
+
+/** RHEA liquidity and its token list exist on NEAR mainnet only. */
+export const TRADING_ENABLED = config.NEAR_NETWORK === "mainnet";

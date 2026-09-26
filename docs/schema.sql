@@ -14,10 +14,14 @@ create table if not exists wallets (
   created_at timestamptz not null default now()
 );
 
+-- MVP: one wallet per Telegram user; prevents concurrent /wallet from creating two.
+create unique index if not exists wallets_user_id_key on wallets(user_id);
+
 -- Encrypted key material only. The plaintext secret must never be stored.
 -- Encryption keys belong in a deployment secret manager, not PostgreSQL.
 create table if not exists wallet_secrets (
   wallet_id uuid primary key references wallets(id) on delete cascade,
+  -- 1 = legacy AES-GCM without AAD; 2 = AAD bound to the wallet account id.
   cipher_version integer not null default 1,
   iv_base64 text not null,
   auth_tag_base64 text not null,

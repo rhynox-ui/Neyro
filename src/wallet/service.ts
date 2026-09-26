@@ -10,6 +10,28 @@ function requireMasterKey(): string {
   return config.NEYRO_MASTER_KEY;
 }
 
+/** Associated data binding an encrypted key to its wallet. */
+export function walletKeyContext(accountId: string): string {
+  return `neyro:wallet-key:v2:${accountId}`;
+}
+
+/**
+ * Decrypts a wallet key and checks that it controls the stored implicit
+ * account, which also catches legacy (v1) rows that were swapped between users.
+ */
+export function unlockWalletKey(wallet: StoredWallet, masterKey: string): string {
+  const secret = decryptSecret(
+    wallet.encryptedKey,
+    masterKey,
+    wallet.encryptedKey.version === 2 ? walletKeyContext(wallet.accountId) : undefined
+  );
+  const derived = keyToImplicitAddress(KeyPair.fromString(secret as KeyPairString).getPublicKey());
+  if (derived !== wallet.accountId) {
+    throw new Error("Stored wallet key does not match its account");
+  }
+  return secret;
+}
+
 function accountFor(accountId: string, privateKey: string): Account {
   const near = createNearConnection();
   return new Account(accountId, near.provider, privateKey as KeyPairString);
@@ -40,7 +62,7 @@ export class WalletService {
     const stored: StoredWallet = {
       telegramUserId,
       accountId,
-      encryptedKey: encryptSecret(keyPair.toString(), requireMasterKey())
+      encryptedKey: encryptSecret(keyPair.toString(), requireMasterKey(), walletKeyContext(accountId))
     };
 
     await this.repository.save(stored);
@@ -54,6 +76,6 @@ export class WalletService {
   async getSigningAccount(telegramUserId: number): Promise<Account> {
     const wallet = await this.repository.getByTelegramUserId(telegramUserId);
     if (!wallet) throw new Error("No Neyro wallet exists for this Telegram account");
-    return accountFor(wallet.accountId, decryptSecret(wallet.encryptedKey, requireMasterKey()));
+    return accountFor(wallet.accountId, unlockWalletKey(wallet, requireMasterKey()));
   }
 }

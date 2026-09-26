@@ -14,7 +14,7 @@ import {
   type TradeStatus
 } from "./repository.js";
 import { assessFill, classifyBatch, quoteDeadline } from "./outcome.js";
-import { config } from "../config.js";
+import { config, TRADING_ENABLED } from "../config.js";
 
 const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
@@ -86,6 +86,10 @@ export class TradingService {
     humanAmount: string
   ) {
     cleanupPending();
+
+    if (!TRADING_ENABLED) {
+      throw new Error("Trading uses RHEA liquidity on NEAR mainnet only; this bot is running on testnet");
+    }
 
     const wallet = await this.walletService.getWallet(userId);
     if (!wallet) throw new Error("Create a Neyro wallet first with /wallet");
