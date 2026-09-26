@@ -22,29 +22,22 @@ const cache = new Map<string, CachedPortfolio>();
 
 async function ftBalanceOf(contractId: string, accountId: string): Promise<string> {
   return withRpcFallback(async (provider) => {
+    // near-api-js 7 already decodes the JSON view result; NEP-141 returns
+    // the balance as a JSON string (U128), so a string is the only valid shape.
     const result = await provider.callFunction({
       contractId,
-      methodName: "ft_balance_of",
+      method: "ft_balance_of",
       args: { account_id: accountId }
     });
-
-    if (typeof result === "string") return result;
-    if (!result || typeof result !== "object" || !("result" in result)) {
-      throw new Error("Unexpected ft_balance_of RPC response");
-    }
-    const bytes = (result as { result: Uint8Array }).result;
-    return new TextDecoder().decode(bytes);
-
-    return raw;
+    return parseFtBalance(result);
   });
 }
 
-function decodeJsonString(raw: string): string {
-  const parsed = JSON.parse(raw);
-  if (typeof parsed !== "string") {
+export function parseFtBalance(value: unknown): string {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
     throw new Error("Invalid ft_balance_of response");
   }
-  return parsed;
+  return value;
 }
 
 export class PortfolioService {
@@ -67,9 +60,7 @@ export class PortfolioService {
         const contractId = token.contractAddress ?? token.address;
         if (!contractId) return null;
 
-        const baseUnits = decodeJsonString(
-          await ftBalanceOf(contractId, accountId)
-        );
+        const baseUnits = await ftBalanceOf(contractId, accountId);
 
         if (BigInt(baseUnits) === 0n) return null;
 
