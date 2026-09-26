@@ -94,3 +94,10 @@ test("rate limiter allows a burst up to the limit per key, then recovers", async
   now = 1001;
   assert.equal(limiter.take("a"), true);
 });
+
+test("trade receipts show the full transaction hash with an explorer link", () => {
+  const hash = "8AbC12xyZ9qWeRtY7uIoP3aSdFgH5jKlZxCvBnM1q2w3";
+  const text = renderExecution({ status: "filled", txHashes: [hash] });
+  assert.match(text, new RegExp(`<code>${hash}</code>`));
+  assert.match(text, new RegExp(`nearblocks\\.io/txns/${hash}`));
+});

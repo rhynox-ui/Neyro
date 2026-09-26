@@ -44,12 +44,19 @@ export function explorerTx(txHash: string): string {
   return `https://${host}/txns/${txHash}`;
 }
 
+/** Full transaction hashes (tap to copy) with explorer links. */
+export function renderTxHashes(hashes: readonly string[]): string {
+  if (hashes.length === 0) return "";
+  const lines = hashes.map((hash, i) => {
+    const label = hashes.length > 1 ? `Tx ${i + 1}` : "Tx hash";
+    return `🔗 <b>${label}:</b>\n${code(hash)}\n<a href="${explorerTx(hash)}">View on NearBlocks</a>`;
+  });
+  return `\n\n${lines.join("\n\n")}`;
+}
+
 /** HTML message for a trade outcome. */
 export function renderExecution(result: ExecutionResult): string {
-  const links = result.txHashes
-    .map((hash) => `<a href="${explorerTx(hash)}">${escapeHtml(hash.slice(0, 8))}…</a>`)
-    .join("\n");
-  const txs = links ? `\n\n${links}` : "";
+  const txs = renderTxHashes(result.txHashes);
   const reason = result.reason ? escapeHtml(result.reason) : undefined;
   switch (result.status) {
     case "filled":
@@ -81,8 +88,7 @@ export function renderWithdrawConfirm(plan: WithdrawPlan): string {
 }
 
 export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount" | "to">, result: WithdrawResult): string {
-  const links = result.txHashes.map((hash) => `<a href="${explorerTx(hash)}">${escapeHtml(hash.slice(0, 8))}…</a>`).join("\n");
-  const txs = links ? `\n\n${links}` : "";
+  const txs = renderTxHashes(result.txHashes);
   switch (result.status) {
     case "executed":
       return `✅ <b>Sent ${escapeHtml(formatWithdrawAmount(plan))}</b> to ${code(plan.to)}${txs}`;
