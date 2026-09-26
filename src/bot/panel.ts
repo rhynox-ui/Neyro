@@ -41,6 +41,7 @@ import type { WalletService } from "../wallet/service.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { userMessage } from "../errors.js";
 import { describeRoute, valueLossWarning } from "../trading/outcome.js";
+import { deleteIncoming, keepScreen, replyNotice, trackScreen } from "./screens.js";
 import { defaultStateStore, type StateStore } from "../state/store.js";
 import {
   DEFAULT_SLIPPAGE_PCT,
@@ -68,6 +69,9 @@ export type PanelState = {
   amountHuman: string | null;
   slippagePct: number;
   awaiting?: "amount" | "slippage";
+  /** The Telegram message showing this panel, so it can be updated in place. */
+  chatId?: number;
+  messageId?: number;
 };
 
 /** Plain NEAR contract id for display and lookups (RHEA ids may carry "nep141:"). */
@@ -236,8 +240,12 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
     }
   }
 
+  /**
+   * Shows the panel. With `edit`, updates the panel's own message (the tapped
+   * message, or the stored one after a typed reply); otherwise sends a new
+   * card, which replaces the previous panel in the chat.
+   */
   async function render(ctx: Context, userId: number, state: PanelState, edit: boolean): Promise<void> {
-    await panels.set(userId, state);
     const owned = await ownedBalance(userId, state.token);
     const text = panelText(state, owned?.human ?? null);
     const options = {
@@ -245,15 +253,32 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
       ...previewOptions(await logoUrl(state.token, state.market)),
       reply_markup: panelKeyboard(state, owned?.human ?? null)
     };
-    if (edit && ctx.callbackQuery) {
+
+    const target = edit
+      ? ctx.callbackQuery?.message
+        ? { chatId: ctx.callbackQuery.message.chat.id, messageId: ctx.callbackQuery.message.message_id }
+        : state.chatId !== undefined && state.messageId !== undefined
+          ? { chatId: state.chatId, messageId: state.messageId }
+          : undefined
+      : undefined;
+
+    if (target) {
       try {
-        await ctx.editMessageText(text, options);
+        await ctx.api.editMessageText(target.chatId, target.messageId, text, options);
+        await panels.set(userId, { ...state, ...target });
+        return;
       } catch (error) {
-        if (!isNotModified(error)) throw error;
+        if (isNotModified(error)) {
+          await panels.set(userId, { ...state, ...target });
+          return;
+        }
+        // Too old or deleted: fall through and send a fresh card.
       }
-    } else {
-      await ctx.reply(text, options);
     }
+
+    const sent = await ctx.reply(text, options);
+    await trackScreen(ctx, "panel", sent.chat.id, sent.message_id);
+    await panels.set(userId, { ...state, chatId: sent.chat.id, messageId: sent.message_id });
   }
 
   async function open(ctx: Context, query: string): Promise<void> {
@@ -264,6 +289,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
       return;
     }
     await ctx.replyWithChatAction("typing").catch(() => {});
+    await deleteIncoming(ctx);
     try {
       const token = await tradingService.resolveToken(query);
       const market = await loadMarket(contractIdOf(token), () => tradingService.nearUsdPrice());
@@ -275,7 +301,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
         slippagePct: await preferredSlippage(userId, "buy")
       }, false);
     } catch (error) {
-      await ctx.reply(`❌ ${userMessage(error, "Couldn't load that token right now")}`);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't load that token right now")}`);
     }
   }
 
@@ -389,7 +415,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
         );
       } catch (error) {
         console.error("Panel quote error:", error);
-        await ctx.reply(`❌ ${userMessage(error, "Unable to create a quote right now")}`);
+        await replyNotice(ctx, `❌ ${userMessage(error, "Unable to create a quote right now")}`);
       }
     }));
 
@@ -411,12 +437,14 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
           amountHuman: null
         };
         next.slippagePct = await preferredSlippage(userId, next.side);
-        await panels.set(userId, next);
         const owned = await ownedBalance(userId, state.token);
+        // The receipt stays in the chat; a fresh panel follows below it.
         await ctx.editMessageText(
           renderExecution(result) + (owned && owned.base > 0n ? `\n💰 You now hold ${escapeHtml(owned.human)} ${escapeHtml(state.token.symbol)}` : ""),
-          { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_markup: panelKeyboard(next, owned?.human ?? null) }
+          { parse_mode: "HTML", link_preview_options: { is_disabled: true } }
         );
+        await keepScreen(ctx, "panel");
+        await render(ctx, userId, { ...next, chatId: undefined, messageId: undefined }, false);
       } catch (error) {
         console.error("Panel execution error:", error);
         await ctx.editMessageText(`❌ ${userMessage(error, "Trade could not be executed")}`);
@@ -439,8 +467,9 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
       const state = await panels.get(userId);
 
       if (state?.awaiting === "amount") {
+        await deleteIncoming(ctx);
         if (!/^\d+(\.\d+)?$/.test(text) || !(Number(text) > 0)) {
-          return void await ctx.reply("Enter a valid positive amount.");
+          return void await replyNotice(ctx, "Enter a valid positive amount.");
         }
         if (state.side === "sell") {
           const owned = await ownedBalance(userId, state.token);
@@ -448,23 +477,24 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
           try {
             requested = BigInt(parseUnits(text, state.token.decimals));
           } catch {
-            return void await ctx.reply(`Too many decimal places for ${state.token.symbol}.`);
+            return void await replyNotice(ctx, `Too many decimal places for ${state.token.symbol}.`);
           }
           if (owned && requested > owned.base) {
-            return void await ctx.reply(`You only have ${owned.human} ${state.token.symbol}.`);
+            return void await replyNotice(ctx, `You only have ${owned.human} ${state.token.symbol}.`);
           }
         }
-        return void await render(ctx, userId, { ...state, awaiting: undefined, amountHuman: text }, false);
+        return void await render(ctx, userId, { ...state, awaiting: undefined, amountHuman: text }, true);
       }
 
       if (state?.awaiting === "slippage") {
+        await deleteIncoming(ctx);
         const value = Number(text.replace(/%$/, ""));
         if (!Number.isFinite(value) || value < MIN_SLIPPAGE_PCT || value > MAX_SLIPPAGE_PCT) {
-          return void await ctx.reply(`Enter a number between ${MIN_SLIPPAGE_PCT} and ${MAX_SLIPPAGE_PCT}.`);
+          return void await replyNotice(ctx, `Enter a number between ${MIN_SLIPPAGE_PCT} and ${MAX_SLIPPAGE_PCT}.`);
         }
         const rounded = Math.round(value * 10) / 10;
         await rememberSlippage(userId, state.side, rounded);
-        return void await render(ctx, userId, { ...state, awaiting: undefined, slippagePct: rounded }, false);
+        return void await render(ctx, userId, { ...state, awaiting: undefined, slippagePct: rounded }, true);
       }
 
       const candidate = text.toLowerCase();

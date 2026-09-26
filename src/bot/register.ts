@@ -9,6 +9,7 @@ import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { userMessage } from "../errors.js";
 import { RateLimiter } from "./rate-limit.js";
+import { deleteIncoming, keepScreen, replyNotice, replyScreen } from "./screens.js";
 import { scheduleDeletion } from "./autodelete.js";
 import type { WalletSummary } from "../wallet/repository.js";
 import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
@@ -242,23 +243,23 @@ async function showLaunchFeed(ctx: Context, edit: boolean) {
         if (!String(error?.description ?? error).includes("message is not modified")) throw error;
       });
     } else {
-      await ctx.reply(text, options);
+      await replyScreen(ctx, "feed", text, options);
     }
   } catch (error) {
     console.error("NEARly feed error:", error);
-    await ctx.reply("❌ New launches are temporarily unavailable. Try again shortly.");
+    await replyNotice(ctx, "❌ New launches are temporarily unavailable. Try again shortly.");
   }
 }
 
 async function requireWallet(ctx: Context) {
   const telegramUserId = ctx.from?.id;
   if (!telegramUserId) {
-    await ctx.reply("❌ Telegram user identity is unavailable.");
+    await replyNotice(ctx, "❌ Telegram user identity is unavailable.");
     return undefined;
   }
   const wallet = await walletService.getWallet(telegramUserId);
   if (!wallet) {
-    await ctx.reply("👛 No wallet yet. Use /wallet to create one.");
+    await replyNotice(ctx, "👛 No wallet yet. Use /wallet to create one.");
     return undefined;
   }
   return wallet;
@@ -272,10 +273,10 @@ async function showPortfolio(ctx: Context) {
       getNearBalance(wallet.accountId),
       portfolioService.getPortfolio(wallet.accountId)
     ]);
-    await ctx.reply(renderPortfolio(near, assets), HTML);
+    await replyScreen(ctx, "portfolio", renderPortfolio(near, assets), HTML);
   } catch (error) {
     console.error("Portfolio error:", error);
-    await ctx.reply("❌ Portfolio is temporarily unavailable. Try again shortly.");
+    await replyNotice(ctx, "❌ Portfolio is temporarily unavailable. Try again shortly.");
   }
 }
 
@@ -289,8 +290,15 @@ export function registerBotHandlers(bot: Bot) {
 
   const pm = bot.chatType("private");
 
+  // Remove the user's own commands once handled, so the chat keeps only
+  // the bot's current screens and results.
+  pm.use(async (ctx, next) => {
+    await next();
+    if (ctx.message?.text?.startsWith("/")) await deleteIncoming(ctx);
+  });
+
   pm.command("start", async (ctx) => {
-    await ctx.reply("⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
+    await replyScreen(ctx, "menu", "⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
   });
 
   async function showWallet(ctx: Context, edit = false, note?: string) {
@@ -309,11 +317,11 @@ export function registerBotHandlers(bot: Bot) {
         ? "\n\n🔑 Back up this wallet: tap \"Export private key\" below and store the key somewhere safe."
         : "");
       const options = { ...HTML, reply_markup: keyboard };
-      if (edit) await ctx.editMessageText(body, options).catch(() => ctx.reply(body, options));
-      else await ctx.reply(body, options);
+      if (edit) await ctx.editMessageText(body, options).catch(() => replyScreen(ctx, "wallet", body, options));
+      else await replyScreen(ctx, "wallet", body, options);
     } catch (error) {
       console.error("Wallet error:", error);
-      await ctx.reply(`❌ ${userMessage(error, "Wallet is temporarily unavailable")}`);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Wallet is temporarily unavailable")}`);
     }
   }
 
@@ -376,7 +384,7 @@ export function registerBotHandlers(bot: Bot) {
   pm.command("deposit", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
-    await ctx.reply(
+    await replyScreen(ctx, "deposit", 
       `📥 <b>Deposit address</b>\n\nNetwork: ${wallet.network}\n${code(wallet.accountId)}\n\nSend NEAR first: it activates the account and pays for gas. Only send assets on NEAR ${wallet.network}.`,
       HTML
     );
@@ -387,10 +395,10 @@ export function registerBotHandlers(bot: Bot) {
     if (!wallet) return;
     try {
       const balance = await getNearBalance(wallet.accountId);
-      await ctx.reply(`💰 <b>NEAR balance</b>\n\n${renderBalance(balance)}\n\nWallet: ${code(wallet.accountId)}`, HTML);
+      await replyScreen(ctx, "balance", `💰 <b>NEAR balance</b>\n\n${renderBalance(balance)}\n\nWallet: ${code(wallet.accountId)}`, HTML);
     } catch (error) {
       console.error("Balance error:", error);
-      await ctx.reply("❌ Balance is temporarily unavailable. Try again shortly.");
+      await replyNotice(ctx, "❌ Balance is temporarily unavailable. Try again shortly.");
     }
   });
 
@@ -405,7 +413,7 @@ export function registerBotHandlers(bot: Bot) {
     }
     try {
       const plan = await withdrawService.prepare(ctx.from.id, parts[0]!, parts[1]!, parts[2]!);
-      await ctx.reply(renderWithdrawConfirm(plan), {
+      await replyScreen(ctx, "withdraw", renderWithdrawConfirm(plan), {
         ...HTML,
         reply_markup: new InlineKeyboard()
           .text("✅ Send", `wd:confirm:${plan.id}`)
@@ -413,7 +421,7 @@ export function registerBotHandlers(bot: Bot) {
       });
     } catch (error) {
       console.error("Withdraw prepare error:", error);
-      await ctx.reply(`❌ ${userMessage(error, "Withdrawal is temporarily unavailable")}`);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Withdrawal is temporarily unavailable")}`);
     }
   });
 
@@ -424,6 +432,7 @@ export function registerBotHandlers(bot: Bot) {
       const plan = { ...(await withdrawService.peek(ctx.from.id, ctx.match[1]!)) };
       const result = await withdrawService.execute(ctx.from.id, ctx.match[1]!);
       await ctx.editMessageText(renderWithdrawResult(plan, result), HTML);
+      await keepScreen(ctx, "withdraw"); // the result stays in the chat
     } catch (error) {
       console.error("Withdraw error:", error);
       await ctx.editMessageText(`❌ ${userMessage(error, "Withdrawal could not be sent")}`);
@@ -483,7 +492,7 @@ export function registerBotHandlers(bot: Bot) {
       );
     } catch (error) {
       console.error("Trade quote error:", error);
-      await ctx.reply(`❌ ${userMessage(error, "Unable to create a quote right now")}`);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Unable to create a quote right now")}`);
     }
   }
 
@@ -523,11 +532,11 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.answerCallbackQuery();
     try {
       const launch = await fetchLaunch(Number(ctx.match[1]));
-      if (!launch) return void await ctx.reply("That launch isn't tradable yet.");
+      if (!launch) return void await replyNotice(ctx, "That launch isn't tradable yet.");
       await tokenPanel.open(ctx, launch.token);
     } catch (error) {
       console.error("NEARly launch error:", error);
-      await ctx.reply("❌ Couldn't load that launch right now.");
+      await replyNotice(ctx, "❌ Couldn't load that launch right now.");
     }
   });
   pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await showWallet(ctx, false); });
@@ -535,7 +544,7 @@ export function registerBotHandlers(bot: Bot) {
     const { text, keyboard } = renderSettings(await settingsService.slippage(ctx.from!.id));
     const options = { ...HTML, reply_markup: keyboard };
     if (edit) await ctx.editMessageText(text, options).catch(() => {});
-    else await ctx.reply(text, options);
+    else await replyScreen(ctx, "settings", text, options);
   }
   pm.command("settings", (ctx) => showSettings(ctx, false));
   pm.callbackQuery("settings", async (ctx) => { await ctx.answerCallbackQuery(); await showSettings(ctx, false); });
