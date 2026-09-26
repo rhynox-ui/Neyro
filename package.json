@@ -1,1 +1,30 @@
-{"name":"neyro","version":"0.1.0","private":true,"description":"NEAR-native Telegram trading terminal","type":"module","scripts":{"dev":"tsx src/index.ts","build":"tsc -p tsconfig.json","start":"node dist/index.js","typecheck":"tsc -p tsconfig.json --noEmit"},"dependencies":{"@neondatabase/serverless":"^1.0.2","@rhea-finance/cross-chain-aggregation-dex":"^2.0.7","dotenv":"^17.2.2","grammy":"^1.38.4","near-api-js":"^7.0.0","zod":"^4.1.5"},"devDependencies":{"@types/node":"^24.5.0","tsx":"^4.20.5","typescript":"^5.9.2"},"engines":{"node":">=20"}}
+{
+  "name": "neyro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NEAR-native Telegram trading terminal",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "@rhea-finance/cross-chain-aggregation-dex": "^2.0.7",
+    "dotenv": "^17.2.2",
+    "grammy": "^1.38.4",
+    "near-api-js": "^7.0.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
