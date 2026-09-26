@@ -8,6 +8,12 @@ const schema = z.object({
   NEAR_RPC_URL: z.string().url().optional(),
   NEAR_RPC_FALLBACK_URL: z.string().url().optional(),
   FASTNEAR_API_URL: z.string().url().optional(),
+  /**
+   * FastNEAR API key (sent as Authorization: Bearer). Keyless access is
+   * rate-limited per IP, and Cloudflare Workers share IPs, so production
+   * needs a key.
+   */
+  FASTNEAR_API_KEY: z.string().optional(),
   RHEA_API_URL: z.string().url().default("https://api.rhea.finance"),
   RHEA_API_TOKEN: z.string().optional(),
   /** Account that receives protocol fees; fees are off when unset. */
@@ -62,3 +68,16 @@ export const FEE_BPS = config.TREASURY_ACCOUNT_ID ? config.PROTOCOL_FEE_BPS : 0;
 
 /** RHEA liquidity and its token list exist on NEAR mainnet only. */
 export const TRADING_ENABLED = config.NEAR_NETWORK === "mainnet";
+
+/** Auth headers for FastNEAR hosts (RPC and REST) when a key is configured. */
+export function fastnearHeaders(url: string): Record<string, string> {
+  if (!config.FASTNEAR_API_KEY) return {};
+  try {
+    const host = new URL(url).hostname;
+    return host === "fastnear.com" || host.endsWith(".fastnear.com")
+      ? { Authorization: `Bearer ${config.FASTNEAR_API_KEY}` }
+      : {};
+  } catch {
+    return {};
+  }
+}

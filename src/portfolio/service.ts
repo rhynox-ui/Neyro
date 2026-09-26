@@ -2,7 +2,7 @@ import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { z } from "zod";
 import { RheaClient } from "../rhea/client.js";
 import { ftMetadata } from "../near/ft.js";
-import { FASTNEAR_API_URL, TRADING_ENABLED } from "../config.js";
+import { FASTNEAR_API_URL, TRADING_ENABLED, fastnearHeaders } from "../config.js";
 
 export type PortfolioAsset = {
   symbol: string;
@@ -61,7 +61,7 @@ export class PortfolioService {
 
     const response = await this.fetcher(
       `${FASTNEAR_API_URL}/v1/account/${encodeURIComponent(accountId)}/ft`,
-      { signal: AbortSignal.timeout(FASTNEAR_TIMEOUT_MS) }
+      { headers: fastnearHeaders(FASTNEAR_API_URL), signal: AbortSignal.timeout(FASTNEAR_TIMEOUT_MS) }
     );
     if (!response.ok) throw new Error(`FastNEAR returned HTTP ${response.status}`);
     const holdings = parseFastNearTokens(await response.json()).slice(0, MAX_ASSETS);

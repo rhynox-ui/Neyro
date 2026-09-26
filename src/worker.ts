@@ -174,6 +174,14 @@ async function handleDebugPrice(request: Request): Promise<Response> {
     }
   };
 
+  // Each RPC endpoint on its own, so a rate-limited one is visible.
+  const rpc = Object.fromEntries(await Promise.all(app.rpc.RPC_ENDPOINTS.map(async (endpoint) => [
+    endpoint.name,
+    { url: endpoint.url, ...(await step(async () => {
+      const view = await app.rpc.createRpcProvider(endpoint.url).viewAccount({ accountId: "wrap.near" });
+      return `ok (storage ${view.storage_usage} bytes)`;
+    })) }
+  ])));
   const rheaNear = await step(async () => {
     const tokens = await new app.rhea.RheaClient().getNearTokens();
     return tokens.find((item) => item.address.toLowerCase() === "wrap.near")?.price ?? "wrap.near not in list";
@@ -196,7 +204,7 @@ async function handleDebugPrice(request: Request): Promise<Response> {
     ? await step(() => app.nearly.nearlyPriceUsd(launchValue, typeof nearUsd === "number" ? nearUsd : null))
     : { ok: false, error: "no launch" };
 
-  return Response.json({ token, rheaNear, dclNear, dexscreener, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
+  return Response.json({ token, fastnearKey: Boolean(app.config.FASTNEAR_API_KEY), rpc, rheaNear, dclNear, dexscreener, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
 }
 
 export default {
@@ -209,6 +217,7 @@ export default {
         ok: !problem,
         ...(problem ? { problem } : {}),
         network: process.env.NEAR_NETWORK,
+        fastnearKey: Boolean(process.env.FASTNEAR_API_KEY),
         queue: Boolean(env.NEYRO_TELEGRAM_UPDATES)
       });
     }

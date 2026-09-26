@@ -1,5 +1,6 @@
 import { Account, JsonRpcProvider } from "near-api-js";
 import { config } from "../config.js";
+import { createRpcProvider } from "./rpc.js";
 
 export type NearConnection = {
   provider: JsonRpcProvider;
@@ -7,7 +8,7 @@ export type NearConnection = {
 };
 
 export function createNearConnection(): NearConnection {
-  const provider = new JsonRpcProvider({ url: config.NEAR_RPC_URL });
+  const provider = createRpcProvider(config.NEAR_RPC_URL);
   return {
     provider,
     account(accountId: string) {

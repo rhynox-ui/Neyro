@@ -4,7 +4,7 @@ import {
   AccountDoesNotExistError,
   ContractExecutionError
 } from "near-api-js/rpc-errors";
-import { config } from "../config.js";
+import { config, fastnearHeaders } from "../config.js";
 
 export type RpcEndpoint = {
   name: string;
@@ -19,7 +19,7 @@ export const RPC_ENDPOINTS: readonly RpcEndpoint[] = [
 ];
 
 export function createRpcProvider(url: string): JsonRpcProvider {
-  return new JsonRpcProvider({ url });
+  return new JsonRpcProvider({ url, headers: fastnearHeaders(url) });
 }
 
 /** Answers that another node would give identically; failing over only wastes time. */

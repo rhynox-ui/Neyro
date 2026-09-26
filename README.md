@@ -35,6 +35,9 @@ updates by webhook, and a cron trigger settles unresolved trades every minute.
    - `TELEGRAM_BOT_TOKEN`, `NEYRO_MASTER_KEY`, `DATABASE_URL` (secrets)
    - Network, RPCs and the fee wallet are fixed in `wrangler.jsonc` (mainnet).
    - `TELEGRAM_WEBHOOK_SECRET` and `SETUP_SECRET`: any long random strings
+   - `FASTNEAR_API_KEY` (recommended): keyless FastNEAR access is rate-limited
+     per IP, and Workers share IPs. rpc.mainnet.near.org is deprecated for
+     backend use, so it is only a last-resort fallback.
 3. Deploy: build command `npm run build`, deploy command `npx wrangler deploy`.
 4. Open `https://<worker>.workers.dev/setup-webhook?secret=<SETUP_SECRET>` once.
    This points Telegram at the Worker and registers the command menu.
