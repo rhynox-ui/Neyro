@@ -298,7 +298,7 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.callbackQuery(/^wd:cancel:([a-f0-9]{16})$/, async (ctx) => {
-    withdrawService.cancel(ctx.from.id, ctx.match[1]!);
+    await withdrawService.cancel(ctx.from.id, ctx.match[1]!);
     await ctx.answerCallbackQuery("Cancelled");
     await ctx.editMessageText("❌ Withdrawal cancelled.");
   });

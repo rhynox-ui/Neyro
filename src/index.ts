@@ -1,30 +1,15 @@
-import { Bot } from "grammy";
+// Node entry point: long polling. On Cloudflare Workers, src/worker.ts is
+// used instead (webhook + cron).
+import "dotenv/config";
 import { config } from "./config.js";
-import { createNearConnection } from "./near/client.js";
-import { explorerTx, registerBotHandlers } from "./bot/register.js";
+import { BOT_COMMANDS, createBot } from "./bot/create.js";
+import { explorerTx } from "./bot/register.js";
 import { PostgresTradeRepository } from "./trading/repository.js";
 import { startReconciler } from "./trading/reconciler.js";
 import { lookupTransaction } from "./near/execution.js";
 import { withRpcFallback } from "./near/rpc.js";
 
-const bot = new Bot(config.TELEGRAM_BOT_TOKEN);
-
-registerBotHandlers(bot);
-
-bot.command("health", async (ctx) => {
-  const near = createNearConnection();
-  const status = await near.provider.sendJsonRpc("status", {}) as {
-    sync_info: { latest_block_height: number };
-  };
-
-  await ctx.reply(
-    `🟢 Neyro online\nNEAR block: ${status.sync_info.latest_block_height}`
-  );
-});
-
-bot.catch((error) => {
-  console.error("Telegram error:", error);
-});
+const bot = createBot(config.TELEGRAM_BOT_TOKEN);
 
 // Settles trades whose outcome was unknown at execution time (RPC timeout,
 // crash mid-trade) and tells the user. Needs the database's tx journal.
@@ -47,18 +32,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-await bot.api.setMyCommands([
-  { command: "wallet", description: "Create or view your wallet" },
-  { command: "deposit", description: "Show your deposit address" },
-  { command: "balance", description: "NEAR balance" },
-  { command: "portfolio", description: "Token holdings" },
-  { command: "withdraw", description: "Send NEAR or tokens out: /withdraw <amount|all> <token> <to>" },
-  { command: "new", description: "Newest NEARly launches" },
-  { command: "buy", description: "Buy a token with NEAR: /buy <token> <amount>" },
-  { command: "sell", description: "Sell a token for NEAR: /sell <token> <amount>" },
-  { command: "settings", description: "Default slippage" },
-  { command: "health", description: "Bot and NEAR RPC status" }
-]).catch((error) => console.warn("Could not register bot commands:", error));
+await bot.api.setMyCommands(BOT_COMMANDS)
+  .catch((error) => console.warn("Could not register bot commands:", error));
 
 console.log("Neyro starting...");
 await bot.start();

@@ -7,6 +7,7 @@ import { UserFacingError } from "../errors.js";
 import { NearAccountSigner, type PlannedTransaction } from "./near-account-signer.js";
 import type { WalletService } from "./service.js";
 import { classifyBatch, type BatchOutcome } from "../trading/outcome.js";
+import { defaultStateStore, type StateStore } from "../state/store.js";
 
 /** Left behind on a NEAR withdrawal to pay for its own gas. */
 export const WITHDRAW_GAS_RESERVE = 10n ** 22n; // 0.01 NEAR
@@ -63,12 +64,19 @@ export function formatWithdrawAmount(plan: Pick<WithdrawPlan, "asset" | "amount"
   return `${formatUnits(plan.amount.toString(), plan.asset.decimals)} ${plan.asset.symbol}`;
 }
 
-const pending = new Map<string, WithdrawPlan>();
+type StoredPlan = Omit<WithdrawPlan, "amount" | "registration"> & { amount: string; registration: string };
+
+const toStored = (plan: WithdrawPlan): StoredPlan =>
+  ({ ...plan, amount: plan.amount.toString(), registration: plan.registration.toString() });
+const fromStored = (plan: StoredPlan): WithdrawPlan =>
+  ({ ...plan, amount: BigInt(plan.amount), registration: BigInt(plan.registration) });
+const planKey = (id: string) => `withdraw:${id}`;
 
 export class WithdrawService {
   constructor(
     private readonly walletService: WalletService,
-    private readonly resolveSymbol: (query: string) => Promise<{ address: string; symbol: string; decimals: number; contractAddress?: string | null }>
+    private readonly resolveSymbol: (query: string) => Promise<{ address: string; symbol: string; decimals: number; contractAddress?: string | null }>,
+    private readonly store: StateStore = defaultStateStore()
   ) {}
 
   private async resolveAsset(query: string): Promise<WithdrawAsset> {
@@ -131,29 +139,31 @@ export class WithdrawService {
       registration,
       expiresAt: Date.now() + PENDING_TTL_MS
     };
-    pending.set(plan.id, plan);
+    await this.store.set(userId, planKey(plan.id), toStored(plan), PENDING_TTL_MS);
     return plan;
   }
 
   /** The pending plan, for rendering; throws if it is not this user's or has expired. */
   async peek(userId: number, id: string): Promise<WithdrawPlan> {
-    const plan = pending.get(id);
-    if (!plan || plan.userId !== userId || plan.expiresAt <= Date.now()) {
+    const stored = await this.store.get<StoredPlan>(userId, planKey(id));
+    if (!stored || stored.expiresAt <= Date.now()) {
       throw new UserFacingError("Withdrawal confirmation expired or is invalid");
     }
-    return plan;
+    return fromStored(stored);
   }
 
-  cancel(userId: number, id: string): void {
-    if (pending.get(id)?.userId === userId) pending.delete(id);
+  async cancel(userId: number, id: string): Promise<void> {
+    await this.store.delete(userId, planKey(id));
   }
 
   async execute(userId: number, id: string): Promise<WithdrawResult> {
-    const plan = pending.get(id);
-    pending.delete(id);
-    if (!plan || plan.userId !== userId || plan.expiresAt <= Date.now()) {
+    // take() consumes the plan atomically: a second tap, even on another
+    // instance, finds nothing and can't send twice.
+    const stored = await this.store.take<StoredPlan>(userId, planKey(id));
+    if (!stored || stored.userId !== userId || stored.expiresAt <= Date.now()) {
       throw new UserFacingError("Withdrawal confirmation expired or is invalid");
     }
+    const plan = fromStored(stored);
 
     const account = await this.walletService.getSigningAccount(userId);
     const signer = new NearAccountSigner(account);

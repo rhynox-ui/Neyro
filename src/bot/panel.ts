@@ -21,6 +21,7 @@ import type { WalletService } from "../wallet/service.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { userMessage } from "../errors.js";
 import { describeRoute, valueLossWarning } from "../trading/outcome.js";
+import { defaultStateStore, type StateStore } from "../state/store.js";
 import {
   DEFAULT_SLIPPAGE_PCT,
   MAX_SLIPPAGE_PCT,
@@ -49,10 +50,8 @@ export type PanelState = {
   awaiting?: "amount" | "slippage";
 };
 
-// Per-user open panel. Kept in memory: a panel is a browsing session, and
-// an expired one just asks the user to paste again. Slippage preferences
-// persist through SettingsService.
-const panels = new Map<number, PanelState>();
+/** An open panel is a browsing session; after this it asks to paste again. */
+const PANEL_TTL_MS = 30 * 60 * 1000;
 
 const escapeHtml = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -172,11 +171,17 @@ function isNotModified(error: unknown): boolean {
 export type PanelDeps = {
   tradingService: TradingService;
   settings: SettingsService;
+  /** Where open panels live; Postgres when DATABASE_URL is set. */
+  store?: StateStore;
   walletService: WalletService;
   renderExecution(result: ExecutionResult): string;
 };
 
-export function createTokenPanel({ tradingService, walletService, settings, renderExecution }: PanelDeps) {
+export function createTokenPanel({ tradingService, walletService, settings, store = defaultStateStore(), renderExecution }: PanelDeps) {
+  const panels = {
+    get: (userId: number) => store.get<PanelState>(userId, "panel"),
+    set: (userId: number, state: PanelState) => store.set(userId, "panel", state, PANEL_TTL_MS)
+  };
   const preferredSlippage = async (userId: number, side: Side) => (await settings.slippage(userId))[side];
   const rememberSlippage = (userId: number, side: Side, value: number) =>
     settings.setSlippage(userId, side, value).catch((error) => console.warn("Could not save slippage", error));
@@ -193,7 +198,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
   }
 
   async function render(ctx: Context, userId: number, state: PanelState, edit: boolean): Promise<void> {
-    panels.set(userId, state);
+    await panels.set(userId, state);
     const owned = await ownedBalance(userId, state.token);
     const text = panelText(state, owned?.human ?? null);
     const options = {
@@ -237,7 +242,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
 
   async function withPanel(ctx: Context, handler: (userId: number, state: PanelState) => Promise<void>) {
     const userId = ctx.from?.id;
-    const state = userId ? panels.get(userId) : undefined;
+    const state = userId ? await panels.get(userId) : undefined;
     if (!userId || !state) {
       await ctx.answerCallbackQuery("Token panel expired. Paste the contract id again.");
       return;
@@ -276,7 +281,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
     }));
 
     pm.callbackQuery("tp:custom", (ctx) => withPanel(ctx, async (userId, state) => {
-      panels.set(userId, { ...state, awaiting: "amount" });
+      await panels.set(userId, { ...state, awaiting: "amount" });
       await ctx.answerCallbackQuery();
       await ctx.editMessageText(`✏️ Enter the amount of ${state.side === "buy" ? "NEAR" : escapeHtml(state.token.symbol)} to ${state.side}.`, { parse_mode: "HTML" });
     }));
@@ -285,7 +290,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
       const raw = ctx.match[1]!;
       await ctx.answerCallbackQuery();
       if (raw === "custom") {
-        panels.set(userId, { ...state, awaiting: "slippage" });
+        await panels.set(userId, { ...state, awaiting: "slippage" });
         await ctx.editMessageText(`✏️ Enter a slippage tolerance between ${MIN_SLIPPAGE_PCT} and ${MAX_SLIPPAGE_PCT}% (e.g. 3).`);
         return;
       }
@@ -353,7 +358,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
       await ctx.answerCallbackQuery("Executing trade…");
       await ctx.editMessageReplyMarkup();
       const userId = ctx.from.id;
-      const state = panels.get(userId);
+      const state = await panels.get(userId);
       try {
         const result = await tradingService.execute(userId, ctx.match[1]!);
         if (!state) return void await ctx.editMessageText(renderExecution(result), { parse_mode: "HTML" });
@@ -367,7 +372,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
           amountHuman: null
         };
         next.slippagePct = await preferredSlippage(userId, next.side);
-        panels.set(userId, next);
+        await panels.set(userId, next);
         const owned = await ownedBalance(userId, state.token);
         await ctx.editMessageText(
           renderExecution(result) + (owned && owned.base > 0n ? `\n💰 You now hold ${escapeHtml(owned.human)} ${escapeHtml(state.token.symbol)}` : ""),
@@ -382,7 +387,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
     pm.callbackQuery(/^tp:cancel:([a-f0-9]{16})$/, async (ctx) => {
       await tradingService.cancel(ctx.from.id, ctx.match[1]!);
       await ctx.answerCallbackQuery("Cancelled");
-      const state = panels.get(ctx.from.id);
+      const state = await panels.get(ctx.from.id);
       if (state) await render(ctx, ctx.from.id, { ...state, amountHuman: null }, true);
       else await ctx.editMessageText("❌ Trade cancelled.");
     });
@@ -392,7 +397,7 @@ export function createTokenPanel({ tradingService, walletService, settings, rend
       const text = ctx.message.text.trim();
       if (text.startsWith("/")) return next();
       const userId = ctx.from.id;
-      const state = panels.get(userId);
+      const state = await panels.get(userId);
 
       if (state?.awaiting === "amount") {
         if (!/^\d+(\.\d+)?$/.test(text) || !(Number(text) > 0)) {

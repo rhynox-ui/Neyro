@@ -116,3 +116,15 @@ create table if not exists trade_events (
 
 create index if not exists trade_events_trade_idx
   on trade_events(trade_id, created_at desc);
+
+-- Short-lived per-user bot state (open token panel, pending withdrawal).
+-- Needed on Cloudflare Workers, where updates run in different isolates.
+create table if not exists bot_state (
+  telegram_user_id bigint not null,
+  key text not null,
+  value jsonb not null,
+  expires_at timestamptz not null,
+  primary key (telegram_user_id, key)
+);
+
+create index if not exists bot_state_expires_idx on bot_state(expires_at);

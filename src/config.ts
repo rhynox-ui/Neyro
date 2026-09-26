@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { z } from "zod";
 
 const schema = z.object({
@@ -15,7 +14,11 @@ const schema = z.object({
   PROTOCOL_FEE_CAP_USD: z.coerce.number().positive().default(60),
   NEYRO_MASTER_KEY: z.string().optional(),
   DATABASE_URL: z.string().url().optional(),
-  LOG_LEVEL: z.string().default("info")
+  LOG_LEVEL: z.string().default("info"),
+  /** Telegram sends this in X-Telegram-Bot-Api-Secret-Token on webhook calls (Workers). */
+  TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
+  /** Protects the Worker's /setup-webhook endpoint. */
+  SETUP_SECRET: z.string().optional()
 }).superRefine((env, ctx) => {
   const rpcs = [env.NEAR_RPC_URL, env.NEAR_RPC_FALLBACK_URL].filter(Boolean) as string[];
   const mismatched = rpcs.filter((url) =>
