@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
 import { createNearConnection } from "../near/client.js";
 import { registerBotHandlers } from "./register.js";
+import { rateLimit } from "./rate-limit.js";
 
 export const BOT_COMMANDS = [
   { command: "wallet", description: "Create or view your wallet" },
@@ -19,6 +20,7 @@ export const BOT_COMMANDS = [
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
 
+  bot.use(rateLimit);
   registerBotHandlers(bot);
 
   bot.command("health", async (ctx) => {

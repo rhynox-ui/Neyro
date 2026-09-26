@@ -18,6 +18,8 @@ const schema = z.object({
   FASTNEAR_API_KEY: z.string().optional(),
   RHEA_API_URL: z.string().url().default("https://api.rhea.finance"),
   RHEA_API_TOKEN: z.string().optional(),
+  /** Extra contracts RHEA swaps may route through (comma-separated); others are blocked. */
+  RHEA_EXTRA_CONTRACTS: z.string().optional(),
   /** Account that receives protocol fees; fees are off when unset. */
   TREASURY_ACCOUNT_ID: z.string().regex(/^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/).optional(),
   PROTOCOL_FEE_BPS: z.coerce.number().int().min(0).max(1_000).default(100),

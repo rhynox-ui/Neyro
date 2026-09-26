@@ -17,6 +17,7 @@ import {
 import { assessFill, classifyBatch, estimateValueLoss, quoteDeadline } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, injectFee, type FeePlan } from "./fee.js";
+import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
 import { storageRegistrationCost } from "../near/ft.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
 import { nearUsdFromDcl } from "../market/dcl.js";
@@ -25,6 +26,10 @@ import { UserFacingError, userMessage } from "../errors.js";
 
 const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
+const DEX_CONTRACTS = [
+  ...DEFAULT_DEX_CONTRACTS,
+  ...(config.RHEA_EXTRA_CONTRACTS ?? "").split(",").map((id) => id.trim().toLowerCase()).filter(Boolean)
+];
 const PENDING_TTL_MS = 2 * 60 * 1000;
 
 type PendingTrade = {
@@ -302,15 +307,25 @@ export class TradingService {
       signer = new NearAccountSigner(account, {
         beforeBroadcast: (txHash, receiverId) =>
           this.repository.recordEvent(userId, id, { type: "tx_signed", txHash, details: { receiverId } }),
-        ...(fee ? {
-          transform: (transactions) => {
-            const injected = injectFee(transactions, fee);
-            feeState.mode = injected.mode;
-            return injected.transactions;
-          }
-        } : {})
+        transform: (transactions) => {
+          // Check RHEA's batch against the confirmed trade before the fee is
+          // added and before anything is signed.
+          assertSwapMatchesIntent(transactions, {
+            side: request.side,
+            accountId: request.accountId,
+            tokenIn: request.side === "buy" ? WRAPPED_NEAR : contractOf(request.tokenIn),
+            tokenOut: request.side === "buy" ? contractOf(request.tokenOut) : WRAPPED_NEAR,
+            amountIn: BigInt(request.amountIn),
+            dexContracts: DEX_CONTRACTS
+          });
+          if (!fee) return transactions;
+          const injected = injectFee(transactions, fee);
+          feeState.mode = injected.mode;
+          return injected.transactions;
+        }
       });
-      await new RheaTradingEngine(signer).execute(request, trade.quote);
+      // The trade id doubles as RHEA's idempotency key for this execution.
+      await new RheaTradingEngine(signer).execute(request, trade.quote, id);
     } catch (error) {
       sdkError = error;
     }

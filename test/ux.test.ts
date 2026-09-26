@@ -84,3 +84,13 @@ test("contract-id detection accepts NEAR contracts but not bare symbols", async 
   assert.ok(!isValidAccountId("UPPER.near"));
   assert.ok(!isValidAccountId("-lead.near"));
 });
+
+test("rate limiter allows a burst up to the limit per key, then recovers", async () => {
+  const { RateLimiter } = await import("../src/bot/rate-limit.js");
+  let now = 0;
+  const limiter = new RateLimiter(3, 1000, () => now);
+  assert.deepEqual([1, 2, 3, 4].map(() => limiter.take("a")), [true, true, true, false]);
+  assert.equal(limiter.take("b"), true, "other users are unaffected");
+  now = 1001;
+  assert.equal(limiter.take("a"), true);
+});

@@ -28,5 +28,5 @@ export type TradeRequest = {
 
 export interface TradingEngine {
   quote(request: TradeRequest): Promise<TradeQuote>;
-  execute(request: TradeRequest, quote: TradeQuote): Promise<{ transactionHash: string }>;
+  execute(request: TradeRequest, quote: TradeQuote, idempotencyKey?: string): Promise<{ transactionHash: string }>;
 }

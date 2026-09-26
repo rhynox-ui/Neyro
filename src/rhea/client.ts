@@ -101,10 +101,11 @@ export class RheaClient {
     return this.client.quote(payload);
   }
 
-  async swap(quote: Quote) {
+  async swap(quote: Quote, idempotencyKey?: string) {
     return this.client.swap({
       quote,
-      waitFor: "source-confirmed"
+      waitFor: "source-confirmed",
+      ...(idempotencyKey ? { idempotencyKey } : {})
     });
   }
 }

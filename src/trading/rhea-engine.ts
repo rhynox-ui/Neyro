@@ -38,9 +38,10 @@ export class RheaTradingEngine implements TradingEngine {
 
   async execute(
     _request: TradeRequest,
-    quote: TradeQuote
+    quote: TradeQuote,
+    idempotencyKey?: string
   ): Promise<{ transactionHash: string }> {
-    const result = await this.rhea.swap(quote.raw);
+    const result = await this.rhea.swap(quote.raw, idempotencyKey);
     const transactionHash = result.txHash ?? result.txHashes?.[result.txHashes.length - 1];
 
     if (!transactionHash) {
