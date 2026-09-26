@@ -6,6 +6,8 @@ import { WalletService } from "../wallet/service.js";
 import { getNearBalance } from "../near/account.js";
 import { assertSlippageAllowed, assertTradeShareAllowed } from "../security/risk.js";
 import type { TradeQuote, TradeRequest } from "../domain/trading.js";
+import { NoopTradeRepository, PostgresTradeRepository, type TradeRepository } from "./repository.js";
+import { config } from "../config.js";
 
 const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
@@ -30,7 +32,7 @@ function cleanupPending() {
 
 export class TradingService {
   private readonly walletService: WalletService;
-  private readonly rhea: RheaClient;
+  private readonly rhea: RheaClient;\n  private readonly repository: TradeRepository;
 
   constructor(walletService = new WalletService(), rhea = new RheaClient()) {
     this.walletService = walletService;
@@ -78,7 +80,7 @@ export class TradingService {
     const quote = await engine.quote(request);
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
 
-    pending.set(id, { userId, request, quote, expiresAt: Date.now() + PENDING_TTL_MS });
+    pending.set(id, { userId, request, quote, expiresAt: Date.now() + PENDING_TTL_MS });\n    await this.repository.create({\n      userId, accountId: wallet.accountId, side, tokenIn: tokenIn.address, tokenOut: tokenOut.address,\n      amountIn, expectedOut: quote.expectedOut, slippageBps, router: quote.router,\n      idempotencyKey: id, status: "quoted"\n    });
 
     return { id, request, quote, expiresAt: Date.now() + PENDING_TTL_MS };
   }
@@ -96,6 +98,6 @@ export class TradingService {
 
   cancel(userId: number, id: string) {
     const trade = pending.get(id);
-    if (trade?.userId === userId) pending.delete(id);
+    if (trade?.userId === userId) {\n      pending.delete(id);\n      void this.repository.updateStatus(userId, id, "cancelled");\n    }
   }
 }
