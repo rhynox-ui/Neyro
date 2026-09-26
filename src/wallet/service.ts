@@ -1,20 +1,12 @@
 import { Account, KeyPair, keyToImplicitAddress, type KeyPairString } from "near-api-js";
 import { config } from "../config.js";
 import { createNearConnection } from "../near/client.js";
-import { decryptSecret, encryptSecret, type EncryptedSecret } from "../security/secrets.js";
-
-type StoredWallet = {
-  telegramUserId: number;
-  accountId: string;
-  encryptedKey: EncryptedSecret;
-};
-
-const wallets = new Map<number, StoredWallet>();
+import { decryptSecret, encryptSecret } from "../security/secrets.js";
+import { InMemoryWalletRepository, PostgresWalletRepository, type WalletRepository } from "./repository.js";
+import type { StoredWallet } from "./repository.js";
 
 function requireMasterKey(): string {
-  if (!config.NEYRO_MASTER_KEY) {
-    throw new Error("Wallet service is not configured: NEYRO_MASTER_KEY is missing");
-  }
+  if (!config.NEYRO_MASTER_KEY) throw new Error("Wallet service is not configured: NEYRO_MASTER_KEY is missing");
   return config.NEYRO_MASTER_KEY;
 }
 
@@ -23,50 +15,45 @@ function accountFor(accountId: string, privateKey: string): Account {
   return new Account(accountId, near.provider, privateKey as KeyPairString);
 }
 
-export type WalletInfo = {
-  accountId: string;
-  network: "mainnet" | "testnet";
-};
+export type WalletInfo = { accountId: string; network: "mainnet" | "testnet" };
 
 export class WalletService {
-  async getWallet(telegramUserId: number): Promise<WalletInfo | null> {
-    const wallet = wallets.get(telegramUserId);
-    if (!wallet) return null;
+  private readonly repository: WalletRepository;
 
-    return {
-      accountId: wallet.accountId,
-      network: config.NEAR_NETWORK
-    };
+  constructor(repository?: WalletRepository) {
+    this.repository = repository ?? (config.DATABASE_URL
+      ? new PostgresWalletRepository(config.DATABASE_URL)
+      : new InMemoryWalletRepository());
+  }
+
+  async getWallet(telegramUserId: number): Promise<WalletInfo | null> {
+    const wallet = await this.repository.getByTelegramUserId(telegramUserId);
+    return wallet ? { accountId: wallet.accountId, network: config.NEAR_NETWORK } : null;
   }
 
   async createWallet(telegramUserId: number): Promise<WalletInfo> {
-    if (wallets.has(telegramUserId)) {
-      return this.getWallet(telegramUserId) as Promise<WalletInfo>;
-    }
+    const existing = await this.repository.getByTelegramUserId(telegramUserId);
+    if (existing) return { accountId: existing.accountId, network: config.NEAR_NETWORK };
 
     const keyPair = KeyPair.fromRandom("ed25519");
     const accountId = keyToImplicitAddress(keyPair.getPublicKey());
-    const encryptedKey = encryptSecret(keyPair.toString(), requireMasterKey());
-
-    wallets.set(telegramUserId, {
+    const stored: StoredWallet = {
       telegramUserId,
       accountId,
-      encryptedKey
-    });
-
-    return {
-      accountId,
-      network: config.NEAR_NETWORK
+      encryptedKey: encryptSecret(keyPair.toString(), requireMasterKey())
     };
+
+    await this.repository.save(stored);
+
+    const saved = await this.repository.getByTelegramUserId(telegramUserId);
+    if (!saved) throw new Error("Wallet was created but could not be reloaded");
+
+    return { accountId: saved.accountId, network: config.NEAR_NETWORK };
   }
 
   async getSigningAccount(telegramUserId: number): Promise<Account> {
-    const wallet = wallets.get(telegramUserId);
-    if (!wallet) {
-      throw new Error("No Neyro wallet exists for this Telegram account");
-    }
-
-    const privateKey = decryptSecret(wallet.encryptedKey, requireMasterKey());
-    return accountFor(wallet.accountId, privateKey);
+    const wallet = await this.repository.getByTelegramUserId(telegramUserId);
+    if (!wallet) throw new Error("No Neyro wallet exists for this Telegram account");
+    return accountFor(wallet.accountId, decryptSecret(wallet.encryptedKey, requireMasterKey()));
   }
 }
