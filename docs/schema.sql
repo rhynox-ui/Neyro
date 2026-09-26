@@ -84,3 +84,17 @@ create table if not exists orders (
   status text not null,
   created_at timestamptz not null default now()
 );
+
+
+-- Trade lifecycle events provide an append-only audit trail for execution attempts.
+create table if not exists trade_events (
+  id uuid primary key default gen_random_uuid(),
+  trade_id uuid not null references trades(id) on delete cascade,
+  event_type text not null,
+  tx_hash text,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists trade_events_trade_idx
+  on trade_events(trade_id, created_at desc);
