@@ -81,11 +81,17 @@ export class TradingService {
       : new NoopTradeRepository());
   }
 
+  /** Resolves a symbol or contract id to a quotable NEAR token. */
+  resolveToken(query: string) {
+    return this.rhea.resolveNearToken(query);
+  }
+
   async prepare(
     userId: number,
     side: "buy" | "sell",
     tokenQuery: string,
-    humanAmount: string
+    humanAmount: string,
+    slippageBps = DEFAULT_SLIPPAGE_BPS
   ) {
     cleanupPending();
 
@@ -112,7 +118,6 @@ export class TradingService {
     const tokenOut = side === "buy" ? token : near;
     const amountIn = parseUnits(amountText, tokenIn.decimals);
 
-    const slippageBps = DEFAULT_SLIPPAGE_BPS;
     assertSlippageAllowed(slippageBps);
 
     if (side === "buy") {

@@ -8,10 +8,12 @@ import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
 import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { userMessage } from "../errors.js";
+import { createTokenPanel } from "./panel.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
 const portfolioService = new PortfolioService();
+const tokenPanel = createTokenPanel({ tradingService, walletService, renderExecution: (result) => renderExecution(result) });
 
 const HTML = { parse_mode: "HTML" as const, link_preview_options: { is_disabled: true } };
 
@@ -167,10 +169,12 @@ export function registerBotHandlers(bot: Bot) {
     if (!userId) return void await ctx.reply("❌ Telegram user identity is unavailable.");
 
     const parts = String(ctx.match ?? "").trim().split(/\s+/).filter(Boolean);
+    // "/buy <token>" opens the token panel; "/buy <token> <amount>" quotes directly.
+    if (parts.length === 1) return void await tokenPanel.open(ctx, parts[0]!);
     if (parts.length !== 2) {
       return void await ctx.reply(side === "buy"
-        ? "⚡ Usage: /buy <token> <amount-near>"
-        : "💰 Usage: /sell <token> <amount-token>");
+        ? "⚡ Usage: /buy <token> [amount-near], or paste a token contract id"
+        : "💰 Usage: /sell <token> [amount-token], or paste a token contract id");
     }
 
     try {
@@ -231,10 +235,15 @@ export function registerBotHandlers(bot: Bot) {
   pm.callbackQuery(/^trade:(buy|sell)$/, async (ctx) => {
     const side = ctx.match[1];
     await ctx.answerCallbackQuery();
-    await ctx.reply(side === "buy" ? "⚡ Buy\n\nSend: /buy <token> <amount-near>" : "💰 Sell\n\nSend: /sell <token> <amount-token>");
+    await ctx.reply(side === "buy"
+      ? "⚡ Buy\n\nPaste a token contract id (e.g. token.near) to open its trading panel, or send /buy <token> <amount-near>."
+      : "💰 Sell\n\nPaste a token contract id to open its trading panel, or send /sell <token> <amount-token>.");
   });
   pm.callbackQuery("portfolio", async (ctx) => { await ctx.answerCallbackQuery(); await showPortfolio(ctx); });
   pm.callbackQuery("discover", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("🔎 Discover\n\nNEARly token discovery will be connected after core trading."); });
   pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("👛 Wallet\n\nUse /wallet to create or view your Neyro wallet."); });
   pm.callbackQuery("settings", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("⚙️ Settings\n\nSlippage and trading limits will be configurable here."); });
+
+  // Registered last: its text handler falls through to nothing else.
+  tokenPanel.register(bot);
 }

@@ -1,0 +1,112 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
+
+const { parseDexScreenerPairs } = await import("../src/market/dexscreener.js");
+const { panelText, panelKeyboard, ageLabel, money } = await import("../src/bot/panel.js");
+
+const ADDRESS = "bagwork.nearly.near";
+const pairs = [
+  { chainId: "solana", baseToken: { address: ADDRESS }, liquidity: { usd: 9e9 } },
+  {
+    chainId: "near", dexId: "ref", url: "https://dexscreener.com/near/shallow",
+    baseToken: { address: ADDRESS, name: "Bagwork", symbol: "Bagwork" },
+    quoteToken: { address: "wrap.near", symbol: "WNEAR" },
+    priceUsd: "0.1", liquidity: { usd: 10 }
+  },
+  {
+    chainId: "near", dexId: "rhea", url: "https://dexscreener.com/near/deep",
+    baseToken: { address: ADDRESS, name: "Bagwork", symbol: "Bagwork" },
+    quoteToken: { address: "wrap.near", symbol: "WNEAR" },
+    priceUsd: "0.0005207", marketCap: 506_720, fdv: 506_720, liquidity: { usd: 77_270 },
+    volume: { h24: 6_180_000 }, priceChange: { h24: 953 }, txns: { h24: { buys: 45186, sells: 35133 } },
+    pairCreatedAt: Date.now() - 17 * 3_600_000,
+    info: {
+      imageUrl: "https://cdn.example/bag.png",
+      websites: [{ label: "Whitepaper <b>", url: "https://bag.example" }, { url: "javascript:alert(1)" }],
+      socials: [{ type: "twitter", url: "https://x.com/bag" }, { type: "evil", url: "https://evil.example" }]
+    }
+  }
+];
+
+test("DexScreener parsing keeps NEAR pairs, picks the deepest, and sanitizes links", () => {
+  const market = parseDexScreenerPairs(pairs, ADDRESS)!;
+  assert.equal(market.dex, "rhea");
+  assert.equal(market.pairLabel, "Bagwork / WNEAR");
+  assert.equal(market.liquidityUsd, 77_270);
+  assert.equal(market.imageUrl, "https://cdn.example/bag.png");
+  assert.deepEqual(market.links, [
+    { label: "Website", url: "https://bag.example/" },
+    { label: "X", url: "https://x.com/bag" }
+  ]);
+  assert.equal(parseDexScreenerPairs({ pairs: [] }, ADDRESS), null);
+  assert.equal(parseDexScreenerPairs(pairs.slice(0, 1), ADDRESS), null);
+});
+
+test("price is only reported when the token is the pair's base", () => {
+  const market = parseDexScreenerPairs([{ ...pairs[2], baseToken: { address: "wrap.near" }, quoteToken: { address: ADDRESS, symbol: "Bagwork" } }], ADDRESS)!;
+  assert.equal(market.priceUsd, null);
+});
+
+const token = { chain: "near", address: ADDRESS, contractAddress: ADDRESS, symbol: "Bagwork", decimals: 18, isNative: false, listed: true } as const;
+
+test("panel text mirrors the Mango card", () => {
+  const market = parseDexScreenerPairs(pairs, ADDRESS)!;
+  const text = panelText({ token, market, side: "buy", amountHuman: null, slippagePct: 5 }, null);
+  const lines = text.split("\n");
+  assert.equal(lines[0], "🪙 Bagwork (Bagwork)");
+  assert.equal(lines[1], "Ⓝ NEAR  •  rhea  •  Bagwork / WNEAR");
+  assert.equal(lines[2], `<code>${ADDRESS}</code>`);
+  assert.ok(text.includes("💵 Price: $0.00052070000"));
+  assert.ok(text.includes("📊 Mcap: $506.72K"));
+  assert.ok(text.includes("💧 Liq: $77.27K  •  15.25% of mcap"));
+  assert.ok(text.includes("📈 24h: +953.00%  •  Vol: $6.18M"));
+  assert.ok(text.includes("🔄 24h Txns: 45186 buys / 35133 sells"));
+  assert.ok(text.includes("⏳ Pair age: 17h"));
+  assert.ok(text.includes('🔗 <a href="https://bag.example/">Website</a>  •  <a href="https://x.com/bag">X</a>'));
+  assert.ok(text.endsWith("🟢 BUY Bagwork\n💳 Amount: Not selected\n⚙️ Slippage: 5%\n💸 Protocol fee: 0%"));
+});
+
+test("panel still renders for tokens with no market yet, and warns when unlisted", () => {
+  const text = panelText({ token: { ...token, listed: false }, market: null, side: "sell", amountHuman: "3", slippagePct: 10 }, "12.5");
+  assert.match(text, /No DexScreener market yet/);
+  assert.match(text, /Not on RHEA's token list/);
+  assert.match(text, /🔴 SELL Bagwork\n💳 Amount: 3 Bagwork/);
+  assert.match(text, /💰 Your balance: 12.5 Bagwork/);
+});
+
+type Button = { text: string; callback_data?: string; url?: string };
+const rows = (kb: { inline_keyboard: Button[][] }) => kb.inline_keyboard.map((row) => row.map((b) => b.text));
+
+test("keyboard layout mirrors the Mango card", () => {
+  const market = parseDexScreenerPairs(pairs, ADDRESS)!;
+  const kb = panelKeyboard({ token, market, side: "buy", amountHuman: null, slippagePct: 5 }, null);
+  assert.deepEqual(rows(kb), [
+    ["🟢 BUY", "🔴 SELL 🔒"],
+    ["5 NEAR", "1 NEAR"],
+    ["✏️ Custom"],
+    ["Slippage ✓ 5%", "10%", "15%", "✏️"],
+    ["🟢 BUY — NEAR"],
+    ["📈 Chart / Dex", "🔄 Refresh"]
+  ]);
+  assert.equal(kb.inline_keyboard[5]![0]!.url, "https://dexscreener.com/near/deep");
+  for (const row of kb.inline_keyboard) for (const b of row) {
+    if (b.callback_data) assert.ok(Buffer.byteLength(b.callback_data) <= 64);
+  }
+});
+
+test("sell keyboard offers percentages and marks custom slippage", () => {
+  const kb = panelKeyboard({ token, market: null, side: "sell", amountHuman: "50%", slippagePct: 3 }, "10");
+  assert.deepEqual(rows(kb)[0], ["🟢 BUY", "🔴 SELL"]);
+  assert.deepEqual(rows(kb)[1], ["25%", "50% ✓", "75%", "100%"]);
+  assert.deepEqual(rows(kb)[3], ["Slippage 5%", "10%", "15%", "✓ 3% · ✏️"]);
+  assert.deepEqual(rows(kb)[4], ["🔴 SELL 50% Bagwork"]);
+});
+
+test("formatting helpers", () => {
+  assert.equal(money(1_234), "$1.23K");
+  assert.equal(money(null), "—");
+  assert.equal(ageLabel(null), "unknown");
+  assert.equal(ageLabel(1_000, 1_000 + 3 * 86_400_000), "3d");
+});
