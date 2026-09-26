@@ -13,7 +13,12 @@ const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
 const PENDING_TTL_MS = 2 * 60 * 1000;
 
-type PendingTrade = { userId: number; request: TradeRequest; quote: TradeQuote; expiresAt: number };
+type PendingTrade = {
+  userId: number;
+  request: TradeRequest;
+  quote: TradeQuote;
+  expiresAt: number;
+};
 
 const pending = new Map<string, PendingTrade>();
 
@@ -25,22 +30,38 @@ function findNearNative(tokens: readonly NearToken[]): NearToken {
   return token;
 }
 
-function cleanupPending() {
+function cleanupPending(): void {
   const now = Date.now();
-  for (const [id, trade] of pending) if (trade.expiresAt <= now) pending.delete(id);
+  for (const [id, trade] of pending) {
+    if (trade.expiresAt <= now) pending.delete(id);
+  }
 }
 
 export class TradingService {
   private readonly walletService: WalletService;
-  private readonly rhea: RheaClient;\n  private readonly repository: TradeRepository;
+  private readonly rhea: RheaClient;
+  private readonly repository: TradeRepository;
 
-  constructor(walletService = new WalletService(), rhea = new RheaClient()) {
+  constructor(
+    walletService = new WalletService(),
+    rhea = new RheaClient(),
+    repository?: TradeRepository
+  ) {
     this.walletService = walletService;
     this.rhea = rhea;
+    this.repository = repository ?? (config.DATABASE_URL
+      ? new PostgresTradeRepository(config.DATABASE_URL)
+      : new NoopTradeRepository());
   }
 
-  async prepare(userId: number, side: "buy" | "sell", tokenQuery: string, humanAmount: string) {
+  async prepare(
+    userId: number,
+    side: "buy" | "sell",
+    tokenQuery: string,
+    humanAmount: string
+  ) {
     cleanupPending();
+
     const wallet = await this.walletService.getWallet(userId);
     if (!wallet) throw new Error("Create a Neyro wallet first with /wallet");
 
@@ -64,7 +85,10 @@ export class TradingService {
       const balance = BigInt(await getNearBalance(wallet.accountId));
       const amount = BigInt(amountIn);
       if (amount > balance) throw new Error("Insufficient NEAR balance");
-      const shareBps = Number((amount * 10000n) / (balance === 0n ? 1n : balance));
+
+      const shareBps = Number(
+        (amount * 10000n) / (balance === 0n ? 1n : balance)
+      );
       assertTradeShareAllowed(shareBps);
     }
 
@@ -80,25 +104,68 @@ export class TradingService {
     const engine = new RheaTradingEngine();
     const quote = await engine.quote(request);
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+    const expiresAt = Date.now() + PENDING_TTL_MS;
 
-    pending.set(id, { userId, request, quote, expiresAt: Date.now() + PENDING_TTL_MS });\n    await this.repository.create({\n      userId, accountId: wallet.accountId, side, tokenIn: tokenIn.address, tokenOut: tokenOut.address,\n      amountIn, expectedOut: quote.expectedOut, slippageBps, router: quote.router,\n      idempotencyKey: id, status: "quoted"\n    });
+    pending.set(id, { userId, request, quote, expiresAt });
 
-    return { id, request, quote, expiresAt: Date.now() + PENDING_TTL_MS };
+    await this.repository.create({
+      userId,
+      accountId: wallet.accountId,
+      side,
+      tokenIn: tokenIn.address,
+      tokenOut: tokenOut.address,
+      amountIn,
+      expectedOut: quote.expectedOut,
+      slippageBps,
+      router: quote.router,
+      idempotencyKey: id,
+      status: "quoted"
+    });
+
+    return { id, request, quote, expiresAt };
   }
 
   async execute(userId: number, id: string) {
     cleanupPending();
+
     const trade = pending.get(id);
-    if (!trade || trade.userId !== userId) throw new Error("Trade confirmation expired or is invalid");
+    if (!trade || trade.userId !== userId) {
+      throw new Error("Trade confirmation expired or is invalid");
+    }
 
     pending.delete(id);
-    const account = await this.walletService.getSigningAccount(userId);
-    const engine = new RheaTradingEngine(new NearAccountSigner(account));
-    return engine.execute(trade.request, trade.quote);
+    await this.repository.updateStatus(userId, id, "executing");
+
+    try {
+      const account = await this.walletService.getSigningAccount(userId);
+      const engine = new RheaTradingEngine(new NearAccountSigner(account));
+      const result = await engine.execute(trade.request, trade.quote);
+
+      await this.repository.updateStatus(
+        userId,
+        id,
+        "submitted",
+        result.transactionHash
+      );
+
+      return result;
+    } catch (error) {
+      await this.repository.updateStatus(
+        userId,
+        id,
+        "failed",
+        undefined,
+        error instanceof Error ? error.message.slice(0, 200) : "execution_failed"
+      );
+      throw error;
+    }
   }
 
-  cancel(userId: number, id: string) {
+  cancel(userId: number, id: string): void {
     const trade = pending.get(id);
-    if (trade?.userId === userId) {\n      pending.delete(id);\n      void this.repository.updateStatus(userId, id, "cancelled");\n    }
+    if (trade?.userId === userId) {
+      pending.delete(id);
+      void this.repository.updateStatus(userId, id, "cancelled");
+    }
   }
 }
