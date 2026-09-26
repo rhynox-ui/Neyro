@@ -32,6 +32,35 @@ export class RheaClient {
     return this.client.getFromTokens({ chainId: 900001 });
   }
 
+  async resolveNearToken(query: string) {
+    const needle = query.trim().toLowerCase();
+    if (!needle) throw new Error("Token is required");
+
+    const tokens = await this.getNearTokens();
+    const matches = tokens.filter((token) =>
+      token.address.toLowerCase() === needle ||
+      token.assetId.toLowerCase() === needle ||
+      token.contractAddress?.toLowerCase() === needle ||
+      token.symbol.toLowerCase() === needle
+    );
+
+    if (matches.length === 0) {
+      throw new Error("Token was not found in RHEA's current NEAR token list");
+    }
+
+    if (matches.length > 1) {
+      const exactAddress = matches.find((token) =>
+        token.address.toLowerCase() === needle ||
+        token.assetId.toLowerCase() === needle ||
+        token.contractAddress?.toLowerCase() === needle
+      );
+      if (exactAddress) return exactAddress;
+      throw new Error("Multiple tokens match that symbol; use the token contract/address");
+    }
+
+    return matches[0];
+  }
+
   async quote(request: RheaQuoteRequest): Promise<Quote> {
     const payload: QuoteRequest = {
       fromChain: "near",
