@@ -10,14 +10,16 @@ import { config } from "../config.js";
 import { userMessage } from "../errors.js";
 import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
 import { describeRoute, valueLossWarning } from "../trading/outcome.js";
-import { ageLabel, createTokenPanel } from "./panel.js";
+import { ageLabel, createTokenPanel, feeLabel, SLIPPAGE_PRESETS } from "./panel.js";
+import { SettingsService, type SlippagePrefs } from "../settings/service.js";
 import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discovery/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
 const portfolioService = new PortfolioService();
 const withdrawService = new WithdrawService(walletService, (query) => tradingService.resolveToken(query));
-const tokenPanel = createTokenPanel({ tradingService, walletService, renderExecution: (result) => renderExecution(result) });
+const settingsService = new SettingsService();
+const tokenPanel = createTokenPanel({ tradingService, walletService, settings: settingsService, renderExecution: (result) => renderExecution(result) });
 
 const HTML = { parse_mode: "HTML" as const, link_preview_options: { is_disabled: true } };
 
@@ -85,6 +87,27 @@ export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount"
     default:
       return `❌ <b>Withdrawal failed on chain.</b> ${result.reason ? escapeHtml(result.reason) : ""}${txs}`;
   }
+}
+
+export function renderSettings(prefs: SlippagePrefs) {
+  const text = [
+    "⚙️ <b>Settings</b>",
+    "",
+    `🟢 Buy slippage: ${prefs.buy}%`,
+    `🔴 Sell slippage: ${prefs.sell}%`,
+    `💸 Protocol fee: ${feeLabel()}`,
+    "",
+    "Slippage is the most the price may move against you before a trade is cancelled. Higher helps thin meme pools fill; lower protects you from bad prices. You can also set a custom value on any token panel."
+  ].join("\n");
+  const keyboard = new InlineKeyboard();
+  for (const side of ["buy", "sell"] as const) {
+    if (side === "sell") keyboard.row();
+    keyboard.text(side === "buy" ? "🟢 Buy" : "🔴 Sell", "st:noop");
+    for (const value of SLIPPAGE_PRESETS) {
+      keyboard.text(`${value}%${prefs[side] === value ? " ✓" : ""}`, `st:${side}:${value}`);
+    }
+  }
+  return { text, keyboard };
 }
 
 export function renderBalance(balance: NearBalance): string {
@@ -374,7 +397,24 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
   pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("👛 Wallet\n\nUse /wallet to create or view your Neyro wallet."); });
-  pm.callbackQuery("settings", async (ctx) => { await ctx.answerCallbackQuery(); await ctx.reply("⚙️ Settings\n\nSlippage and trading limits will be configurable here."); });
+  async function showSettings(ctx: Context, edit: boolean) {
+    const { text, keyboard } = renderSettings(await settingsService.slippage(ctx.from!.id));
+    const options = { ...HTML, reply_markup: keyboard };
+    if (edit) await ctx.editMessageText(text, options).catch(() => {});
+    else await ctx.reply(text, options);
+  }
+  pm.command("settings", (ctx) => showSettings(ctx, false));
+  pm.callbackQuery("settings", async (ctx) => { await ctx.answerCallbackQuery(); await showSettings(ctx, false); });
+  pm.callbackQuery("st:noop", (ctx) => ctx.answerCallbackQuery());
+  pm.callbackQuery(/^st:(buy|sell):(\d+(?:\.\d+)?)$/, async (ctx) => {
+    try {
+      const value = await settingsService.setSlippage(ctx.from.id, ctx.match[1] as "buy" | "sell", Number(ctx.match[2]));
+      await ctx.answerCallbackQuery(`${ctx.match[1] === "buy" ? "Buy" : "Sell"} slippage set to ${value}%`);
+      await showSettings(ctx, true);
+    } catch (error) {
+      await ctx.answerCallbackQuery(userMessage(error, "Couldn't save that setting"));
+    }
+  });
 
   // Registered last: its text handler falls through to nothing else.
   tokenPanel.register(bot);

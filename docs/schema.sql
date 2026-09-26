@@ -6,6 +6,10 @@ create table if not exists users (
   created_at timestamptz not null default now()
 );
 
+-- Default slippage (percent) per side; null means the bot default (5%).
+alter table users add column if not exists buy_slippage_pct numeric;
+alter table users add column if not exists sell_slippage_pct numeric;
+
 create table if not exists wallets (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,

@@ -56,6 +56,7 @@ await bot.api.setMyCommands([
   { command: "new", description: "Newest NEARly launches" },
   { command: "buy", description: "Buy a token with NEAR: /buy <token> <amount>" },
   { command: "sell", description: "Sell a token for NEAR: /sell <token> <amount>" },
+  { command: "settings", description: "Default slippage" },
   { command: "health", description: "Bot and NEAR RPC status" }
 ]).catch((error) => console.warn("Could not register bot commands:", error));
 

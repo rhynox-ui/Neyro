@@ -21,15 +21,18 @@ import type { WalletService } from "../wallet/service.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { userMessage } from "../errors.js";
 import { describeRoute, valueLossWarning } from "../trading/outcome.js";
+import {
+  DEFAULT_SLIPPAGE_PCT,
+  MAX_SLIPPAGE_PCT,
+  MIN_SLIPPAGE_PCT,
+  type SettingsService
+} from "../settings/service.js";
 
 /** Buy presets in NEAR, largest first (Mango shows 0.1 / 0.05 SOL). */
 export const BUY_PRESETS = ["5", "1"] as const;
 export const SELL_PERCENTS = ["25%", "50%", "75%", "100%"] as const;
 export const SLIPPAGE_PRESETS = [5, 10, 15] as const;
-export const DEFAULT_SLIPPAGE_PCT = 5;
-export const MIN_SLIPPAGE_PCT = 0.1;
-/** Matches DEFAULT_RISK_POLICY.maxSlippageBps. */
-export const MAX_SLIPPAGE_PCT = 15;
+export { DEFAULT_SLIPPAGE_PCT, MIN_SLIPPAGE_PCT, MAX_SLIPPAGE_PCT };
 /** "1% (max $60)", or "0%" when no treasury is configured. */
 export function feeLabel(bps = FEE_BPS, capUsd = config.PROTOCOL_FEE_CAP_USD): string {
   return bps > 0 ? `${bps / 100}% (max $${capUsd})` : "0%";
@@ -46,20 +49,10 @@ export type PanelState = {
   awaiting?: "amount" | "slippage";
 };
 
-// Per-user panel and slippage preference. Kept in memory: a panel is a
-// browsing session, and an expired one just asks the user to paste again.
+// Per-user open panel. Kept in memory: a panel is a browsing session, and
+// an expired one just asks the user to paste again. Slippage preferences
+// persist through SettingsService.
 const panels = new Map<number, PanelState>();
-const slippagePrefs = new Map<number, Record<Side, number>>();
-
-function preferredSlippage(userId: number, side: Side): number {
-  return slippagePrefs.get(userId)?.[side] ?? DEFAULT_SLIPPAGE_PCT;
-}
-
-function rememberSlippage(userId: number, side: Side, value: number): void {
-  const prefs = slippagePrefs.get(userId) ?? { buy: DEFAULT_SLIPPAGE_PCT, sell: DEFAULT_SLIPPAGE_PCT };
-  prefs[side] = value;
-  slippagePrefs.set(userId, prefs);
-}
 
 const escapeHtml = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -178,11 +171,16 @@ function isNotModified(error: unknown): boolean {
 
 export type PanelDeps = {
   tradingService: TradingService;
+  settings: SettingsService;
   walletService: WalletService;
   renderExecution(result: ExecutionResult): string;
 };
 
-export function createTokenPanel({ tradingService, walletService, renderExecution }: PanelDeps) {
+export function createTokenPanel({ tradingService, walletService, settings, renderExecution }: PanelDeps) {
+  const preferredSlippage = async (userId: number, side: Side) => (await settings.slippage(userId))[side];
+  const rememberSlippage = (userId: number, side: Side, value: number) =>
+    settings.setSlippage(userId, side, value).catch((error) => console.warn("Could not save slippage", error));
+
   async function ownedBalance(userId: number, token: NearToken): Promise<{ base: bigint; human: string } | null> {
     const wallet = await walletService.getWallet(userId);
     if (!wallet) return null;
@@ -230,7 +228,7 @@ export function createTokenPanel({ tradingService, walletService, renderExecutio
         market,
         side: "buy",
         amountHuman: null,
-        slippagePct: preferredSlippage(userId, "buy")
+        slippagePct: await preferredSlippage(userId, "buy")
       }, false);
     } catch (error) {
       await ctx.reply(`❌ ${userMessage(error, "Couldn't load that token right now")}`);
@@ -260,7 +258,7 @@ export function createTokenPanel({ tradingService, walletService, renderExecutio
         }
       }
       await ctx.answerCallbackQuery();
-      await render(ctx, userId, { ...state, side, amountHuman: null, slippagePct: preferredSlippage(userId, side) }, true);
+      await render(ctx, userId, { ...state, side, amountHuman: null, slippagePct: await preferredSlippage(userId, side) }, true);
     }));
 
     pm.callbackQuery(/^tp:amt:(\d+(?:\.\d+)?%?)$/, (ctx) => withPanel(ctx, async (userId, state) => {
@@ -292,7 +290,7 @@ export function createTokenPanel({ tradingService, walletService, renderExecutio
         return;
       }
       const value = Number(raw);
-      rememberSlippage(userId, state.side, value);
+      await rememberSlippage(userId, state.side, value);
       await render(ctx, userId, { ...state, slippagePct: value }, true);
     }));
 
@@ -368,7 +366,7 @@ export function createTokenPanel({ tradingService, walletService, renderExecutio
             : state.side,
           amountHuman: null
         };
-        next.slippagePct = preferredSlippage(userId, next.side);
+        next.slippagePct = await preferredSlippage(userId, next.side);
         panels.set(userId, next);
         const owned = await ownedBalance(userId, state.token);
         await ctx.editMessageText(
@@ -421,7 +419,7 @@ export function createTokenPanel({ tradingService, walletService, renderExecutio
           return void await ctx.reply(`Enter a number between ${MIN_SLIPPAGE_PCT} and ${MAX_SLIPPAGE_PCT}.`);
         }
         const rounded = Math.round(value * 10) / 10;
-        rememberSlippage(userId, state.side, rounded);
+        await rememberSlippage(userId, state.side, rounded);
         return void await render(ctx, userId, { ...state, awaiting: undefined, slippagePct: rounded }, false);
       }
 
