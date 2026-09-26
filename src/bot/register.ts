@@ -1,4 +1,4 @@
-import { InlineKeyboard, type Bot, type CommandContext } from "grammy";
+import { InlineKeyboard, type Bot } from "grammy";
 import { mainMenu } from "./menu.js";
 import { WalletService } from "../wallet/service.js";
 import { getNearBalance } from "../near/account.js";
@@ -48,11 +48,11 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.reply(`💰 NEAR balance\n\n${balance} yoctoNEAR\n\nWallet: \`${wallet.accountId}\``);
   });
 
-  async function prepareTrade(ctx: CommandContext, side: "buy" | "sell") {
+  async function prepareTrade(ctx: any, side: "buy" | "sell") {
     const userId = ctx.from?.id;
     if (!userId) return void await ctx.reply("❌ Telegram user identity is unavailable.");
 
-    const parts = String(ctx.match ?? "").trim().split(/\\s+/).filter(Boolean);
+    const parts = String(ctx.match ?? "").trim().split(/\s+/).filter(Boolean);
     if (parts.length !== 2) {
       return void await ctx.reply(side === "buy"
         ? "⚡ Usage: /buy <token> <amount-near>"
@@ -61,8 +61,8 @@ export function registerBotHandlers(bot: Bot) {
 
     try {
       const prepared = await tradingService.prepare(userId, side, parts[0], parts[1]);
-      const input = formatUnits(prepared.request.amountIn, prepared.request.tokenIn.decimals);
-      const output = formatUnits(prepared.quote.expectedOut, prepared.quote.tokenOut.decimals);
+      const input = formatUnits(prepared.request.amountIn, prepared.request.tokenIn.decimals ?? 0);
+      const output = formatUnits(prepared.quote.expectedOut, prepared.quote.tokenOut.decimals ?? 0);
       const minimum = formatUnits(prepared.quote.minAmountOut, prepared.quote.tokenOut.decimals);
       const symbolIn = prepared.request.tokenIn.symbol ?? prepared.request.tokenIn.address;
       const symbolOut = prepared.request.tokenOut.symbol ?? prepared.request.tokenOut.address;
