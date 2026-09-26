@@ -8,8 +8,8 @@ const bot = new Bot(config.TELEGRAM_BOT_TOKEN);
 registerBotHandlers(bot);
 
 bot.command("health", async (ctx) => {
-  const near = await createNearConnection();
-  const status = await near.connection.provider.status();
+  const near = createNearConnection();
+  const status = await near.provider.status();
   await ctx.reply(
     `🟢 Neyro online\nNEAR block: ${status.sync_info.latest_block_height}`
   );
