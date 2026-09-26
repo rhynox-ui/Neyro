@@ -238,11 +238,13 @@ export class TradingService {
     const contractId = contractOf(token);
     const market = await fetchNearMarket(contractId).catch(() => null);
     const price = Number(market?.priceUsd);
-    if (Number.isFinite(price) && price > 0) return price;
+    // A cached DexScreener price may be hours old; NEARly tokens re-price from the chain.
+    const fresh = market?.cachedAtMs === undefined || !isNearlyToken(contractId);
+    if (fresh && Number.isFinite(price) && price > 0) return price;
     if (!isNearlyToken(contractId)) return null;
     const launch = await fetchLaunchByToken(contractId).catch(() => null);
     const pricing = launch ? await nearlyPriceUsd(launch, await this.nearUsdPrice()).catch(() => null) : null;
-    return pricing?.priceUsd ?? null;
+    return pricing?.priceUsd ?? (Number.isFinite(price) && price > 0 ? price : null);
   }
 
   async execute(userId: number, id: string): Promise<ExecutionResult> {

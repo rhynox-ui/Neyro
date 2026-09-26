@@ -124,3 +124,21 @@ test("parses DexScreener's real response for NEARLY (rhea-finance DCL pair)", ()
   assert.ok(market.imageUrl?.startsWith("https://cdn.dexscreener.com/"));
   assert.deepEqual(market.links.map((l) => l.label), ["Website", "Docs", "X", "Telegram"]);
 });
+
+test("DexScreener refusals fall back to the last good result", async () => {
+  const { fetchNearMarket } = await import("../src/market/dexscreener.js");
+  const { InMemoryStateStore } = await import("../src/state/store.js");
+  const store = new InMemoryStateStore();
+  const ok = (async () => new Response(JSON.stringify(pairs), { status: 200 })) as typeof fetch;
+  const limited = (async () => new Response("error code: 1015", { status: 429 })) as typeof fetch;
+
+  await assert.rejects(fetchNearMarket(ADDRESS, limited, store), /HTTP 429/);
+
+  const fresh = (await fetchNearMarket(ADDRESS, ok, store))!;
+  assert.equal(fresh.cachedAtMs, undefined);
+
+  const cached = (await fetchNearMarket(ADDRESS, limited, store))!;
+  assert.equal(cached.dex, "rhea");
+  assert.equal(typeof cached.cachedAtMs, "number");
+  assert.match(panelText({ token, market: cached, side: "buy", amountHuman: null, slippagePct: 5 }, null), /24h stats from \d+m ago \(DexScreener busy\)/);
+});

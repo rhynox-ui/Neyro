@@ -1,3 +1,5 @@
+import { defaultStateStore, type StateStore } from "../state/store.js";
+
 const DEXSCREENER_NEAR_TOKENS_URL = "https://api.dexscreener.com/tokens/v1/near/";
 const TIMEOUT_MS = 8_000;
 
@@ -22,6 +24,8 @@ export type NearMarket = {
   pairCreatedAtMs: number | null;
   imageUrl: string | null;
   links: TokenLink[];
+  /** Set when DexScreener was unavailable and this is the last good result. */
+  cachedAtMs?: number;
 };
 
 // Profile fields are submitted by token teams, so labels come from a fixed
@@ -115,17 +119,24 @@ export function parseDexScreenerPairs(json: unknown, address: string): NearMarke
 }
 
 /** Null when DexScreener has no NEAR pair yet (common for brand-new launches). */
-export async function fetchNearMarket(
-  address: string,
-  fetcher: typeof fetch = fetch
-): Promise<NearMarket | null> {
+/** Last good DexScreener result per token, served when DexScreener refuses. */
+const LAST_GOOD_TTL_MS = 6 * 60 * 60 * 1000;
+/** Global (not per-user) keys live under user id 0 in the state store. */
+const GLOBAL = 0;
+
+type Cached = { market: NearMarket; fetchedAtMs: number };
+
+async function requestMarket(address: string, fetcher: typeof fetch): Promise<NearMarket | null> {
   const url = `${DEXSCREENER_NEAR_TOKENS_URL}${encodeURIComponent(address)}`;
   const response = await fetcher(url, {
     // DexScreener sits behind bot protection; requests without these headers
     // (the Workers default) can be refused.
     headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; NeyroBot/1.0; +https://t.me)" },
-    signal: AbortSignal.timeout(TIMEOUT_MS)
-  });
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    // On Cloudflare Workers, cache successful responses at the edge briefly so
+    // repeated views of a token don't each hit DexScreener. Ignored on Node.
+    cf: { cacheTtlByStatus: { "200-299": 20, "400-599": 0 } }
+  } as RequestInit);
   if (!response.ok) {
     const body = (await response.text().catch(() => "")).slice(0, 200);
     throw new Error(`DexScreener returned HTTP ${response.status} for ${address}: ${body}`);
@@ -134,4 +145,34 @@ export async function fetchNearMarket(
   const market = parseDexScreenerPairs(json, address);
   if (!market) console.warn("DexScreener has no NEAR pair", { address, pairs: Array.isArray(json) ? json.length : "n/a" });
   return market;
+}
+
+/**
+ * Market data for a NEAR token. DexScreener rate-limits by IP (HTTP 429,
+ * Cloudflare error 1015), and Workers share egress IPs, so refusals happen
+ * regardless of Neyro's own traffic. On failure the last good result (up to
+ * 6h old) is returned with `cachedAtMs` set; callers should refresh the price
+ * from the chain when they can. Null when DexScreener has no NEAR pair.
+ */
+export async function fetchNearMarket(
+  address: string,
+  fetcher: typeof fetch = fetch,
+  store: StateStore = defaultStateStore()
+): Promise<NearMarket | null> {
+  const key = `dex:${address}`;
+  try {
+    const market = await requestMarket(address, fetcher);
+    if (market) {
+      await store.set(GLOBAL, key, { market, fetchedAtMs: Date.now() } satisfies Cached, LAST_GOOD_TTL_MS)
+        .catch((error) => console.warn("Could not cache DexScreener result", error));
+    }
+    return market;
+  } catch (error) {
+    const cached = await store.get<Cached>(GLOBAL, key).catch(() => null);
+    if (cached) {
+      console.warn("DexScreener unavailable; using cached market", { address, error: String(error) });
+      return { ...cached.market, cachedAtMs: cached.fetchedAtMs };
+    }
+    throw error;
+  }
 }

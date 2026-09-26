@@ -9,10 +9,23 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
     console.warn("DexScreener lookup failed:", error);
     return null;
   });
-  if (market || !isNearlyToken(address)) return market;
-  // DexScreener doesn't list many NEARly pools: price them from the chain.
+  if (!isNearlyToken(address)) return market;
+  if (market && market.cachedAtMs === undefined) return market;
+
+  // DexScreener refused (rate limit) or has no pair: NEARly tokens are
+  // priced live from their RHEA DCL pool. A cached DexScreener result still
+  // supplies the logo, links and 24h stats.
   const launch = await fetchLaunchByToken(address).catch(() => null);
-  return launch ? nearlyMarket(launch, await nearUsd()) : null;
+  if (!launch) return market;
+  const live = await nearlyMarket(launch, await nearUsd());
+  if (!market) return live;
+  return {
+    ...market,
+    priceUsd: live.priceUsd ?? market.priceUsd,
+    marketCapUsd: live.marketCapUsd ?? market.marketCapUsd,
+    fdvUsd: live.fdvUsd ?? market.fdvUsd,
+    liquidityUsd: live.liquidityUsd ?? market.liquidityUsd
+  };
 }
 import { ftBalanceOf } from "../near/ft.js";
 import { looksLikeContractId } from "../near/tokens.js";
@@ -100,6 +113,9 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
         `📈 24h: ${pct(market.priceChange24hPct)}  •  Vol: ${money(market.volume24hUsd)}`,
         `🔄 24h Txns: ${market.txns24hBuys ?? "—"} buys / ${market.txns24hSells ?? "—"} sells`,
         `⏳ Pair age: ${ageLabel(market.pairCreatedAtMs)}`,
+        ...(market.cachedAtMs !== undefined
+          ? [`🕒 24h stats from ${ageLabel(market.cachedAtMs)} ago (DexScreener busy)`]
+          : []),
         ...(market.links.length
           ? [`🔗 ${market.links.map((link) => `<a href="${escapeHtml(link.url)}">${escapeHtml(link.label)}</a>`).join("  •  ")}`]
           : [])
