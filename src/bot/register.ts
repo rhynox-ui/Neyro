@@ -47,7 +47,7 @@ export function registerBotHandlers(bot: Bot) {
     const wallet = await walletService.getWallet(telegramUserId);
     if (!wallet) return void await ctx.reply("👛 No wallet yet. Use /wallet to create one.");
     const balance = await getNearBalance(wallet.accountId);
-    await ctx.reply(`💰 NEAR balance\n\n${balance} yoctoNEAR\n\nWallet: \`${wallet.accountId}\``);
+    await ctx.reply(`💰 NEAR balance\n\n${formatUnits(balance, 24)} NEAR\n\nWallet: \`${wallet.accountId}\``);
   });
 
   async function prepareTrade(ctx: any, side: "buy" | "sell") {
