@@ -6,6 +6,7 @@ const schema = z.object({
   NEAR_NETWORK: z.enum(["mainnet", "testnet"]).default("testnet"),
   NEAR_RPC_URL: z.string().url().default("https://rpc.testnet.fastnear.com"),
   NEAR_RPC_FALLBACK_URL: z.string().url().optional(),
+  FASTNEAR_API_URL: z.string().url().optional(),
   RHEA_API_URL: z.string().url().default("https://api.rhea.finance"),
   RHEA_API_TOKEN: z.string().optional(),
   NEYRO_MASTER_KEY: z.string().optional(),
@@ -32,7 +33,15 @@ const schema = z.object({
   }
 });
 
-export const config = schema.parse(process.env);
+// `KEY=` lines in .env mean "unset", not an empty value.
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(([, value]) => value !== "")
+);
+
+export const config = schema.parse(env);
+
+export const FASTNEAR_API_URL = config.FASTNEAR_API_URL ??
+  (config.NEAR_NETWORK === "mainnet" ? "https://api.fastnear.com" : "https://test.api.fastnear.com");
 
 /** RHEA liquidity and its token list exist on NEAR mainnet only. */
 export const TRADING_ENABLED = config.NEAR_NETWORK === "mainnet";

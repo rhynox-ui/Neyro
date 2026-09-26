@@ -1,4 +1,9 @@
 import { JsonRpcProvider } from "near-api-js";
+import {
+  AccessKeyDoesNotExistError,
+  AccountDoesNotExistError,
+  ContractExecutionError
+} from "near-api-js/rpc-errors";
 import { config } from "../config.js";
 
 export type RpcEndpoint = {
@@ -17,6 +22,13 @@ export function createRpcProvider(url: string): JsonRpcProvider {
   return new JsonRpcProvider({ url });
 }
 
+/** Answers that another node would give identically; failing over only wastes time. */
+function isDefinitive(error: unknown): boolean {
+  return error instanceof AccountDoesNotExistError ||
+    error instanceof AccessKeyDoesNotExistError ||
+    error instanceof ContractExecutionError;
+}
+
 export async function withRpcFallback<T>(
   operation: (provider: JsonRpcProvider, endpoint: RpcEndpoint) => Promise<T>
 ): Promise<T> {
@@ -26,6 +38,7 @@ export async function withRpcFallback<T>(
     try {
       return await operation(createRpcProvider(endpoint.url), endpoint);
     } catch (error) {
+      if (isDefinitive(error)) throw error;
       lastError = error;
       console.warn(`NEAR RPC ${endpoint.name} failed; trying next endpoint`);
     }

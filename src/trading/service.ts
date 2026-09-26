@@ -3,7 +3,7 @@ import { RheaClient } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
 import { WalletService } from "../wallet/service.js";
-import { getNearBalance } from "../near/account.js";
+import { getNearBalance, tradableNear } from "../near/account.js";
 import { ftBalanceOf } from "../near/ft.js";
 import { assertSlippageAllowed, assertTradeShareAllowed } from "../security/risk.js";
 import type { TradeQuote, TradeRequest } from "../domain/trading.js";
@@ -15,6 +15,7 @@ import {
 } from "./repository.js";
 import { assessFill, classifyBatch, quoteDeadline } from "./outcome.js";
 import { config, TRADING_ENABLED } from "../config.js";
+import { UserFacingError, userMessage } from "../errors.js";
 
 const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
@@ -88,22 +89,22 @@ export class TradingService {
     cleanupPending();
 
     if (!TRADING_ENABLED) {
-      throw new Error("Trading uses RHEA liquidity on NEAR mainnet only; this bot is running on testnet");
+      throw new UserFacingError("Trading uses RHEA liquidity on NEAR mainnet only; this bot is running on testnet");
     }
 
     const wallet = await this.walletService.getWallet(userId);
-    if (!wallet) throw new Error("Create a Neyro wallet first with /wallet");
+    if (!wallet) throw new UserFacingError("Create a Neyro wallet first with /wallet");
 
     const amountText = humanAmount.trim();
     if (!/^\d+(\.\d+)?$/.test(amountText) || /^0+(?:\.0*)?$/.test(amountText)) {
-      throw new Error("Amount must be a positive decimal number");
+      throw new UserFacingError("Amount must be a positive decimal number");
     }
 
     const token = await this.rhea.resolveNearToken(tokenQuery);
     const tokens = await this.rhea.getNearTokens();
     const near = findNearNative(tokens);
     if (token.address.toLowerCase() === near.address.toLowerCase()) {
-      throw new Error("Choose a token other than NEAR");
+      throw new UserFacingError("Choose a token other than NEAR");
     }
 
     const tokenIn = side === "buy" ? near : token;
@@ -114,9 +115,11 @@ export class TradingService {
     assertSlippageAllowed(slippageBps);
 
     if (side === "buy") {
-      const balance = BigInt(await getNearBalance(wallet.accountId));
+      const balance = tradableNear(await getNearBalance(wallet.accountId));
       const amount = BigInt(amountIn);
-      if (amount > balance) throw new Error("Insufficient NEAR balance");
+      if (amount > balance) {
+        throw new UserFacingError("Insufficient NEAR balance (0.05 NEAR is kept for gas and storage)");
+      }
 
       const shareBps = Number(
         (amount * 10000n) / (balance === 0n ? 1n : balance)
@@ -124,7 +127,7 @@ export class TradingService {
       assertTradeShareAllowed(shareBps);
     } else {
       const balance = await ftBalanceOf(contractOf(tokenIn), wallet.accountId);
-      if (BigInt(amountIn) > balance) throw new Error(`Insufficient ${tokenIn.symbol} balance`);
+      if (BigInt(amountIn) > balance) throw new UserFacingError(`Insufficient ${tokenIn.symbol} balance`);
     }
 
     const request: TradeRequest = {
@@ -165,10 +168,10 @@ export class TradingService {
 
     const trade = pending.get(id);
     if (!trade || trade.userId !== userId) {
-      throw new Error("Trade confirmation expired or is invalid");
+      throw new UserFacingError("Trade confirmation expired or is invalid");
     }
     if (executing.has(userId)) {
-      throw new Error("Another trade is still executing; wait for it to finish");
+      throw new UserFacingError("Another trade is still executing; wait for it to finish");
     }
 
     pending.delete(id);
@@ -210,12 +213,19 @@ export class TradingService {
     const batch = classifyBatch(sent);
 
     if (batch !== "executed") {
-      const reason = sent.find((item) => item.failure)?.failure ?? errorCode(sdkError);
-      await this.repository.updateStatus(userId, id, { status: batch, txHash: lastHash, errorCode: reason });
-      if (batch === "unknown") {
-        console.error("Trade outcome unknown", { id, txHashes });
-      }
-      return { status: batch, txHashes, reason };
+      const chainFailure = sent.find((item) => item.failure)?.failure;
+      await this.repository.updateStatus(userId, id, {
+        status: batch,
+        txHash: lastHash,
+        errorCode: chainFailure ?? errorCode(sdkError)
+      });
+      console.error("Trade did not complete", { id, status: batch, txHashes, error: sdkError });
+      // On-chain failure text is public; SDK/RPC error text is not shown to users.
+      return {
+        status: batch,
+        txHashes,
+        reason: chainFailure ?? userMessage(sdkError, "Execution error")
+      };
     }
 
     // Every transaction executed. Verify the swap actually filled rather

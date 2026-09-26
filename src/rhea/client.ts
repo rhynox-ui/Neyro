@@ -6,6 +6,7 @@ import {
   type ChainExecutor
 } from "@rhea-finance/cross-chain-aggregation-dex";
 import { config } from "../config.js";
+import { UserFacingError } from "../errors.js";
 
 export type RheaQuoteRequest = {
   fromToken: AssetRef;
@@ -34,7 +35,7 @@ export class RheaClient {
 
   async resolveNearToken(query: string) {
     const needle = query.trim().toLowerCase();
-    if (!needle) throw new Error("Token is required");
+    if (!needle) throw new UserFacingError("Token is required");
 
     const tokens = await this.getNearTokens();
     const matches = tokens.filter((token) =>
@@ -45,7 +46,7 @@ export class RheaClient {
     );
 
     if (matches.length === 0) {
-      throw new Error("Token was not found in RHEA's current NEAR token list");
+      throw new UserFacingError("Token was not found in RHEA's current NEAR token list");
     }
 
     if (matches.length > 1) {
@@ -55,7 +56,7 @@ export class RheaClient {
         token.contractAddress?.toLowerCase() === needle
       );
       if (exactAddress) return exactAddress;
-      throw new Error("Multiple tokens match that symbol; use the token contract/address");
+      throw new UserFacingError("Multiple tokens match that symbol; use the token contract/address");
     }
 
     return matches[0];
