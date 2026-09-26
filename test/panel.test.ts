@@ -142,3 +142,15 @@ test("DexScreener refusals fall back to the last good result", async () => {
   assert.equal(typeof cached.cachedAtMs, "number");
   assert.match(panelText({ token, market: cached, side: "buy", amountHuman: null, slippagePct: 5 }, null), /24h stats from \d+m ago \(DexScreener busy\)/);
 });
+
+test("RHEA asset ids with nep141: prefixes and native NEAR are recognised", async () => {
+  const { isNearNative, stripAssetPrefix } = await import("../src/rhea/client.js");
+  assert.equal(stripAssetPrefix("nep141:USDT.tether-token.near"), "usdt.tether-token.near");
+  assert.ok(isNearNative({ address: "nep141:wrap.near" }));
+  assert.ok(isNearNative({ address: "near" }));
+  assert.ok(isNearNative({ address: "x", isNative: true }));
+  assert.ok(!isNearNative({ address: "nep141:usdt.tether-token.near", contractAddress: "usdt.tether-token.near" }));
+
+  const listed = { ...token, address: `nep141:${ADDRESS}`, contractAddress: ADDRESS };
+  assert.match(panelText({ token: listed, market: null, side: "buy", amountHuman: null, slippagePct: 5 }, null), new RegExp(`<code>${ADDRESS}</code>`));
+});

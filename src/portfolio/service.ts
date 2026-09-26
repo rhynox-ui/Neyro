@@ -1,6 +1,6 @@
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { z } from "zod";
-import { RheaClient } from "../rhea/client.js";
+import { RheaClient, stripAssetPrefix } from "../rhea/client.js";
 import { ftMetadata } from "../near/ft.js";
 import { FASTNEAR_API_URL, TRADING_ENABLED, fastnearHeaders } from "../config.js";
 
@@ -96,7 +96,7 @@ export class PortfolioService {
     try {
       const tokens = await this.rhea.getNearTokens();
       return new Map(tokens.flatMap((token) => {
-        const contractId = token.contractAddress ?? token.address;
+        const contractId = stripAssetPrefix(token.contractAddress ?? token.address);
         return contractId ? [[contractId, { symbol: token.symbol, decimals: token.decimals ?? 0 }]] : [];
       }));
     } catch {

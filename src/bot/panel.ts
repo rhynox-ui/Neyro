@@ -29,7 +29,7 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
 }
 import { ftBalanceOf } from "../near/ft.js";
 import { looksLikeContractId } from "../near/tokens.js";
-import type { NearToken } from "../rhea/client.js";
+import { stripAssetPrefix, type NearToken } from "../rhea/client.js";
 import type { TradingService, ExecutionResult } from "../trading/service.js";
 import type { WalletService } from "../wallet/service.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
@@ -63,6 +63,11 @@ export type PanelState = {
   slippagePct: number;
   awaiting?: "amount" | "slippage";
 };
+
+/** Plain NEAR contract id for display and lookups (RHEA ids may carry "nep141:"). */
+function contractIdOf(token: NearToken): string {
+  return stripAssetPrefix(token.contractAddress ?? token.address);
+}
 
 /** An open panel is a browsing session; after this it asks to paste again. */
 const PANEL_TTL_MS = 30 * 60 * 1000;
@@ -126,7 +131,7 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
     `🪙 ${name} (${symbol})`,
     `Ⓝ NEAR  •  ${escapeHtml(market?.dex ?? "rhea")}  •  ${escapeHtml(market?.pairLabel ?? `${token.symbol} / NEAR`)}`,
     // Full contract id in a code span: Telegram copies it on tap.
-    `<code>${escapeHtml(token.address)}</code>`,
+    `<code>${escapeHtml(contractIdOf(token))}</code>`,
     "",
     ...marketLines,
     ...(token.listed ? [] : ["⚠️ Not on RHEA's token list. Verify the contract; anyone can reuse a symbol."]),
@@ -168,7 +173,7 @@ export function panelKeyboard(state: PanelState, ownedHuman: string | null): Inl
     "tp:exec"
   ).row();
 
-  const chartUrl = state.market?.url ?? `https://dexscreener.com/near/${encodeURIComponent(state.token.address)}`;
+  const chartUrl = state.market?.url ?? `https://dexscreener.com/near/${encodeURIComponent(contractIdOf(state.token))}`;
   kb.url("📈 Chart / Dex", chartUrl).text("🔄 Refresh", "tp:refresh");
   return kb;
 }
@@ -207,7 +212,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
     const wallet = await walletService.getWallet(userId);
     if (!wallet) return null;
     try {
-      const base = await ftBalanceOf(token.contractAddress ?? token.address, wallet.accountId);
+      const base = await ftBalanceOf(contractIdOf(token), wallet.accountId);
       return { base, human: formatUnits(base.toString(), token.decimals) };
     } catch {
       return null;
@@ -244,7 +249,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
     await ctx.replyWithChatAction("typing").catch(() => {});
     try {
       const token = await tradingService.resolveToken(query);
-      const market = await loadMarket(token.address, () => tradingService.nearUsdPrice());
+      const market = await loadMarket(contractIdOf(token), () => tradingService.nearUsdPrice());
       await render(ctx, userId, {
         token,
         market,
@@ -318,7 +323,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
 
     pm.callbackQuery("tp:refresh", (ctx) => withPanel(ctx, async (userId, state) => {
       await ctx.answerCallbackQuery("Refreshing…");
-      const market = (await loadMarket(state.token.address, () => tradingService.nearUsdPrice())) ?? state.market;
+      const market = (await loadMarket(contractIdOf(state.token), () => tradingService.nearUsdPrice())) ?? state.market;
       await render(ctx, userId, { ...state, market }, true);
     }));
 

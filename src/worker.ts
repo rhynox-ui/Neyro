@@ -184,7 +184,8 @@ async function handleDebugPrice(request: Request): Promise<Response> {
   ])));
   const rheaNear = await step(async () => {
     const tokens = await new app.rhea.RheaClient().getNearTokens();
-    return tokens.find((item) => item.address.toLowerCase() === "wrap.near")?.price ?? "wrap.near not in list";
+    const near = tokens.find(app.rhea.isNearNative);
+    return near ? { address: near.address, isNative: near.isNative, price: near.price } : `NEAR not in list (${tokens.length} tokens)`;
   });
   const dclNear = await step(() => app.dcl.nearUsdFromDcl());
   const dexscreener = await step(async () => {

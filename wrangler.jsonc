@@ -18,7 +18,7 @@
   "vars": {
     "NEAR_NETWORK": "mainnet",
     "NEAR_RPC_URL": "https://rpc.mainnet.fastnear.com",
-    "NEAR_RPC_FALLBACK_URL": "https://rpc.mainnet.near.org",
+    "NEAR_RPC_FALLBACK_URL": "https://near.drpc.org",
     "TREASURY_ACCOUNT_ID": "widekingdom6862.near"
   }
 

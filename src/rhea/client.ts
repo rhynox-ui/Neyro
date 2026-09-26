@@ -49,19 +49,13 @@ export class RheaClient {
     if (!needle) throw new UserFacingError("Token is required");
 
     const tokens = await this.getNearTokens();
-    const matches = tokens.filter((token) =>
-      token.address.toLowerCase() === needle ||
-      token.assetId.toLowerCase() === needle ||
-      token.contractAddress?.toLowerCase() === needle ||
-      token.symbol.toLowerCase() === needle
-    );
+    const id = stripAssetPrefix(needle);
+    const byId = (token: (typeof tokens)[number]) =>
+      [token.address, token.assetId, token.contractAddress].some((value) => stripAssetPrefix(value) === id);
+    const matches = tokens.filter((token) => byId(token) || token.symbol.toLowerCase() === needle);
 
     if (matches.length > 1) {
-      const exactAddress = matches.find((token) =>
-        token.address.toLowerCase() === needle ||
-        token.assetId.toLowerCase() === needle ||
-        token.contractAddress?.toLowerCase() === needle
-      );
+      const exactAddress = matches.find(byId);
       if (exactAddress) return { ...exactAddress, listed: true };
       throw new UserFacingError("Multiple tokens match that symbol; use the token contract/address");
     }
@@ -70,13 +64,13 @@ export class RheaClient {
     // New launches (e.g. NEARly) are tradeable on RHEA pools before they
     // appear in RHEA's price list. Accept them by exact contract id only,
     // never by symbol, and verify they are NEP-141 on chain.
-    if (looksLikeContractId(needle)) {
-      const metadata = await ftMetadata(needle).catch(() => undefined);
+    if (looksLikeContractId(id)) {
+      const metadata = await ftMetadata(id).catch(() => undefined);
       if (metadata) {
         return {
           chain: "near",
-          address: needle,
-          contractAddress: needle,
+          address: id,
+          contractAddress: id,
           symbol: metadata.symbol,
           decimals: metadata.decimals,
           isNative: false,
@@ -113,4 +107,21 @@ export class RheaClient {
       waitFor: "source-confirmed"
     });
   }
+}
+
+/** "nep141:usdt.tether-token.near" → "usdt.tether-token.near" (RHEA/NEAR Intents asset ids). */
+export function stripAssetPrefix(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/^nep141:/, "");
+}
+
+/**
+ * Native NEAR / wNEAR in RHEA's token list. The SDK sets `address` to the
+ * API's asset id, which may be "near", "wrap.near" or "nep141:wrap.near",
+ * and flags native assets with isNative.
+ */
+export function isNearNative(token: { isNative?: boolean; address: string; assetId?: string; contractAddress?: string | null }): boolean {
+  if (token.isNative) return true;
+  return [token.address, token.assetId, token.contractAddress]
+    .map(stripAssetPrefix)
+    .some((id) => id === "wrap.near" || id === "near");
 }

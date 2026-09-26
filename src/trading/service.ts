@@ -1,5 +1,5 @@
 import { parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
-import { RheaClient } from "../rhea/client.js";
+import { RheaClient, isNearNative, stripAssetPrefix } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
 import { WalletService } from "../wallet/service.js";
@@ -51,14 +51,14 @@ const executing = new Set<number>();
 type NearToken = Awaited<ReturnType<RheaClient["getNearTokens"]>>[number];
 
 function findNearNative(tokens: readonly NearToken[]): NearToken {
-  const token = tokens.find((item) => item.address.toLowerCase() === WRAPPED_NEAR);
-  if (!token) throw new Error("RHEA did not return wrap.near in the NEAR token list");
+  const token = tokens.find(isNearNative);
+  if (!token) throw new Error("RHEA did not return NEAR in the NEAR token list");
   return token;
 }
 
 function contractOf(token: TradeRequest["tokenIn"]): string {
   const contractAddress = (token as { contractAddress?: string | null }).contractAddress;
-  return contractAddress ?? token.address;
+  return stripAssetPrefix(contractAddress ?? token.address);
 }
 
 function cleanupPending(): void {
@@ -118,7 +118,7 @@ export class TradingService {
     const token = await this.rhea.resolveNearToken(tokenQuery);
     const tokens = await this.rhea.getNearTokens();
     const near = findNearNative(tokens);
-    if (token.address.toLowerCase() === near.address.toLowerCase()) {
+    if (isNearNative(token)) {
       throw new UserFacingError("Choose a token other than NEAR");
     }
 
@@ -228,7 +228,7 @@ export class TradingService {
       console.warn("RHEA token list unavailable:", String(error));
       return [];
     });
-    const price = Number(tokens.find((item) => item.address.toLowerCase() === WRAPPED_NEAR)?.price);
+    const price = Number(tokens.find(isNearNative)?.price);
     if (Number.isFinite(price) && price > 0) return price;
     // On-chain fallback: RHEA's deepest NEAR/stablecoin DCL pool.
     return nearUsdFromDcl().catch((error) => {
