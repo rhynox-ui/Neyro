@@ -1,4 +1,7 @@
-import type { AssetRef } from "@rhea-finance/cross-chain-aggregation-dex";
+import type {
+  AssetRef,
+  Quote as RheaQuote
+} from "@rhea-finance/cross-chain-aggregation-dex";
 
 export type TradeSide = "buy" | "sell";
 
@@ -10,7 +13,8 @@ export type TradeQuote = {
   minAmountOut: string;
   priceImpact?: string;
   router?: string;
-  raw: unknown;
+  /** The immutable SDK quote used later by RHEA swap(). */
+  raw: RheaQuote;
 };
 
 export type TradeRequest = {
