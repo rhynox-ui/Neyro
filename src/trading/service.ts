@@ -43,7 +43,7 @@ export class TradingService {
     if (!wallet) throw new Error("Create a Neyro wallet first with /wallet");
 
     const amountText = humanAmount.trim();
-    if (!/^\d+(\.\d+)?$/.test(amountText) || Number(amountText) <= 0) {
+    if (!/^\d+(\.\d+)?$/.test(amountText) || /^0+(?:\.0*)?$/.test(amountText)) {
       throw new Error("Amount must be a positive decimal number");
     }
 
@@ -62,7 +62,7 @@ export class TradingService {
       const balance = BigInt(await getNearBalance(wallet.accountId));
       const amount = BigInt(amountIn);
       if (amount > balance) throw new Error("Insufficient NEAR balance");
-      assertTradeShareAllowed(Number((amount * 10000n) / (balance === 0n ? 1n : balance)));
+      const shareBps = Number((amount * 10000n) / (balance === 0n ? 1n : balance));\n      assertTradeShareAllowed(shareBps);
     }
 
     const request: TradeRequest = {
