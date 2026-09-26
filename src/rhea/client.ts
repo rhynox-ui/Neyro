@@ -6,9 +6,25 @@ export type RheaQuoteRequest = {
   tokenIn: string;
   tokenOut: string;
   amountIn: string;
-  slippage: number;
+  slippageBps: number;
   sender: string;
   recipient: string;
+};
+
+type ApiEnvelope<T> = {
+  code: number;
+  msg: string;
+  data: T;
+};
+
+export type RheaToken = {
+  address: string;
+  chainId: number;
+  decimals: number;
+  symbol: string;
+  name?: string;
+  price?: string;
+  logoURI?: string;
 };
 
 export class RheaClient {
@@ -17,26 +33,50 @@ export class RheaClient {
     private readonly accessToken = config.RHEA_API_TOKEN
   ) {}
 
-  async quote(request: RheaQuoteRequest): Promise<unknown> {
-    if (!this.accessToken) {
-      throw new Error("RHEA_API_TOKEN is not configured");
-    }
+  private headers(): Record<string, string> {
+    return {
+      "content-type": "application/json",
+      ...(this.accessToken ? { authorization: `Bearer ${this.accessToken}` } : {})
+    };
+  }
 
-    const response = await fetch(`${this.baseUrl}/api/swap/quote`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify(request)
+  private async request<T>(path: string, init: RequestInit): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...init,
+      headers: { ...this.headers(), ...(init.headers ?? {}) }
     });
 
-    const body = await response.json() as { code?: number; msg?: string; data?: unknown };
-
+    const body = await response.json() as ApiEnvelope<T>;
     if (!response.ok || body.code !== 0) {
-      throw new Error(body.msg ?? `RHEA quote failed: HTTP ${response.status}`);
+      throw new Error(body.msg || `RHEA API error: HTTP ${response.status}`);
     }
-
     return body.data;
+  }
+
+  async getNearTokens(): Promise<Record<string, RheaToken>> {
+    const data = await this.request<Record<string, RheaToken>>(
+      "/get_chain_prices?chain=900001",
+      { method: "GET" }
+    );
+    return data;
+  }
+
+  async quote(request: RheaQuoteRequest): Promise<unknown> {
+    return this.request<unknown>("/api/v2/swap/quote", {
+      method: "POST",
+      body: JSON.stringify({
+        fromChain: request.fromChain,
+        toChain: request.toChain,
+        tokenIn: request.tokenIn,
+        tokenOut: request.tokenOut,
+        amountIn: request.amountIn,
+        slippageBps: request.slippageBps,
+        sender: request.sender,
+        recipient: request.recipient,
+        quoteWaitingTimeMs: 3000,
+        sameChainTimeoutMs: 500,
+        crossChainTimeoutMs: 3000
+      })
+    });
   }
 }
