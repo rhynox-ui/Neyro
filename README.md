@@ -19,6 +19,12 @@ Telegram -> Bot/Application -> Trading Engine -> NEAR/RHEA
 - Portfolio and transaction tracking
 - Risk controls and encrypted signer storage
 
+## Protocol fee
+
+Neyro charges 1% of each trade, capped at $60, inside the swap transaction.
+Fees go to the team wallet `widekingdom6862.near`, set with
+`TREASURY_ACCOUNT_ID` (see `.env.example`). Fees are off when it is unset.
+
 ## Security
 
 Never commit Telegram bot tokens, RHEA API tokens, seed phrases, private keys, or production credentials.
