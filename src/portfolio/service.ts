@@ -11,8 +11,14 @@ export type PortfolioAsset = {
 };
 
 const WRAPPED_NEAR = "wrap.near";
+const CACHE_TTL_MS = 30_000;
 
-type FtBalanceResponse = string;
+type CachedPortfolio = {
+  expiresAt: number;
+  assets: PortfolioAsset[];
+};
+
+const cache = new Map<string, CachedPortfolio>();
 
 async function ftBalanceOf(contractId: string, accountId: string): Promise<string> {
   return withRpcFallback(async (provider) => {
@@ -21,47 +27,67 @@ async function ftBalanceOf(contractId: string, accountId: string): Promise<strin
       methodName: "ft_balance_of",
       args: { account_id: accountId }
     });
-    return new TextDecoder().decode(result.result);
+
+    const raw = typeof result === "string"
+      ? result
+      : new TextDecoder().decode(result.result);
+
+    return raw;
   });
 }
 
-function decodeJsonString(raw: string): FtBalanceResponse {
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== "string") throw new Error("Invalid ft_balance_of response");
-    return parsed;
-  } catch {
-    throw new Error("Invalid fungible-token balance response");
+function decodeJsonString(raw: string): string {
+  const parsed = JSON.parse(raw);
+  if (typeof parsed !== "string") {
+    throw new Error("Invalid ft_balance_of response");
   }
+  return parsed;
 }
 
 export class PortfolioService {
   constructor(private readonly rhea = new RheaClient()) {}
 
   async getPortfolio(accountId: string): Promise<PortfolioAsset[]> {
+    const cached = cache.get(accountId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.assets;
+    }
+
     const tokens = await this.rhea.getNearTokens();
-    const assets: PortfolioAsset[] = [];
-
-    for (const token of tokens) {
+    const candidates = tokens.filter((token) => {
       const contractId = token.contractAddress ?? token.address;
-      if (!contractId || contractId === WRAPPED_NEAR) continue;
+      return Boolean(contractId) && contractId !== WRAPPED_NEAR;
+    });
 
-      try {
-        const raw = await ftBalanceOf(contractId, accountId);
-        const baseUnits = decodeJsonString(raw);
-        if (BigInt(baseUnits) === 0n) continue;
+    const results = await Promise.allSettled(
+      candidates.map(async (token) => {
+        const contractId = token.contractAddress ?? token.address;
+        if (!contractId) return null;
 
-        assets.push({
+        const baseUnits = decodeJsonString(
+          await ftBalanceOf(contractId, accountId)
+        );
+
+        if (BigInt(baseUnits) === 0n) return null;
+
+        return {
           symbol: token.symbol,
           contractId,
           decimals: token.decimals ?? 0,
           balanceBaseUnits: baseUnits,
           balance: formatUnits(baseUnits, token.decimals ?? 0)
-        });
-      } catch (error) {
-        console.warn(`Unable to read ${token.symbol} balance`, error);
-      }
-    }
+        };
+      })
+    );
+
+    const assets = results.flatMap((result) =>
+      result.status === "fulfilled" && result.value ? [result.value] : []
+    );
+
+    cache.set(accountId, {
+      expiresAt: Date.now() + CACHE_TTL_MS,
+      assets
+    });
 
     return assets;
   }
