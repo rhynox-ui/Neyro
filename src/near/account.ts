@@ -7,7 +7,7 @@ export function getNearAccount(accountId: string): Account {
 
 export async function getNearBalance(accountId: string): Promise<string> {
   const account = getNearAccount(accountId);
-  return account.getBalance();
+  return (await account.getBalance()).toString();
 }
 
 export async function accountExists(accountId: string): Promise<boolean> {
