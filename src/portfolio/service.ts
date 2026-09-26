@@ -1,6 +1,6 @@
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { RheaClient } from "../rhea/client.js";
-import { withRpcFallback } from "../near/rpc.js";
+import { ftBalanceOf } from "../near/ft.js";
 
 export type PortfolioAsset = {
   symbol: string;
@@ -19,26 +19,6 @@ type CachedPortfolio = {
 };
 
 const cache = new Map<string, CachedPortfolio>();
-
-async function ftBalanceOf(contractId: string, accountId: string): Promise<string> {
-  return withRpcFallback(async (provider) => {
-    // near-api-js 7 already decodes the JSON view result; NEP-141 returns
-    // the balance as a JSON string (U128), so a string is the only valid shape.
-    const result = await provider.callFunction({
-      contractId,
-      method: "ft_balance_of",
-      args: { account_id: accountId }
-    });
-    return parseFtBalance(result);
-  });
-}
-
-export function parseFtBalance(value: unknown): string {
-  if (typeof value !== "string" || !/^\d+$/.test(value)) {
-    throw new Error("Invalid ft_balance_of response");
-  }
-  return value;
-}
 
 export class PortfolioService {
   constructor(private readonly rhea = new RheaClient()) {}
@@ -60,9 +40,9 @@ export class PortfolioService {
         const contractId = token.contractAddress ?? token.address;
         if (!contractId) return null;
 
-        const baseUnits = await ftBalanceOf(contractId, accountId);
+        const baseUnits = (await ftBalanceOf(contractId, accountId)).toString();
 
-        if (BigInt(baseUnits) === 0n) return null;
+        if (baseUnits === "0") return null;
 
         return {
           symbol: token.symbol,

@@ -5,10 +5,36 @@ import { getNearBalance } from "../near/account.js";
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { TradingService } from "../trading/service.js";
 import { PortfolioService } from "../portfolio/service.js";
+import type { ExecutionResult } from "../trading/service.js";
+import { config } from "../config.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
 const portfolioService = new PortfolioService();
+
+function explorerTx(txHash: string): string {
+  const host = config.NEAR_NETWORK === "mainnet" ? "nearblocks.io" : "testnet.nearblocks.io";
+  return `https://${host}/txns/${txHash}`;
+}
+
+export function renderExecution(result: ExecutionResult): string {
+  const links = result.txHashes.map(explorerTx).join("\n");
+  const txs = links ? `\n\n${links}` : "";
+  switch (result.status) {
+    case "filled":
+      return `✅ Trade filled${txs}`;
+    case "submitted":
+      return `✅ Trade executed on chain. Fill could not be verified yet; check /balance.${txs}`;
+    case "reverted":
+      return `↩️ Trade did not fill. ${result.reason ?? "The swap failed on chain"}. Your tokens were not exchanged; only gas (and any storage deposit) was spent.${txs}`;
+    case "partial":
+      return `⚠️ Trade partially executed. Some transactions were rejected; check your balances before retrying.${txs}`;
+    case "unknown":
+      return `⏳ Trade status unknown. The transaction may still land. Do NOT retry; check the explorer link.${txs}`;
+    case "failed":
+      return `❌ Trade failed before reaching the chain. Nothing was spent; you can retry.${result.reason ? `\n\n${result.reason}` : ""}`;
+  }
+}
 
 export function registerBotHandlers(bot: Bot) {
   bot.command("start", async (ctx) => {
@@ -97,7 +123,7 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.answerCallbackQuery("Executing trade…");
     try {
       const result = await tradingService.execute(userId, ctx.match[1]);
-      await ctx.editMessageText(`✅ Trade submitted\n\nTransaction: ${result.transactionHash}`);
+      await ctx.editMessageText(renderExecution(result));
     } catch (error) {
       console.error("Trade execution error:", error);
       await ctx.editMessageText(`❌ Trade failed\n\n${error instanceof Error ? error.message : "Unknown execution error"}`);

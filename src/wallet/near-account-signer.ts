@@ -1,11 +1,31 @@
 import type { Account } from "near-api-js";
+import { ActionExecutionError, UnknownTransactionError } from "near-api-js/rpc-errors";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 import type { NearTransactionSigner } from "../near/rhea-executor.js";
+import {
+  findExecutionFailure,
+  isDefinitiveRejection,
+  transactionHash
+} from "../near/execution.js";
 
-type FinalOutcome = {
-  transaction?: { hash?: string };
-  status?: unknown;
+export type SentTransactionResult = "executed" | "reverted" | "rejected" | "unknown";
+
+export type SentTransaction = {
+  txHash: string;
+  receiverId: string;
+  result: SentTransactionResult;
+  failure?: string;
 };
+
+export type SignerJournal = {
+  /**
+   * Called with the final hash after signing and before broadcast. If it
+   * throws, the transaction is not sent, so an unrecorded broadcast can't happen.
+   */
+  beforeBroadcast?(txHash: string, receiverId: string): Promise<void>;
+};
+
+const WAIT_UNTIL = "EXECUTED_OPTIMISTIC";
 
 function isAbort(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -18,53 +38,117 @@ function isAbort(signal?: AbortSignal): void {
  *
  * The Account owns the signer. Callers only see transaction hashes and
  * confirmation state; private keys never cross this boundary.
+ *
+ * Every transaction is signed first, its hash journaled, and only then
+ * broadcast, so a timeout after broadcast still leaves a hash to reconcile.
  */
 export class NearAccountSigner implements NearTransactionSigner {
-  constructor(private readonly account: Account) {}
+  private readonly sentTransactions: SentTransaction[] = [];
+
+  constructor(
+    private readonly account: Account,
+    private readonly journal: SignerJournal = {}
+  ) {}
 
   getAccountId(): string {
     return this.account.accountId;
+  }
+
+  /** Every transaction this signer attempted to broadcast, in order. */
+  get sent(): readonly SentTransaction[] {
+    return this.sentTransactions;
   }
 
   async signAndSendTransactions(
     transactions: NearTransaction[],
     options: { signal?: AbortSignal }
   ): Promise<{ txHashes: string[]; raw?: unknown }> {
-    const txHashes: string[] = [];
-    const raw: FinalOutcome[] = [];
+    const raw: unknown[] = [];
 
     for (const transaction of transactions) {
       isAbort(options.signal);
 
-      const outcome = await this.account.signAndSendTransaction({
+      const signed = await this.account.createSignedTransaction({
         receiverId: transaction.receiverId,
         actions: transaction.actions as never
-      }) as FinalOutcome;
+      });
+      const txHash = transactionHash(signed);
+      await this.journal.beforeBroadcast?.(txHash, transaction.receiverId);
 
-      const txHash = outcome.transaction?.hash;
-      if (!txHash) {
-        throw new Error("NEAR RPC returned no transaction hash");
+      const record: SentTransaction = {
+        txHash,
+        receiverId: transaction.receiverId,
+        result: "unknown"
+      };
+      this.sentTransactions.push(record);
+
+      let outcome: unknown;
+      try {
+        outcome = await this.account.provider.sendTransactionUntil(signed, WAIT_UNTIL);
+      } catch (error) {
+        if (error instanceof ActionExecutionError) {
+          // Executed on chain and failed; the outcome is known.
+          record.result = "reverted";
+          record.failure = error.message.slice(0, 200);
+          break;
+        }
+        if (isDefinitiveRejection(error)) record.result = "rejected";
+        throw error;
       }
 
-      txHashes.push(txHash);
       raw.push(outcome);
+      const failure = findExecutionFailure(outcome);
+      if (failure) {
+        record.result = "reverted";
+        record.failure = failure;
+        // Later transactions in a batch depend on earlier ones; stop here.
+        break;
+      }
+      record.result = "executed";
     }
 
-    return { txHashes, raw };
+    return {
+      txHashes: this.sentTransactions.map((item) => item.txHash),
+      raw
+    };
   }
 
   async waitForTransactions(
     txHashes: string[],
     _options: { signal?: AbortSignal }
   ): Promise<{ status: "confirmed" | "failed"; raw?: unknown }> {
-    if (txHashes.length === 0) {
-      return { status: "failed" };
-    }
+    if (txHashes.length === 0) return { status: "failed" };
 
-    // signAndSendTransaction waits for final execution before returning, so
-    // the submission result is already source-confirmed by the time RHEA
-    // asks us to wait. A future remote-signer implementation can replace
-    // this method with explicit tx-status polling.
-    return { status: "confirmed" };
+    // sendTransactionUntil(EXECUTED_OPTIMISTIC) returns only after every
+    // receipt executed, so receipt-level results are already known here.
+    const records = txHashes.map((hash) =>
+      this.sentTransactions.find((item) => item.txHash === hash)
+    );
+    const confirmed = records.every((item) => item?.result === "executed");
+    return { status: confirmed ? "confirmed" : "failed", raw: records };
+  }
+
+  /**
+   * Re-queries the chain for transactions whose outcome is still unknown,
+   * such as after an RPC timeout. Transactions the node has never seen stay unknown.
+   */
+  async reconcile(): Promise<void> {
+    for (const record of this.sentTransactions) {
+      if (record.result !== "unknown") continue;
+      try {
+        const outcome = await this.account.provider.viewTransactionStatus({
+          txHash: record.txHash,
+          accountId: this.account.accountId,
+          waitUntil: WAIT_UNTIL
+        });
+        const failure = findExecutionFailure(outcome);
+        record.result = failure ? "reverted" : "executed";
+        if (failure) record.failure = failure;
+      } catch (error) {
+        if (!(error instanceof UnknownTransactionError)) {
+          console.warn("NEAR transaction reconciliation failed");
+        }
+      }
+    }
   }
 }

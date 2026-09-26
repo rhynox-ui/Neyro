@@ -4,7 +4,7 @@ import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
 
-const { parseFtBalance } = await import("../src/portfolio/service.js");
+const { parseFtBalance } = await import("../src/near/ft.js");
 
 test("portfolio amount formatting uses token decimals", () => {
   assert.equal(formatUnits("1234500", 6), "1.2345");
