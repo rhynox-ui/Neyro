@@ -63,7 +63,7 @@ export function registerBotHandlers(bot: Bot) {
       const prepared = await tradingService.prepare(userId, side, parts[0], parts[1]);
       const input = formatUnits(prepared.request.amountIn, prepared.request.tokenIn.decimals ?? 0);
       const output = formatUnits(prepared.quote.expectedOut, prepared.quote.tokenOut.decimals ?? 0);
-      const minimum = formatUnits(prepared.quote.minAmountOut, prepared.quote.tokenOut.decimals);
+      const minimum = formatUnits(prepared.quote.minAmountOut, prepared.quote.tokenOut.decimals ?? 0);
       const symbolIn = prepared.request.tokenIn.symbol ?? prepared.request.tokenIn.address;
       const symbolOut = prepared.request.tokenOut.symbol ?? prepared.request.tokenOut.address;
 
