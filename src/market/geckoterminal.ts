@@ -53,15 +53,38 @@ export function parseGeckoTerminalToken(json: unknown, address: string): NearMar
   };
 }
 
-export async function fetchGeckoTerminalMarket(address: string, fetcher: typeof fetch = fetch): Promise<NearMarket | null> {
-  const response = await fetcher(`${GECKOTERMINAL_TOKEN_URL}${encodeURIComponent(address)}?include=top_pools`, {
-    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; NeyroBot/1.0)" },
+async function fetchTokenJson(url: string, headers: Record<string, string>, fetcher: typeof fetch, label: string, address: string): Promise<unknown | null> {
+  const response = await fetcher(url, {
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; NeyroBot/1.0)", ...headers },
     signal: AbortSignal.timeout(TIMEOUT_MS)
   });
   if (response.status === 404) return null;
   if (!response.ok) {
     const body = (await response.text().catch(() => "")).slice(0, 200);
-    throw new Error(`GeckoTerminal returned HTTP ${response.status} for ${address}: ${body}`);
+    throw new Error(`${label} returned HTTP ${response.status} for ${address}: ${body}`);
   }
-  return parseGeckoTerminalToken(await response.json(), address);
+  return response.json();
+}
+
+/** Keyless GeckoTerminal API (rate-limited per IP). */
+export async function fetchGeckoTerminalMarket(address: string, fetcher: typeof fetch = fetch): Promise<NearMarket | null> {
+  const json = await fetchTokenJson(`${GECKOTERMINAL_TOKEN_URL}${encodeURIComponent(address)}?include=top_pools`, {}, fetcher, "GeckoTerminal", address);
+  return json === null ? null : parseGeckoTerminalToken(json, address);
+}
+
+/**
+ * CoinGecko's keyed on-chain API: the same GeckoTerminal data (JSON:API
+ * token + top pools), limited per key rather than per shared IP.
+ */
+export async function fetchCoinGeckoOnchainMarket(
+  address: string,
+  apiKey: string,
+  plan: "demo" | "pro" = "demo",
+  fetcher: typeof fetch = fetch
+): Promise<NearMarket | null> {
+  const host = plan === "pro" ? "https://pro-api.coingecko.com" : "https://api.coingecko.com";
+  const header = plan === "pro" ? "x-cg-pro-api-key" : "x-cg-demo-api-key";
+  const url = `${host}/api/v3/onchain/networks/near/tokens/${encodeURIComponent(address)}?include=top_pools`;
+  const json = await fetchTokenJson(url, { [header]: apiKey }, fetcher, "CoinGecko", address);
+  return json === null ? null : parseGeckoTerminalToken(json, address);
 }

@@ -1,6 +1,7 @@
 import { defaultStateStore, type StateStore } from "../state/store.js";
-import { firstSuccess } from "../net/fallback.js";
-import { fetchGeckoTerminalMarket } from "./geckoterminal.js";
+import { firstSuccess, type Source } from "../net/fallback.js";
+import { fetchCoinGeckoOnchainMarket, fetchGeckoTerminalMarket } from "./geckoterminal.js";
+import { config } from "../config.js";
 
 const DEXSCREENER_NEAR_TOKENS_URL = "https://api.dexscreener.com/tokens/v1/near/";
 const TIMEOUT_MS = 8_000;
@@ -121,6 +122,25 @@ export function parseDexScreenerPairs(json: unknown, address: string): NearMarke
 }
 
 /** Null when DexScreener has no NEAR pair yet (common for brand-new launches). */
+/**
+ * Market-data sources in order. With a CoinGecko key its keyed on-chain API
+ * goes first: it isn't subject to the shared-IP rate limits that keyless
+ * DexScreener and GeckoTerminal apply to Cloudflare Workers.
+ */
+function marketSources(address: string, fetcher: typeof fetch): Source<NearMarket | null>[] {
+  const coingecko: Source<NearMarket | null>[] = config.COINGECKO_API_KEY
+    ? [{
+        name: "market:coingecko",
+        run: () => fetchCoinGeckoOnchainMarket(address, config.COINGECKO_API_KEY!, config.COINGECKO_API_PLAN, fetcher)
+      }]
+    : [];
+  return [
+    ...coingecko,
+    { name: "market:dexscreener", run: () => requestMarket(address, fetcher) },
+    { name: "market:geckoterminal", run: () => fetchGeckoTerminalMarket(address, fetcher) }
+  ];
+}
+
 /** Last good DexScreener result per token, served when DexScreener refuses. */
 const LAST_GOOD_TTL_MS = 6 * 60 * 60 * 1000;
 /** Global (not per-user) keys live under user id 0 in the state store. */
@@ -165,10 +185,10 @@ export async function fetchNearMarket(
   try {
     // DexScreener first, then GeckoTerminal. A source that fails (e.g. a
     // rate limit) is skipped for a minute; "no pair" moves on to the next.
-    const market = await firstSuccess<NearMarket | null>([
-      { name: "market:dexscreener", run: () => requestMarket(address, fetcher) },
-      { name: "market:geckoterminal", run: () => fetchGeckoTerminalMarket(address, fetcher) }
-    ], { cooldownMs: 60_000, isMiss: (value) => value === null });
+    const market = await firstSuccess<NearMarket | null>(marketSources(address, fetcher), {
+      cooldownMs: 60_000,
+      isMiss: (value) => value === null
+    });
     if (market) {
       await store.set(GLOBAL, key, { market, fetchedAtMs: Date.now() } satisfies Cached, LAST_GOOD_TTL_MS)
         .catch((error) => console.warn("Could not cache market result", error));

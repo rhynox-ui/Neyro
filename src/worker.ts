@@ -255,6 +255,7 @@ export default {
         ...(problem ? { problem } : {}),
         network: process.env.NEAR_NETWORK,
         fastnearKey: Boolean(process.env.FASTNEAR_API_KEY),
+        coingeckoKey: Boolean(process.env.COINGECKO_API_KEY),
         queue: Boolean(env.NEYRO_TELEGRAM_UPDATES)
       });
     }

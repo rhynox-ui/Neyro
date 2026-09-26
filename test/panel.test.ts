@@ -204,3 +204,21 @@ test("market data falls back from DexScreener to GeckoTerminal", async () => {
     console.warn = warn;
   }
 });
+
+test("CoinGecko on-chain source sends the key header for its plan", async () => {
+  const { fetchCoinGeckoOnchainMarket } = await import("../src/market/geckoterminal.js");
+  const seen: { url: string; headers: Record<string, string> }[] = [];
+  const fetcher = (async (url: string, init: RequestInit) => {
+    seen.push({ url, headers: init.headers as Record<string, string> });
+    return new Response(JSON.stringify(geckoFixture), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  const market = (await fetchCoinGeckoOnchainMarket(ADDRESS, "demo-key", "demo", fetcher))!;
+  assert.equal(market.volume24hUsd, 6180000);
+  assert.equal(seen[0]!.url, `https://api.coingecko.com/api/v3/onchain/networks/near/tokens/${ADDRESS}?include=top_pools`);
+  assert.equal(seen[0]!.headers["x-cg-demo-api-key"], "demo-key");
+
+  await fetchCoinGeckoOnchainMarket(ADDRESS, "pro-key", "pro", fetcher);
+  assert.ok(seen[1]!.url.startsWith("https://pro-api.coingecko.com/"));
+  assert.equal(seen[1]!.headers["x-cg-pro-api-key"], "pro-key");
+});

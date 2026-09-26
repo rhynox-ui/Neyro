@@ -27,6 +27,14 @@ const schema = z.object({
   LOG_LEVEL: z.string().default("info"),
   /** Telegram sends this in X-Telegram-Bot-Api-Secret-Token on webhook calls (Workers). */
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * CoinGecko API key (free Demo plan works). Its on-chain endpoints serve
+   * GeckoTerminal data with per-key limits, unlike the keyless GeckoTerminal
+   * and DexScreener APIs, which rate-limit Cloudflare's shared IPs.
+   */
+  COINGECKO_API_KEY: z.string().optional(),
+  /** Set to "pro" for a paid CoinGecko key (pro-api host and header). */
+  COINGECKO_API_PLAN: z.enum(["demo", "pro"]).default("demo"),
   /** Public URL of the deployed bot (e.g. the workers.dev address); enables token icons. */
   PUBLIC_BASE_URL: z.string().url().optional(),
   /** Protects the Worker's /setup-webhook endpoint. */
