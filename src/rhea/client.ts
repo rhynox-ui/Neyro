@@ -1,82 +1,49 @@
+import {
+  SwapClient,
+  type AssetRef,
+  type QuoteRequest
+} from "@rhea-finance/cross-chain-aggregation-dex";
 import { config } from "../config.js";
 
 export type RheaQuoteRequest = {
-  fromChain: string;
-  toChain: string;
-  tokenIn: string;
-  tokenOut: string;
+  fromToken: AssetRef;
+  toToken: AssetRef;
   amountIn: string;
   slippageBps: number;
   sender: string;
   recipient: string;
 };
 
-type ApiEnvelope<T> = {
-  code: number;
-  msg: string;
-  data: T;
-};
-
-export type RheaToken = {
-  address: string;
-  chainId: number;
-  decimals: number;
-  symbol: string;
-  name?: string;
-  price?: string;
-  logoURI?: string;
-};
-
 export class RheaClient {
-  constructor(
-    private readonly baseUrl = config.RHEA_API_URL,
-    private readonly accessToken = config.RHEA_API_TOKEN
-  ) {}
+  private readonly client: SwapClient;
 
-  private headers(): Record<string, string> {
-    return {
-      "content-type": "application/json",
-      ...(this.accessToken ? { authorization: `Bearer ${this.accessToken}` } : {})
+  constructor() {
+    this.client = new SwapClient({
+      baseUrl: config.RHEA_API_URL,
+      apiKey: config.RHEA_API_TOKEN,
+      timeoutMs: 15_000
+    });
+  }
+
+  async getNearTokens() {
+    return this.client.getFromTokens({ chainId: 900001 });
+  }
+
+  async quote(request: RheaQuoteRequest) {
+    const payload: QuoteRequest = {
+      fromChain: "near",
+      toChain: "near",
+      tokenIn: request.fromToken,
+      tokenOut: request.toToken,
+      amountIn: request.amountIn,
+      slippageBps: request.slippageBps,
+      sender: request.sender,
+      recipient: request.recipient,
+      quoteWaitingTimeMs: 3000,
+      sameChainTimeoutMs: 500,
+      crossChainTimeoutMs: 3000
     };
-  }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { ...this.headers(), ...(init.headers ?? {}) }
-    });
-
-    const body = await response.json() as ApiEnvelope<T>;
-    if (!response.ok || body.code !== 0) {
-      throw new Error(body.msg || `RHEA API error: HTTP ${response.status}`);
-    }
-    return body.data;
-  }
-
-  async getNearTokens(): Promise<Record<string, RheaToken>> {
-    const data = await this.request<Record<string, RheaToken>>(
-      "/get_chain_prices?chain=900001",
-      { method: "GET" }
-    );
-    return data;
-  }
-
-  async quote(request: RheaQuoteRequest): Promise<unknown> {
-    return this.request<unknown>("/api/v2/swap/quote", {
-      method: "POST",
-      body: JSON.stringify({
-        fromChain: request.fromChain,
-        toChain: request.toChain,
-        tokenIn: request.tokenIn,
-        tokenOut: request.tokenOut,
-        amountIn: request.amountIn,
-        slippageBps: request.slippageBps,
-        sender: request.sender,
-        recipient: request.recipient,
-        quoteWaitingTimeMs: 3000,
-        sameChainTimeoutMs: 500,
-        crossChainTimeoutMs: 3000
-      })
-    });
+    return this.client.quote(payload);
   }
 }
