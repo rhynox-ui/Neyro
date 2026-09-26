@@ -7,6 +7,8 @@ const schema = z.object({
   /** Defaults to FastNEAR for the selected network. */
   NEAR_RPC_URL: z.string().url().optional(),
   NEAR_RPC_FALLBACK_URL: z.string().url().optional(),
+  /** Comma-separated extra RPC URLs; defaults to public endpoints from NEAR's provider list. */
+  NEAR_RPC_EXTRA_URLS: z.string().optional(),
   FASTNEAR_API_URL: z.string().url().optional(),
   /**
    * FastNEAR API key (sent as Authorization: Bearer). Keyless access is

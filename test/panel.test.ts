@@ -65,7 +65,8 @@ test("panel text mirrors the Mango card", () => {
   assert.ok(text.includes("🔄 24h Txns: 45186 buys / 35133 sells"));
   assert.ok(text.includes("⏳ Pair age: 17h"));
   assert.ok(text.includes('🔗 <a href="https://bag.example/">Website</a>  •  <a href="https://x.com/bag">X</a>'));
-  assert.ok(text.endsWith("🟢 BUY Bagwork\n💳 Amount: Not selected\n⚙️ Slippage: 5%\n💸 Protocol fee: 0%"));
+  assert.ok(text.endsWith("🟢 BUY Bagwork\n💳 Amount: Not selected\n⚙️ Slippage: 5%"));
+  assert.ok(!text.includes("Protocol fee"));
 });
 
 test("panel still renders for tokens with no market yet, and warns when unlisted", () => {

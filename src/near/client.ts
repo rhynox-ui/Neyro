@@ -1,14 +1,14 @@
-import { Account, JsonRpcProvider } from "near-api-js";
-import { config } from "../config.js";
-import { createRpcProvider } from "./rpc.js";
+import { Account, type JsonRpcProvider } from "near-api-js";
+import { createFailoverProvider } from "./rpc.js";
 
 export type NearConnection = {
   provider: JsonRpcProvider;
   account(accountId: string): Account;
 };
 
+/** Every call on this provider fails over across all configured RPC endpoints. */
 export function createNearConnection(): NearConnection {
-  const provider = createRpcProvider(config.NEAR_RPC_URL);
+  const provider = createFailoverProvider() as JsonRpcProvider;
   return {
     provider,
     account(accountId: string) {

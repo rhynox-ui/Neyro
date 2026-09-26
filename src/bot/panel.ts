@@ -140,7 +140,6 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
     side === "buy" ? `🟢 BUY ${symbol}` : `🔴 SELL ${symbol}`,
     `💳 Amount: ${selected}`,
     `⚙️ Slippage: ${state.slippagePct}%`,
-    `💸 Protocol fee: ${feeLabel()}`,
     ...(ownedHuman && Number(ownedHuman) > 0 ? [`💰 Your balance: ${escapeHtml(ownedHuman)} ${symbol}`] : [])
   ].join("\n");
 }
