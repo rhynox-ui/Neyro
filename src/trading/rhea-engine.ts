@@ -1,8 +1,15 @@
 import { RheaClient } from "../rhea/client.js";
 import type { TradeQuote, TradeRequest, TradingEngine } from "../domain/trading.js";
+import { createNeyroNearExecutor, type NearTransactionSigner } from "../near/rhea-executor.js";
 
 export class RheaTradingEngine implements TradingEngine {
-  constructor(private readonly rhea = new RheaClient()) {}
+  private readonly rhea: RheaClient;
+
+  constructor(signer?: NearTransactionSigner, rhea?: RheaClient) {
+    this.rhea = rhea ?? new RheaClient(
+      signer ? [createNeyroNearExecutor(signer)] : []
+    );
+  }
 
   async quote(request: TradeRequest): Promise<TradeQuote> {
     if (request.tokenIn.chain !== "near" || request.tokenOut.chain !== "near") {
@@ -25,11 +32,21 @@ export class RheaTradingEngine implements TradingEngine {
       expectedOut: quote.estimatedOut,
       minAmountOut: quote.minAmountOut,
       router: quote.route?.router,
-      raw: quote.raw
+      raw: quote
     };
   }
 
-  async execute(): Promise<{ transactionHash: string }> {
-    throw new Error("Execution is intentionally gated until the secure NEAR signer executor is connected");
+  async execute(
+    _request: TradeRequest,
+    quote: TradeQuote
+  ): Promise<{ transactionHash: string }> {
+    const result = await this.rhea.swap(quote.raw);
+    const transactionHash = result.txHash ?? result.txHashes?.[result.txHashes.length - 1];
+
+    if (!transactionHash) {
+      throw new Error("RHEA execution completed without a transaction hash");
+    }
+
+    return { transactionHash };
   }
 }
