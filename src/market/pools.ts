@@ -110,7 +110,15 @@ export async function refreshPoolIndex(store: StateStore = defaultStateStore()):
     const raw = await view(DCL_CONTRACT, "list_pools", { from_index: index.dclScanned, limit: DCL_PAGE });
     pages++;
     const count = Array.isArray(raw) ? raw.length : 0;
+    const before = Object.keys(index.byToken).length;
     for (const pool of parseDclPools(raw)) add(index, pool);
+    // RHEA's own SDK calls list_pools without paging; if the contract ignores
+    // the arguments and returns every pool, that list is complete.
+    if (count > DCL_PAGE) {
+      changed ||= Object.keys(index.byToken).length !== before || index.dclScanned !== count;
+      index.dclScanned = count;
+      break;
+    }
     index.dclScanned += count;
     changed ||= count > 0;
     if (count < DCL_PAGE) break;
