@@ -6,7 +6,7 @@ import { NearAccountSigner } from "../wallet/near-account-signer.js";
 import { WalletService } from "../wallet/service.js";
 import { getNearBalance, tradableNear } from "../near/account.js";
 import { ftBalanceOf } from "../near/ft.js";
-import { assertSlippageAllowed, assertTradeShareAllowed } from "../security/risk.js";
+import { assertSlippageAllowed } from "../security/risk.js";
 import type { TradeQuote, TradeRequest } from "../domain/trading.js";
 import {
   NoopTradeRepository,
@@ -139,16 +139,15 @@ export class TradingService {
       const balance = tradableNear(await getNearBalance(wallet.accountId));
       const amount = BigInt(total);
       if (amount > balance) {
-        throw new UserFacingError("Insufficient NEAR balance (0.05 NEAR is kept for gas and storage)");
+        throw new UserFacingError(
+          `Not enough NEAR: ${formatUnits(balance.toString(), 24)} NEAR available to trade (0.05 NEAR is kept for gas and storage)`
+        );
       }
-
-      const shareBps = Number(
-        (amount * 10000n) / (balance === 0n ? 1n : balance)
-      );
-      assertTradeShareAllowed(shareBps);
     } else {
       const balance = await ftBalanceOf(contractOf(tokenIn), wallet.accountId);
-      if (BigInt(total) > balance) throw new UserFacingError(`Insufficient ${tokenIn.symbol} balance`);
+      if (BigInt(total) > balance) {
+        throw new UserFacingError(`Not enough ${tokenIn.symbol}: you hold ${formatUnits(balance.toString(), tokenIn.decimals)}`);
+      }
     }
 
     const fee = await this.planFee(side, BigInt(total), tokenIn);
