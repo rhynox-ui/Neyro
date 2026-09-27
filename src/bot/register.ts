@@ -2,6 +2,11 @@ import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { mainMenu } from "./menu.js";
 import { MAX_WALLETS, WalletService } from "../wallet/service.js";
 import { getNearBalance, type NearBalance } from "../near/account.js";
+import { ftBalanceOf } from "../near/ft.js";
+import { functionCall } from "../near/actions.js";
+import { NearAccountSigner } from "../wallet/near-account-signer.js";
+
+const WRAPPED_NEAR = "wrap.near";
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { TradingService } from "../trading/service.js";
 import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
@@ -59,12 +64,16 @@ export function renderExecution(result: ExecutionResult): string {
   const txs = renderTxHashes(result.txHashes);
   const reason = result.reason ? escapeHtml(result.reason) : undefined;
   switch (result.status) {
-    case "filled":
-      return `✅ <b>Trade filled</b>${txs}`;
+    case "filled": {
+      const fee = result.fee
+        ? `\n\n🧾 <b>Fee:</b> ${escapeHtml(result.fee.display)}\n<a href="${explorerTx(result.fee.txHash)}">View fee on NearBlocks</a>`
+        : "";
+      return `✅ <b>Trade filled</b>${txs}${fee}`;
+    }
     case "submitted":
       return `✅ <b>Trade executed on chain.</b> Fill could not be verified yet; check /portfolio.${txs}`;
     case "reverted":
-      return `↩️ <b>Trade did not fill.</b> ${reason ?? "The swap failed on chain"}.\nYour tokens were not exchanged; only gas (and any storage deposit) was spent.${result.feeRefundDue ? "\nThe protocol fee taken on this swap has been recorded for refund." : ""}${txs}`;
+      return `↩️ <b>Trade did not fill.</b> ${reason ?? "The swap failed on chain"}.\nYour tokens were not exchanged and no fee was charged; only gas (and any storage deposit) was spent.${txs}`;
     case "partial":
       return `⚠️ <b>Trade partially executed.</b> Some transactions were rejected; check /portfolio before retrying.${txs}`;
     case "unknown":
@@ -147,7 +156,9 @@ export function renderWalletScreen(
   wallets: readonly WalletSummary[],
   balances: readonly (NearBalance | null)[],
   maxWallets: number,
-  nearUsd: number | null = null
+  nearUsd: number | null = null,
+  /** wNEAR held by the active wallet (e.g. left by a sell or a refunded buy). */
+  wrapped = 0n
 ) {
   const activeIndex = Math.max(0, wallets.findIndex((wallet) => wallet.active));
   const active = wallets[activeIndex];
@@ -168,6 +179,9 @@ export function renderWalletScreen(
     "",
     `Active: ${active ? code(active.accountId) : "—"}`,
     `Balance: ${activeBalance ? renderBalance(activeBalance) + usdSuffix(activeBalance.available, nearUsd) : "unavailable, tap Refresh"}`,
+    ...(wrapped > 0n
+      ? [`🔁 Plus ${shortNear(wrapped).replace(" NEAR", " wNEAR")}${usdSuffix(wrapped, nearUsd)}: wrapped NEAR from trades. Tap Unwrap to turn it back into NEAR.`]
+      : []),
     "",
     "Trades, /deposit and /withdraw use the active wallet. Tap a wallet to switch."
   ].join("\n");
@@ -179,6 +193,7 @@ export function renderWalletScreen(
     const amount = balance ? ` · ${balance.exists ? shortNear(balance.available) : "0 NEAR"}` : "";
     keyboard.text(`${wallet.active ? "✅ " : ""}W${index + 1} · ${shortAccount(wallet.accountId)}${amount}`, `w:use:${index}`);
   });
+  if (wrapped > 0n) keyboard.row().text(`🔁 Unwrap ${shortNear(wrapped).replace(" NEAR", " wNEAR")} → NEAR`, "w:unwrap");
   keyboard.row().text("🔄 Refresh", "w:refresh");
   if (wallets.length < maxWallets) keyboard.text("➕ New wallet", "w:new");
   keyboard.row().text("🔑 Export private key", "w:export");
@@ -347,11 +362,13 @@ export function registerBotHandlers(bot: Bot) {
         created = (await walletService.createWallet(telegramUserId)).accountId;
       }
       const wallets = await walletService.listWallets(telegramUserId);
-      const [balances, nearUsd] = await Promise.all([
+      const active = wallets.find((wallet) => wallet.active) ?? wallets[0]!;
+      const [balances, nearUsd, wrapped] = await Promise.all([
         Promise.all(wallets.map((wallet) => getNearBalance(wallet.accountId).catch(() => null))),
-        tradingService.nearUsdPrice().catch(() => null)
+        tradingService.nearUsdPrice().catch(() => null),
+        ftBalanceOf(WRAPPED_NEAR, active.accountId).catch(() => 0n)
       ]);
-      const { text, keyboard } = renderWalletScreen(wallets, balances, MAX_WALLETS, nearUsd);
+      const { text, keyboard } = renderWalletScreen(wallets, balances, MAX_WALLETS, nearUsd, wrapped);
       const header = note ?? (created ? "✅ <b>Wallet created</b>\n\n" : "");
       const body = header + text + (created
         ? "\n\n🔑 Back up this wallet: tap \"Export private key\" below and store the key somewhere safe."
@@ -364,6 +381,30 @@ export function registerBotHandlers(bot: Bot) {
       await replyNotice(ctx, `❌ ${userMessage(error, "Wallet is temporarily unavailable")}`);
     }
   }
+
+  // Turns the active wallet's wNEAR back into NEAR (to the same wallet).
+  pm.callbackQuery("w:unwrap", async (ctx) => {
+    await ctx.answerCallbackQuery("Unwrapping…");
+    try {
+      const wallet = await walletService.getWallet(ctx.from.id);
+      if (!wallet) return;
+      const amount = await ftBalanceOf(WRAPPED_NEAR, wallet.accountId);
+      if (amount <= 0n) return void await showWallet(ctx, true, "ℹ️ No wNEAR to unwrap.\n\n");
+      const signer = new NearAccountSigner(await walletService.getSigningAccount(ctx.from.id, wallet.accountId));
+      await signer.signAndSendTransactions(
+        [{ receiverId: WRAPPED_NEAR, actions: [functionCall("near_withdraw", { amount: amount.toString() }, 10_000_000_000_000n, 1n)] }] as unknown as Parameters<NearAccountSigner["signAndSendTransactions"]>[0],
+        {}
+      );
+      const sent = signer.sent[0];
+      const note = sent?.result === "executed"
+        ? `✅ <b>Unwrapped ${escapeHtml(shortNear(amount))}</b>${renderTxHashes([sent.txHash])}\n\n`
+        : `❌ Unwrap did not complete.${sent ? renderTxHashes([sent.txHash]) : ""}\n\n`;
+      await showWallet(ctx, true, note);
+    } catch (error) {
+      console.error("Unwrap error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't unwrap right now")}`);
+    }
+  });
 
   pm.callbackQuery("w:refresh", async (ctx) => {
     await ctx.answerCallbackQuery("Refreshing…");

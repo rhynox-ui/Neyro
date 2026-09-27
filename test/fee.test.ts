@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeFee, injectFee, type FeePlan } from "../src/trading/fee.js";
+import { computeFee, feeActions, type FeePlan } from "../src/trading/fee.js";
 import { assessFill } from "../src/trading/outcome.js";
 import { functionCall } from "../src/near/actions.js";
 
@@ -28,50 +28,22 @@ test("no USD price means the cap can't be enforced, so no fee is planned", () =>
 });
 
 const buyPlan: FeePlan = { side: "buy", treasury: "fees.neyro.near", contractId: "wrap.near", amount: "1000", capped: false };
-const swapTx = () => ({
-  receiverId: "wrap.near",
-  actions: [
-    functionCall("near_deposit", {}, 10n * TGAS, 99_000n),
-    functionCall("ft_transfer_call", { receiver_id: "v2.ref-finance.near", amount: "99000", msg: "{}" }, 180n * TGAS, 1n)
-  ]
-});
-
-test("buy fee joins the wrap.near swap transaction, after RHEA's actions", () => {
-  const { transactions, mode } = injectFee([swapTx()], buyPlan);
-  assert.equal(mode, "same-transaction");
-  assert.equal(transactions.length, 1);
-  const methods = transactions[0]!.actions.map((a) => a.type === "FunctionCall" ? a.params.methodName : a.type);
-  assert.deepEqual(methods, ["near_deposit", "ft_transfer_call", "near_deposit", "ft_transfer"]);
-  const transfer = transactions[0]!.actions[3]!;
+test("fee actions: buy wraps then transfers to the treasury; sell registers it when needed", () => {
+  const buy = feeActions(buyPlan).map((a) => a.type === "FunctionCall" ? a.params.methodName : a.type);
+  assert.deepEqual(buy, ["near_deposit", "ft_transfer"]);
+  const transfer = feeActions(buyPlan)[1]!;
   assert.ok(transfer.type === "FunctionCall");
   assert.deepEqual(transfer.params.args, { receiver_id: "fees.neyro.near", amount: "1000", memo: "neyro fee" });
   assert.equal(transfer.params.deposit, "1");
+
+  const sell: FeePlan = { side: "sell", treasury: "fees.neyro.near", contractId: "meme.nearlytrade.near", amount: "7", registerTreasury: "1250000000000000000000", capped: true };
+  assert.deepEqual(feeActions(sell).map((a) => a.type === "FunctionCall" ? a.params.methodName : a.type), ["storage_deposit", "ft_transfer"]);
 });
 
-test("sell fee joins the token's ft_transfer_call and registers the treasury when needed", () => {
-  const sellTx = { receiverId: "meme.nearlytrade.near", actions: [functionCall("ft_transfer_call", { amount: "5" }, 180n * TGAS, 1n)] };
-  const plan: FeePlan = { side: "sell", treasury: "fees.neyro.near", contractId: "meme.nearlytrade.near", amount: "7", registerTreasury: "1250000000000000000000", capped: true };
-  const { transactions, mode } = injectFee([sellTx], plan);
-  assert.equal(mode, "same-transaction");
-  const methods = transactions[0]!.actions.map((a) => a.type === "FunctionCall" ? a.params.methodName : a.type);
-  assert.deepEqual(methods, ["ft_transfer_call", "storage_deposit", "ft_transfer"]);
-});
-
-test("fee falls back to its own final transaction when it can't join the swap", () => {
-  const other = { receiverId: "v2.ref-finance.near", actions: [functionCall("swap", {}, 100n * TGAS, 0n)] };
-  const noTarget = injectFee([other], buyPlan);
-  assert.equal(noTarget.mode, "separate-transaction");
-  assert.equal(noTarget.transactions.at(-1)!.receiverId, "wrap.near");
-
-  const full = { receiverId: "wrap.near", actions: [functionCall("ft_transfer_call", {}, 290n * TGAS, 1n)] };
-  assert.equal(injectFee([full], buyPlan).mode, "separate-transaction");
-  assert.equal(injectFee([swapTx()], { ...buyPlan, amount: "0" }).mode, "none");
-});
-
-test("sell fill excludes the fee paid in the same token", () => {
-  // Swap refunded, fee still taken: balance drops by the fee only.
-  assert.deepEqual(assessFill("sell", 100n, 93n, 7n), { filled: false, amount: 0n });
-  assert.deepEqual(assessFill("sell", 100n, 0n, 7n), { filled: true, amount: 93n });
+test("a refunded swap is not a fill (the fee is only charged after a fill)", () => {
+  assert.deepEqual(assessFill("sell", 100n, 100n), { filled: false, amount: 0n });
+  assert.deepEqual(assessFill("sell", 100n, 7n), { filled: true, amount: 93n });
+  assert.deepEqual(assessFill("buy", 0n, 0n), { filled: false, amount: 0n });
 });
 
 test("fee label", () => {

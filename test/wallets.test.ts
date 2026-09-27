@@ -58,6 +58,10 @@ test("wallet screen marks the active wallet and offers a new one below the cap",
   assert.deepEqual(rows, [["w:use:0"], ["w:use:1"], ["w:refresh", "w:new"], ["w:export"]]);
   assert.match((keyboard.inline_keyboard[1]![0] as { text: string }).text, /· 1 NEAR$/);
 
+  const withWrapped = renderWalletScreen(wallets, [unfunded, balance], 5, 2.5, 5n * 10n ** 23n);
+  assert.match(withWrapped.text, /Plus 0\.5 wNEAR \(~\$1\.25\)/);
+  assert.ok(withWrapped.keyboard.inline_keyboard.flat().some((b) => (b as { callback_data: string }).callback_data === "w:unwrap"));
+
   const unknown = renderWalletScreen(wallets, [null, null], 5);
   assert.match(unknown.text, /balance unavailable/);
 

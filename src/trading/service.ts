@@ -1,5 +1,5 @@
 import { buildQuotePricer, onchainMarket, type QuotePricer } from "../market/onchain.js";
-import { parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
+import { formatUnits, parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { RheaClient, isNearNative, stripAssetPrefix } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
@@ -17,7 +17,7 @@ import {
 } from "./repository.js";
 import { assessFill, classifyBatch, estimateValueLoss, quoteDeadline } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
-import { computeFee, injectFee, type FeePlan } from "./fee.js";
+import { computeFee, feeActions, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
 import { storageRegistrationCost } from "../near/ft.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
@@ -44,10 +44,10 @@ type PendingTrade = {
 export type ExecutionResult = {
   status: Extract<TradeStatus, "filled" | "submitted" | "reverted" | "partial" | "unknown" | "failed">;
   txHashes: string[];
+  /** The protocol fee, sent only after a verified fill. */
+  fee?: { txHash: string; amount: string; contractId: string; display: string };
   /** Base units of the FT side that moved, when the fill was verified. */
   filledAmount?: string;
-  /** The fee was taken but the swap reverted; a refund is recorded. */
-  feeRefundDue?: boolean;
   reason?: string;
 };
 
@@ -316,7 +316,6 @@ export class TradingService {
 
     let signer: NearAccountSigner | undefined;
     let sdkError: unknown;
-    const feeState: { mode: ReturnType<typeof injectFee>["mode"] } = { mode: "none" };
     const fee = trade.fee;
     try {
       const account = await this.walletService.getSigningAccount(userId, request.accountId);
@@ -324,8 +323,9 @@ export class TradingService {
         beforeBroadcast: (txHash, receiverId) =>
           this.repository.recordEvent(userId, id, { type: "tx_signed", txHash, details: { receiverId } }),
         transform: (transactions) => {
-          // Check RHEA's batch against the confirmed trade before the fee is
-          // added and before anything is signed.
+          // Check RHEA's batch against the confirmed trade before anything
+          // is signed. The fee is not part of this batch: it is charged only
+          // after the swap is verified as filled (see collectFee).
           assertSwapMatchesIntent(transactions, {
             side: request.side,
             accountId: request.accountId,
@@ -334,10 +334,7 @@ export class TradingService {
             amountIn: BigInt(request.amountIn),
             dexContracts: DEX_CONTRACTS
           });
-          if (!fee) return transactions;
-          const injected = injectFee(transactions, fee);
-          feeState.mode = injected.mode;
-          return injected.transactions;
+          return transactions;
         }
       });
       // The trade id doubles as RHEA's idempotency key for this execution.
@@ -363,21 +360,12 @@ export class TradingService {
         errorCode: chainFailure ?? errorCode(sdkError)
       });
       console.error("Trade did not complete", { id, status: batch, txHashes, error: sdkError });
-      // A fee in the swap's own transaction is taken even when the swap
-      // later reverts inside ft_transfer_call; record it so it's refunded.
-      const feeRefundDue = fee !== undefined && feeState.mode === "same-transaction" && batch === "reverted";
-      if (feeRefundDue) {
-        await this.repository.recordEvent(userId, id, {
-          type: "fee_refund_due",
-          details: { contractId: fee.contractId, amount: fee.amount, treasury: fee.treasury }
-        }).catch((error) => console.error("Could not record fee refund", { id, error }));
-      }
+      // No fee is charged: the swap did not complete.
       // On-chain failure text is public; SDK/RPC error text is not shown to users.
       return {
         status: batch,
         txHashes,
-        reason: chainFailure ?? userMessage(sdkError, "Execution error"),
-        ...(feeRefundDue ? { feeRefundDue: true } : {})
+        reason: chainFailure ?? userMessage(sdkError, "Execution error")
       };
     }
 
@@ -388,13 +376,12 @@ export class TradingService {
       : await ftBalanceOf(ftContract, request.accountId).catch(() => undefined);
 
     if (before === undefined || after === undefined) {
+      // Can't prove the fill, so no fee is charged.
       await this.repository.updateStatus(userId, id, { status: "submitted", txHash: lastHash });
       return { status: "submitted", txHashes };
     }
 
-    // On a sell the fee leaves in the same token, so it isn't part of the fill.
-    const feeOnFtSide = request.side === "sell" && fee ? BigInt(fee.amount) : 0n;
-    const fill = assessFill(request.side, before, after, feeOnFtSide);
+    const fill = assessFill(request.side, before, after);
     const status = fill.filled ? "filled" : "reverted";
     const reason = fill.filled ? undefined : "Swap was refunded; no tokens were exchanged";
     await this.repository.updateStatus(userId, id, {
@@ -403,7 +390,43 @@ export class TradingService {
       actualOut: request.side === "buy" && fill.filled ? fill.amount.toString() : undefined,
       errorCode: reason
     });
-    return { status, txHashes, filledAmount: fill.amount.toString(), reason };
+    const feeTx = fill.filled && fee ? await this.collectFee(userId, id, request.accountId, fee) : undefined;
+    return {
+      status,
+      txHashes,
+      filledAmount: fill.amount.toString(),
+      reason,
+      ...(feeTx && fee ? { fee: { txHash: feeTx, amount: fee.amount, contractId: fee.contractId, display: feeDisplay(request, fee) } } : {})
+    };
+  }
+
+  /**
+   * Sends the protocol fee once the swap is verified as filled, so a failed
+   * or refunded trade never costs the user a fee. The fee amount was set
+   * aside from the trade (amountIn excludes it), so the funds are there.
+   * A fee that fails to send is recorded; the user's trade is unaffected.
+   */
+  private async collectFee(userId: number, id: string, accountId: string, fee: FeePlan): Promise<string | undefined> {
+    const details = { contractId: fee.contractId, amount: fee.amount, treasury: fee.treasury };
+    try {
+      const account = await this.walletService.getSigningAccount(userId, accountId);
+      const feeSigner = new NearAccountSigner(account, {
+        beforeBroadcast: (txHash) => this.repository.recordEvent(userId, id, { type: "fee_tx_signed", txHash, details })
+      });
+      await feeSigner.signAndSendTransactions(
+        [{ receiverId: fee.contractId, actions: feeActions(fee) }] as unknown as Parameters<NearAccountSigner["signAndSendTransactions"]>[0],
+        {}
+      );
+      const sent = feeSigner.sent[0];
+      if (sent?.result !== "executed") {
+        await this.repository.recordEvent(userId, id, { type: "fee_uncollected", txHash: sent?.txHash, details: { ...details, result: sent?.result } });
+      }
+      return sent?.txHash;
+    } catch (error) {
+      console.error("Fee collection failed", { id, error });
+      await this.repository.recordEvent(userId, id, { type: "fee_uncollected", details }).catch(() => {});
+      return undefined;
+    }
   }
 
   async cancel(userId: number, id: string): Promise<void> {
@@ -411,4 +434,11 @@ export class TradingService {
     if (trade?.userId === userId) pending.delete(id);
     await this.repository.cancel(userId, id);
   }
+}
+
+/** "0.01 NEAR" or "1,234.5 RUST" for the receipt. */
+function feeDisplay(request: TradeRequest, fee: FeePlan): string {
+  if (fee.side === "buy") return `${formatUnits(fee.amount, 24)} NEAR`;
+  const token = request.tokenIn as { decimals?: number; symbol?: string };
+  return `${formatUnits(fee.amount, token.decimals ?? 0)} ${token.symbol ?? fee.contractId}`;
 }
