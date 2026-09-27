@@ -1,3 +1,4 @@
+import { onchainMarket } from "../market/onchain.js";
 import { parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { RheaClient, isNearNative, stripAssetPrefix } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
@@ -253,12 +254,16 @@ export class TradingService {
     const market = await fetchNearMarket(contractId).catch(() => null);
     const price = Number(market?.priceUsd);
     // A cached DexScreener price may be hours old; NEARly tokens re-price from the chain.
-    const fresh = market?.cachedAtMs === undefined || !isNearlyToken(contractId);
-    if (fresh && Number.isFinite(price) && price > 0) return price;
-    if (!isNearlyToken(contractId)) return null;
-    const launch = await fetchLaunchByToken(contractId).catch(() => null);
-    const pricing = launch ? await nearlyPriceUsd(launch, await this.nearUsdPrice()).catch(() => null) : null;
-    return pricing?.priceUsd ?? (Number.isFinite(price) && price > 0 ? price : null);
+    const cachedPrice = Number.isFinite(price) && price > 0 ? price : null;
+    if (market && market.cachedAtMs === undefined && cachedPrice !== null) return cachedPrice;
+    // Stale or missing: re-price from the chain (NEARly launch pool, else any
+    // RHEA DCL pool against NEAR or LiNEAR).
+    const nearUsd = await this.nearUsdPrice();
+    const launch = isNearlyToken(contractId) ? await fetchLaunchByToken(contractId).catch(() => null) : null;
+    const live = launch
+      ? (await nearlyPriceUsd(launch, nearUsd).catch(() => null))?.priceUsd
+      : Number((await onchainMarket(contractId, nearUsd).catch(() => null))?.priceUsd);
+    return live && Number.isFinite(live) && live > 0 ? live : cachedPrice;
   }
 
   async execute(userId: number, id: string): Promise<ExecutionResult> {

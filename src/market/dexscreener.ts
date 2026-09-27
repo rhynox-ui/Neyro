@@ -29,6 +29,8 @@ export type NearMarket = {
   links: TokenLink[];
   /** Set when DexScreener was unavailable and this is the last good result. */
   cachedAtMs?: number;
+  /** Priced from the token's RHEA pool on chain; no 24h stats. */
+  onchain?: boolean;
 };
 
 // Profile fields are submitted by token teams, so labels come from a fixed

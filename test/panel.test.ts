@@ -71,7 +71,7 @@ test("panel text mirrors the Mango card", () => {
 
 test("panel still renders for tokens with no market yet, and warns when unlisted", () => {
   const text = panelText({ token: { ...token, listed: false }, market: null, side: "sell", amountHuman: "3", slippagePct: 10 }, "12.5");
-  assert.match(text, /No DexScreener market yet/);
+  assert.match(text, /No market data yet/);
   assert.match(text, /Not on RHEA's token list/);
   assert.match(text, /🔴 SELL Bagwork\n💳 Amount: 3 Bagwork/);
   assert.match(text, /💰 Your balance: 12.5 Bagwork/);

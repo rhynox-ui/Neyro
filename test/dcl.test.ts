@@ -36,3 +36,9 @@ test("parseDclPool reads ref-sdk PoolInfo fields", () => {
   assert.equal(parseDclPool(null), null);
   assert.equal(parseDclPool({ current_point: "x" }), null);
 });
+
+test("DCL pool ids list tokens in sorted order (LiNEAR pairs included)", async () => {
+  const { dclPoolId } = await import("../src/market/onchain.js");
+  assert.equal(dclPoolId("umbra.umbrafun.near", "linear-protocol.near", 2000), "linear-protocol.near|umbra.umbrafun.near|2000");
+  assert.equal(dclPoolId("umbra.umbrafun.near", "wrap.near", 10000), "umbra.umbrafun.near|wrap.near|10000");
+});

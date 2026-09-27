@@ -9,7 +9,23 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
     console.warn("DexScreener lookup failed:", error);
     return null;
   });
-  if (!isNearlyToken(address)) return market;
+  if (!isNearlyToken(address)) {
+    if (market && market.cachedAtMs === undefined) return market;
+    // APIs refused or have no pair yet: price any token from its RHEA pool.
+    const live = await onchainMarket(address, await nearUsd()).catch((error) => {
+      console.warn("On-chain pool pricing failed:", { address, error: String(error) });
+      return null;
+    });
+    if (!live) return market;
+    if (!market) return live;
+    return {
+      ...market,
+      priceUsd: live.priceUsd ?? market.priceUsd,
+      marketCapUsd: live.marketCapUsd ?? market.marketCapUsd,
+      fdvUsd: live.fdvUsd ?? market.fdvUsd,
+      liquidityUsd: live.liquidityUsd ?? market.liquidityUsd
+    };
+  }
   if (market && market.cachedAtMs === undefined) {
     // GeckoTerminal has no project links; NEARly launches carry their own.
     if (market.links.length) return market;
@@ -32,6 +48,7 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
     liquidityUsd: live.liquidityUsd ?? market.liquidityUsd
   };
 }
+import { onchainMarket } from "../market/onchain.js";
 import { ftBalanceOf, ftMetadata } from "../near/ft.js";
 import { decodeIcon } from "../market/icon.js";
 import { looksLikeContractId } from "../near/tokens.js";
@@ -130,12 +147,14 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
         `⏳ Pair age: ${ageLabel(market.pairCreatedAtMs)}`,
         ...(market.cachedAtMs !== undefined
           ? [`🕒 24h stats from ${ageLabel(market.cachedAtMs)} ago (market data busy)`]
-          : []),
+          : market.onchain
+            ? ["🛰 Live on-chain price. 24h stats will show when market data is available."]
+            : []),
         ...(market.links.length
           ? [`🔗 ${market.links.map((link) => `<a href="${escapeHtml(link.url)}">${escapeHtml(link.label)}</a>`).join("  •  ")}`]
           : [])
       ]
-    : ["📉 No DexScreener market yet. New launches can take a few minutes to appear."];
+    : ["📉 No market data yet: no RHEA pool found against NEAR or LINEAR, and market APIs didn't answer. Tap Refresh in a minute."];
 
   return [
     `🪙 ${name} (${symbol})`,
