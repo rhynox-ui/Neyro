@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
 
 const { parseDexScreenerPairs } = await import("../src/market/dexscreener.js");
-const { panelText, panelKeyboard, ageLabel, money } = await import("../src/bot/panel.js");
+const { panelText, panelKeyboard, compactAmount, ageLabel, money } = await import("../src/bot/panel.js");
 
 const ADDRESS = "bagwork.nearly.near";
 const pairs = [
@@ -109,9 +109,17 @@ test("keyboard layout mirrors the Mango card", () => {
 test("sell keyboard offers percentages and marks custom slippage", () => {
   const kb = panelKeyboard({ token, market: null, side: "sell", amountHuman: "5", sellPct: 50, slippagePct: 3 }, "10");
   assert.deepEqual(rows(kb)[0], ["🟢 BUY", "🔴 SELL"]);
-  assert.deepEqual(rows(kb)[1], ["25%", "50% ✓", "75%", "100%"]);
-  assert.deepEqual(rows(kb)[3], ["Slippage 5%", "10%", "15%", "✓ 3% · ✏️"]);
-  assert.deepEqual(rows(kb)[4], ["🔴 SELL 50% Bagwork"]);
+  assert.deepEqual(rows(kb)[1], ["25% · 2.5", "50% · 5 ✓"]);
+  assert.deepEqual(rows(kb)[2], ["75% · 7.5", "100% · 10"]);
+  assert.deepEqual(rows(kb)[4], ["Slippage 5%", "10%", "15%", "✓ 3% · ✏️"]);
+  assert.deepEqual(rows(kb)[5], ["🔴 SELL 50% Bagwork"]);
+
+  // Nothing held: percentages still shown (without amounts), SELL marked locked.
+  const empty = panelKeyboard({ token, market: null, side: "sell", amountHuman: null, slippagePct: 5 }, "0");
+  assert.deepEqual(rows(empty)[0], ["🟢 BUY", "🔴 SELL 🔒"]);
+  assert.deepEqual(rows(empty)[1], ["25%", "50%"]);
+  assert.equal(compactAmount(1_234_567), "1.23M");
+  assert.equal(compactAmount(0.012345), "0.0123");
 });
 
 test("formatting helpers", () => {

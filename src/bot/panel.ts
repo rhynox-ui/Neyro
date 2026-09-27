@@ -136,6 +136,15 @@ function liquidityShare(market: NearMarket): string {
   return `  •  ${((liquidityUsd / marketCapUsd) * 100).toFixed(2)}% of mcap`;
 }
 
+/** "1.2K", "3.4M", "0.0123": short amounts for buttons. */
+export function compactAmount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (value >= 1e9) return `${Number((value / 1e9).toPrecision(3))}B`;
+  if (value >= 1e6) return `${Number((value / 1e6).toPrecision(3))}M`;
+  if (value >= 1e3) return `${Number((value / 1e3).toPrecision(3))}K`;
+  return String(Number(value.toPrecision(3)));
+}
+
 /** "1,234.567891" — readable token amounts (at most 6 decimals). */
 export function tokenAmount(human: string): string {
   const value = Number(human);
@@ -212,7 +221,8 @@ export function panelText(state: PanelState, ownedHuman: string | null, nearHuma
 export function panelKeyboard(state: PanelState, ownedHuman: string | null): InlineKeyboard {
   const { side, amountHuman, slippagePct } = state;
   const symbol = state.market?.symbol ?? state.token.symbol;
-  const sellAvailable = ownedHuman !== null && Number(ownedHuman) > 0;
+  const owned = ownedHuman === null ? null : Number(ownedHuman);
+  const sellAvailable = owned !== null && owned > 0;
   const tick = (value: string) =>
     (value.endsWith("%") ? state.sellPct === Number(value.slice(0, -1)) : amountHuman === value) ? " ✓" : "";
   const kb = new InlineKeyboard()
@@ -223,7 +233,12 @@ export function panelKeyboard(state: PanelState, ownedHuman: string | null): Inl
   if (side === "buy") {
     for (const value of BUY_PRESETS) kb.text(`${value} NEAR${tick(value)}`, `tp:amt:${value}`);
   } else {
-    for (const value of SELL_PERCENTS) kb.text(`${value}${tick(value)}`, `tp:amt:${value}`);
+    // Two per row, each showing how many tokens it sells.
+    SELL_PERCENTS.forEach((value, i) => {
+      if (i === 2) kb.row();
+      const part = sellAvailable ? ` · ${compactAmount((owned! * Number(value.slice(0, -1))) / 100)}` : "";
+      kb.text(`${value}${part}${tick(value)}`, `tp:amt:${value}`);
+    });
   }
   kb.row().text("✏️ Custom", "tp:custom").row();
 
@@ -386,17 +401,8 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
 
     pm.callbackQuery(/^tp:side:(buy|sell)$/, (ctx) => withPanel(ctx, async (userId, state) => {
       const side = ctx.match[1] as Side;
-      if (side === "sell") {
-        const owned = await ownedBalance(userId, state.token);
-        if (!owned) {
-          await ctx.answerCallbackQuery(`Couldn't read your ${state.token.symbol} balance. Tap Refresh and try again.`);
-          return;
-        }
-        if (owned.base === 0n) {
-          await ctx.answerCallbackQuery(`The active wallet holds no ${state.token.symbol}. Switch wallets in /wallet if you bought with another one.`);
-          return;
-        }
-      }
+      // The sell side always opens, so holdings and the % choices are visible;
+      // selling itself is refused when the balance is 0 (see tp:amt / quote).
       await ctx.answerCallbackQuery();
       await render(ctx, userId, { ...state, side, amountHuman: null, sellPct: undefined, slippagePct: await preferredSlippage(userId, side) }, true);
     }));
