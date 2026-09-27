@@ -48,14 +48,20 @@ test("wallet screen marks the active wallet and offers a new one below the cap",
     { accountId: "b".repeat(64), active: true }
   ];
   const balance = { exists: true, total: 10n ** 24n, storage: 0n, available: 10n ** 24n };
-  const { text, keyboard } = renderWalletScreen(wallets, balance, 5);
+  const unfunded = { exists: false, total: 0n, storage: 0n, available: 0n };
+  const { text, keyboard } = renderWalletScreen(wallets, [unfunded, balance], 5, 2.5);
   assert.match(text, /Your wallets<\/b> \(2\/5\)/);
-  assert.match(text, /✅ W2 · <code>bbbbbb…bbbb<\/code>/);
-  assert.match(text, /Balance: 1 NEAR/);
+  assert.match(text, /✅ W2 · <code>bbbbbb…bbbb<\/code>\n +💰 1 NEAR \(~\$2\.50\)/);
+  assert.match(text, /▫️ W1 · <code>aaaaaa…aaaa<\/code>\n +💰 0 NEAR \(not funded yet\)/);
+  assert.match(text, /Balance: 1 NEAR \(~\$2\.50\)/);
   const rows = keyboard.inline_keyboard.map((row) => row.map((b) => (b as { callback_data: string }).callback_data));
-  assert.deepEqual(rows, [["w:use:0"], ["w:use:1"], ["w:new"], ["w:export"]]);
+  assert.deepEqual(rows, [["w:use:0"], ["w:use:1"], ["w:refresh", "w:new"], ["w:export"]]);
+  assert.match((keyboard.inline_keyboard[1]![0] as { text: string }).text, /· 1 NEAR$/);
 
-  const full = renderWalletScreen(Array.from({ length: 5 }, (_, i) => ({ accountId: `${i}`.repeat(64), active: i === 0 })), balance, 5);
+  const unknown = renderWalletScreen(wallets, [null, null], 5);
+  assert.match(unknown.text, /balance unavailable/);
+
+  const full = renderWalletScreen(Array.from({ length: 5 }, (_, i) => ({ accountId: `${i}`.repeat(64), active: i === 0 })), Array(5).fill(balance), 5);
   assert.ok(!full.keyboard.inline_keyboard.flat().some((b) => (b as { callback_data: string }).callback_data === "w:new"));
 });
 

@@ -127,18 +127,47 @@ export function shortAccount(accountId: string): string {
 }
 
 /** Wallet list with the active one marked, plus switch / new buttons. */
-export function renderWalletScreen(wallets: readonly WalletSummary[], activeBalance: NearBalance, maxWallets: number) {
-  const active = wallets.find((wallet) => wallet.active) ?? wallets[0];
-  const lines = wallets.map((wallet, index) =>
-    `${wallet.active ? "✅" : "▫️"} W${index + 1} · ${code(shortAccount(wallet.accountId))}`
-  );
+/** "1.2346 NEAR" (at most 4 decimals), for compact lists and buttons. */
+export function shortNear(yocto: bigint): string {
+  const value = Number(yocto) / 1e24;
+  return `${value.toFixed(4).replace(/\.?0+$/, "")} NEAR`;
+}
+
+function usdSuffix(yocto: bigint, nearUsd: number | null): string {
+  if (!nearUsd || yocto <= 0n) return "";
+  const usd = (Number(yocto) / 1e24) * nearUsd;
+  return ` (~$${usd < 1 ? usd.toFixed(2) : usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+}
+
+/**
+ * Every wallet with its NEAR balance; `balances[i]` is null when it couldn't
+ * be read. The active wallet also shows storage held and its full address.
+ */
+export function renderWalletScreen(
+  wallets: readonly WalletSummary[],
+  balances: readonly (NearBalance | null)[],
+  maxWallets: number,
+  nearUsd: number | null = null
+) {
+  const activeIndex = Math.max(0, wallets.findIndex((wallet) => wallet.active));
+  const active = wallets[activeIndex];
+  const activeBalance = balances[activeIndex] ?? null;
+  const balanceLine = (balance: NearBalance | null) =>
+    !balance ? "balance unavailable"
+      : !balance.exists ? "0 NEAR (not funded yet)"
+        : `${shortNear(balance.available)}${usdSuffix(balance.available, nearUsd)}`;
+
+  const lines = wallets.flatMap((wallet, index) => [
+    `${wallet.active ? "✅" : "▫️"} W${index + 1} · ${code(shortAccount(wallet.accountId))}`,
+    `     💰 ${balanceLine(balances[index] ?? null)}`
+  ]);
   const text = [
     `👛 <b>Your wallets</b> (${wallets.length}/${maxWallets})`,
     "",
     ...lines,
     "",
     `Active: ${active ? code(active.accountId) : "—"}`,
-    `Balance: ${renderBalance(activeBalance)}`,
+    `Balance: ${activeBalance ? renderBalance(activeBalance) + usdSuffix(activeBalance.available, nearUsd) : "unavailable, tap Refresh"}`,
     "",
     "Trades, /deposit and /withdraw use the active wallet. Tap a wallet to switch."
   ].join("\n");
@@ -146,9 +175,12 @@ export function renderWalletScreen(wallets: readonly WalletSummary[], activeBala
   const keyboard = new InlineKeyboard();
   wallets.forEach((wallet, index) => {
     if (index > 0) keyboard.row();
-    keyboard.text(`${wallet.active ? "✅ " : ""}W${index + 1} · ${shortAccount(wallet.accountId)}`, `w:use:${index}`);
+    const balance = balances[index];
+    const amount = balance ? ` · ${balance.exists ? shortNear(balance.available) : "0 NEAR"}` : "";
+    keyboard.text(`${wallet.active ? "✅ " : ""}W${index + 1} · ${shortAccount(wallet.accountId)}${amount}`, `w:use:${index}`);
   });
-  if (wallets.length < maxWallets) keyboard.row().text("➕ New wallet", "w:new");
+  keyboard.row().text("🔄 Refresh", "w:refresh");
+  if (wallets.length < maxWallets) keyboard.text("➕ New wallet", "w:new");
   keyboard.row().text("🔑 Export private key", "w:export");
   return { text, keyboard };
 }
@@ -315,9 +347,11 @@ export function registerBotHandlers(bot: Bot) {
         created = (await walletService.createWallet(telegramUserId)).accountId;
       }
       const wallets = await walletService.listWallets(telegramUserId);
-      const active = wallets.find((wallet) => wallet.active) ?? wallets[0]!;
-      const balance = await getNearBalance(active.accountId);
-      const { text, keyboard } = renderWalletScreen(wallets, balance, MAX_WALLETS);
+      const [balances, nearUsd] = await Promise.all([
+        Promise.all(wallets.map((wallet) => getNearBalance(wallet.accountId).catch(() => null))),
+        tradingService.nearUsdPrice().catch(() => null)
+      ]);
+      const { text, keyboard } = renderWalletScreen(wallets, balances, MAX_WALLETS, nearUsd);
       const header = note ?? (created ? "✅ <b>Wallet created</b>\n\n" : "");
       const body = header + text + (created
         ? "\n\n🔑 Back up this wallet: tap \"Export private key\" below and store the key somewhere safe."
@@ -330,6 +364,11 @@ export function registerBotHandlers(bot: Bot) {
       await replyNotice(ctx, `❌ ${userMessage(error, "Wallet is temporarily unavailable")}`);
     }
   }
+
+  pm.callbackQuery("w:refresh", async (ctx) => {
+    await ctx.answerCallbackQuery("Refreshing…");
+    await showWallet(ctx, true);
+  });
 
   pm.callbackQuery(/^w:use:(\d)$/, async (ctx) => {
     const wallets = await walletService.listWallets(ctx.from.id);
