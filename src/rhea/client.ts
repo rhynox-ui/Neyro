@@ -87,8 +87,8 @@ export class RheaClient {
     const payload: QuoteRequest = {
       fromChain: "near",
       toChain: "near",
-      tokenIn: request.fromToken,
-      tokenOut: request.toToken,
+      tokenIn: toApiAsset(request.fromToken),
+      tokenOut: toApiAsset(request.toToken),
       amountIn: request.amountIn,
       slippageBps: request.slippageBps,
       sender: request.sender,
@@ -108,6 +108,18 @@ export class RheaClient {
       ...(idempotencyKey ? { idempotencyKey } : {})
     });
   }
+}
+
+/**
+ * The asset as RHEA's Swap API wants it: NEAR tokens by plain contract id
+ * ("usdc.token.near"), never the UI-only "nep141:" prefix, and NEAR itself
+ * as wrap.near (the API's native NEAR mapping). RHEA's own token list may
+ * return "nep141:..." or "near" ids, so every quote goes through this.
+ */
+export function toApiAsset<T extends AssetRef>(asset: T): T {
+  const ref = asset as T & { contractAddress?: string | null; assetId?: string };
+  const address = isNearNative(ref) ? "wrap.near" : stripAssetPrefix(ref.contractAddress || ref.address);
+  return { ...asset, address };
 }
 
 /** "nep141:usdt.tether-token.near" → "usdt.tether-token.near" (RHEA/NEAR Intents asset ids). */

@@ -39,3 +39,11 @@ test("cancel is delegated to the repository", async () => {
   await service.cancel(1, "0123456789abcdef");
   assert.deepEqual(repository.cancelled, ["0123456789abcdef"]);
 });
+
+test("quotes send RHEA plain contract ids: no nep141: prefix, NEAR as wrap.near", async () => {
+  const { toApiAsset } = await import("../src/rhea/client.js");
+  assert.equal(toApiAsset({ chain: "near", address: "nep141:wrap.near", isNative: true } as never).address, "wrap.near");
+  assert.equal(toApiAsset({ chain: "near", address: "near", isNative: true } as never).address, "wrap.near");
+  assert.equal(toApiAsset({ chain: "near", address: "nep141:usdt.tether-token.near", contractAddress: null, isNative: false } as never).address, "usdt.tether-token.near");
+  assert.equal(toApiAsset({ chain: "near", address: "rust-334.meme-cooking.near", isNative: false } as never).address, "rust-334.meme-cooking.near");
+});
