@@ -37,7 +37,7 @@ function missingSecrets(): string[] {
 type App = Awaited<ReturnType<typeof loadModules>>;
 
 async function loadModules() {
-  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete] = await Promise.all([
+  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete, pools, onchain] = await Promise.all([
     import("./config.js"),
     import("./bot/create.js"),
     import("./bot/register.js"),
@@ -52,9 +52,11 @@ async function loadModules() {
     import("./near/ft.js"),
     import("./market/icon.js"),
     import("./near/tokens.js"),
-    import("./bot/autodelete.js")
+    import("./bot/autodelete.js"),
+    import("./market/pools.js"),
+    import("./market/onchain.js")
   ]);
-  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete };
+  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete, pools, onchain };
 }
 
 let appPromise: Promise<App> | undefined;
@@ -236,13 +238,24 @@ async function handleDebugPrice(request: Request): Promise<Response> {
     intear: await probe(`https://prices.intear.tech/token?token_id=${encodeURIComponent(token)}`),
     geckoterminal: await probe(`https://api.geckoterminal.com/api/v2/networks/near/tokens/${encodeURIComponent(token)}/pools?page=1`)
   };
+  // On-chain fallback over every indexed RHEA pool (any quote token).
+  const poolIndex = await step(async () => {
+    const index = await app.pools.loadPoolIndex();
+    return { v2Scanned: index.v2Scanned, dclScanned: index.dclScanned, tokens: Object.keys(index.byToken).length, updatedAtMs: index.updatedAtMs };
+  });
+  const tokenPools = await step(() => app.pools.poolsForToken(token));
+  const onchain = await step(async () => {
+    const tokens = await new app.rhea.RheaClient().getNearTokens().catch(() => []);
+    const pricer = app.onchain.buildQuotePricer(tokens, typeof nearUsd === "number" ? nearUsd : null);
+    return app.onchain.onchainMarket(token, pricer);
+  });
   const iconCheck = await step(async () => {
     const metadata = await app.ft.ftMetadata(token);
     const source = app.icon.decodeIcon(metadata.icon);
     return source ? (source.kind === "image" ? `${source.contentType}, ${source.bytes.length} bytes` : `redirect ${source.url}`) : `no usable icon (${metadata.icon ? metadata.icon.slice(0, 30) : "none"})`;
   });
 
-  return Response.json({ token, icon: iconCheck, sources, fastnearKey: Boolean(app.config.FASTNEAR_API_KEY), rpc, rheaNear, dclNear, dexscreener, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
+  return Response.json({ token, icon: iconCheck, sources, fastnearKey: Boolean(app.config.FASTNEAR_API_KEY), rpc, rheaNear, dclNear, dexscreener, poolIndex, tokenPools, onchain, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
 }
 
 export default {
@@ -284,13 +297,15 @@ export default {
     }
   },
 
-  /** Cron trigger (every minute): delete expired key messages, settle unknown or stale trades. */
+  /** Cron trigger (every minute): delete expired messages, index new pools, settle unknown or stale trades. */
   async scheduled(_event: unknown, _env: Env, ctx: ExecutionContext): Promise<void> {
     if (await configurationProblem()) return;
     const app = await getApp();
     const databaseUrl = app.config.DATABASE_URL!;
     const bot = await getBot();
     ctx.waitUntil(app.autodelete.deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error)));
+    // Index new RHEA pools so any pair can be priced from the chain.
+    ctx.waitUntil(app.pools.refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error)));
     ctx.waitUntil(app.reconciler.reconcileOnce({
       repository: new app.repository.PostgresTradeRepository(databaseUrl),
       lookup: (txHash, accountId) =>

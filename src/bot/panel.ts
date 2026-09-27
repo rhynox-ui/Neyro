@@ -4,7 +4,11 @@ import { fetchNearMarket, type NearMarket } from "../market/dexscreener.js";
 import { fetchLaunchByToken, isNearlyToken, nearlyMarket } from "../discovery/nearly.js";
 
 /** DexScreener first; brand-new NEARly tokens fall back to the factory's launch record. */
-async function loadMarket(address: string, nearUsd: () => Promise<number | null>): Promise<NearMarket | null> {
+async function loadMarket(
+  address: string,
+  nearUsd: () => Promise<number | null>,
+  pricer: () => Promise<QuotePricer>
+): Promise<NearMarket | null> {
   const market = await fetchNearMarket(address).catch((error) => {
     console.warn("DexScreener lookup failed:", error);
     return null;
@@ -12,7 +16,7 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
   if (!isNearlyToken(address)) {
     if (market && market.cachedAtMs === undefined) return market;
     // APIs refused or have no pair yet: price any token from its RHEA pool.
-    const live = await onchainMarket(address, await nearUsd()).catch((error) => {
+    const live = await onchainMarket(address, await pricer()).catch((error) => {
       console.warn("On-chain pool pricing failed:", { address, error: String(error) });
       return null;
     });
@@ -48,7 +52,7 @@ async function loadMarket(address: string, nearUsd: () => Promise<number | null>
     liquidityUsd: live.liquidityUsd ?? market.liquidityUsd
   };
 }
-import { onchainMarket } from "../market/onchain.js";
+import { onchainMarket, type QuotePricer } from "../market/onchain.js";
 import { ftBalanceOf, ftMetadata } from "../near/ft.js";
 import { decodeIcon } from "../market/icon.js";
 import { looksLikeContractId } from "../near/tokens.js";
@@ -311,7 +315,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
     await deleteIncoming(ctx);
     try {
       const token = await tradingService.resolveToken(query);
-      const market = await loadMarket(contractIdOf(token), () => tradingService.nearUsdPrice());
+      const market = await loadMarket(contractIdOf(token), () => tradingService.nearUsdPrice(), () => tradingService.quotePricer());
       await render(ctx, userId, {
         token,
         market,
@@ -385,7 +389,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
 
     pm.callbackQuery("tp:refresh", (ctx) => withPanel(ctx, async (userId, state) => {
       await ctx.answerCallbackQuery("Refreshing…");
-      const market = (await loadMarket(contractIdOf(state.token), () => tradingService.nearUsdPrice())) ?? state.market;
+      const market = (await loadMarket(contractIdOf(state.token), () => tradingService.nearUsdPrice(), () => tradingService.quotePricer())) ?? state.market;
       await render(ctx, userId, { ...state, market }, true);
     }));
 

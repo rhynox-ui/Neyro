@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { BOT_COMMANDS, createBot } from "./bot/create.js";
 import { explorerTx } from "./bot/register.js";
 import { deleteDueMessages } from "./bot/autodelete.js";
+import { refreshPoolIndex } from "./market/pools.js";
 import { PostgresTradeRepository } from "./trading/repository.js";
 import { startReconciler } from "./trading/reconciler.js";
 import { lookupTransaction } from "./near/execution.js";
@@ -31,6 +32,11 @@ const cleanup = setInterval(() => {
   deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error));
 }, 15_000);
 cleanup.unref();
+
+// Keeps the RHEA pool index current for on-chain pricing of any pair.
+const refreshPools = () => refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error));
+void refreshPools();
+setInterval(refreshPools, 60_000).unref();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

@@ -1,4 +1,4 @@
-import { onchainMarket } from "../market/onchain.js";
+import { buildQuotePricer, onchainMarket, type QuotePricer } from "../market/onchain.js";
 import { parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { RheaClient, isNearNative, stripAssetPrefix } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
@@ -244,6 +244,18 @@ export class TradingService {
   }
 
   /**
+   * Prices for the other side of a pool: NEAR, LiNEAR (by its staking rate)
+   * and every token in RHEA's list that carries a USD price.
+   */
+  async quotePricer(): Promise<QuotePricer> {
+    const [tokens, nearUsd] = await Promise.all([
+      this.rhea.getNearTokens().catch(() => []),
+      this.nearUsdPrice()
+    ]);
+    return buildQuotePricer(tokens, nearUsd);
+  }
+
+  /**
    * USD per whole token: RHEA's list, then DexScreener, then (for NEARly
    * launches DexScreener doesn't index) the token's own RHEA DCL pool.
    */
@@ -258,11 +270,10 @@ export class TradingService {
     if (market && market.cachedAtMs === undefined && cachedPrice !== null) return cachedPrice;
     // Stale or missing: re-price from the chain (NEARly launch pool, else any
     // RHEA DCL pool against NEAR or LiNEAR).
-    const nearUsd = await this.nearUsdPrice();
     const launch = isNearlyToken(contractId) ? await fetchLaunchByToken(contractId).catch(() => null) : null;
     const live = launch
-      ? (await nearlyPriceUsd(launch, nearUsd).catch(() => null))?.priceUsd
-      : Number((await onchainMarket(contractId, nearUsd).catch(() => null))?.priceUsd);
+      ? (await nearlyPriceUsd(launch, await this.nearUsdPrice()).catch(() => null))?.priceUsd
+      : Number((await onchainMarket(contractId, await this.quotePricer()).catch(() => null))?.priceUsd);
     return live && Number.isFinite(live) && live > 0 ? live : cachedPrice;
   }
 
