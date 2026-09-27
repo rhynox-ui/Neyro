@@ -73,3 +73,12 @@ test("policy reasons reach the user through SDK error wrappers", () => {
     assert.match(userMessage(wrapped, "fallback"), /unexpected contract evil\.near/);
   }
 });
+
+test("RHEA service errors show RHEA's own explanation, internal ones don't", async () => {
+  const { SwapSdkError } = await import("@rhea-finance/cross-chain-aggregation-dex");
+  const service = new SwapSdkError("API_ERROR", "quote" as never, "Token not supported: https://x.y/z", { details: { apiCode: 4001 } });
+  assert.equal(userMessage(service, "Unable to create a quote"), 'Unable to create a quote: RHEA says "Token not supported: [link]" (code 4001)');
+  const internal = new SwapSdkError("API_ERROR", "quote" as never, "fetch failed at https://rpc/secret");
+  assert.equal(userMessage(internal, "Unable to create a quote"), "Unable to create a quote (RHEA: API_ERROR)");
+  assert.match(userMessage(new SwapSdkError("ROUTE_NOT_FOUND", "quote" as never, "x"), "Q"), /no swap route/);
+});
