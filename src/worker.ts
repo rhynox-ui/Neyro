@@ -37,7 +37,7 @@ function missingSecrets(): string[] {
 type App = Awaited<ReturnType<typeof loadModules>>;
 
 async function loadModules() {
-  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete, pools, onchain] = await Promise.all([
+  const [configModule, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete, pools, onchain, store] = await Promise.all([
     import("./config.js"),
     import("./bot/create.js"),
     import("./bot/register.js"),
@@ -54,9 +54,10 @@ async function loadModules() {
     import("./near/tokens.js"),
     import("./bot/autodelete.js"),
     import("./market/pools.js"),
-    import("./market/onchain.js")
+    import("./market/onchain.js"),
+    import("./state/store.js")
   ]);
-  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete, pools, onchain };
+  return { config: configModule.config, create, register, repository, reconciler, execution, rpc, dex, dcl, nearly, rhea, ft, icon, tokens, autodelete, pools, onchain, store };
 }
 
 let appPromise: Promise<App> | undefined;
@@ -240,8 +241,8 @@ async function handleDebugPrice(request: Request): Promise<Response> {
   };
   // On-chain fallback over every indexed RHEA pool (any quote token).
   const poolIndex = await step(async () => {
-    const index = await app.pools.loadPoolIndex();
-    return { v2Scanned: index.v2Scanned, dclScanned: index.dclScanned, tokens: Object.keys(index.byToken).length, updatedAtMs: index.updatedAtMs };
+    const cursor = await app.pools.loadPoolCursor();
+    return { ...cursor, entries: await app.pools.defaultPoolStore().count() };
   });
   const tokenPools = await step(() => app.pools.poolsForToken(token));
   const onchain = await step(async () => {
@@ -304,6 +305,7 @@ export default {
     const databaseUrl = app.config.DATABASE_URL!;
     const bot = await getBot();
     ctx.waitUntil(app.autodelete.deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error)));
+    ctx.waitUntil(app.store.defaultStateStore().purgeExpired().catch((error) => console.error("State purge failed:", error)));
     // Index new RHEA pools so any pair can be priced from the chain.
     ctx.waitUntil(app.pools.refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error)));
     ctx.waitUntil(app.reconciler.reconcileOnce({

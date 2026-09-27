@@ -6,6 +6,7 @@ import { BOT_COMMANDS, createBot } from "./bot/create.js";
 import { explorerTx } from "./bot/register.js";
 import { deleteDueMessages } from "./bot/autodelete.js";
 import { refreshPoolIndex } from "./market/pools.js";
+import { defaultStateStore } from "./state/store.js";
 import { PostgresTradeRepository } from "./trading/repository.js";
 import { startReconciler } from "./trading/reconciler.js";
 import { lookupTransaction } from "./near/execution.js";
@@ -34,7 +35,10 @@ const cleanup = setInterval(() => {
 cleanup.unref();
 
 // Keeps the RHEA pool index current for on-chain pricing of any pair.
-const refreshPools = () => refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error));
+const refreshPools = () => {
+  refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error));
+  defaultStateStore().purgeExpired().catch((error) => console.error("State purge failed:", error));
+};
 void refreshPools();
 setInterval(refreshPools, 60_000).unref();
 

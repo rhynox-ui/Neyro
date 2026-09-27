@@ -23,17 +23,25 @@ export function dclPoolId(a: string, b: string, fee: number): string {
   return `${[a, b].sort().join("|")}|${fee}`;
 }
 
-/** NEAR per LiNEAR: the staking contract's own rate, else its wNEAR pool. */
+/** LiNEAR only accrues staking rewards, so its NEAR rate sits a little above 1. */
+const plausibleLinearRate = (rate: number) => Number.isFinite(rate) && rate >= 1 && rate < 3;
+
+/**
+ * NEAR per LiNEAR: the staking contract's own rate (`get_summary().ft_price`,
+ * NEAR x 1e24), else its wNEAR pool.
+ */
 export async function linearNearRate(): Promise<number | null> {
-  const rate = await withRpcFallback((provider) =>
-    provider.callFunction({ contractId: LINEAR, method: "ft_price", args: {} })
-  ).then((raw) => Number(raw) / 1e24).catch(() => NaN);
-  if (Number.isFinite(rate) && rate > 0) return rate;
+  const summary = await withRpcFallback((provider) =>
+    provider.callFunction({ contractId: LINEAR, method: "get_summary", args: {} })
+  ).catch(() => null) as { ft_price?: unknown } | null;
+  const rate = Number(summary?.ft_price) / 1e24;
+  if (plausibleLinearRate(rate)) return rate;
 
   for (const fee of FEE_TIERS) {
     const pool = await fetchDclPool(dclPoolId(LINEAR, "wrap.near", fee)).catch(() => null);
     if (pool && pool.totalX > 0n && pool.totalY > 0n) {
-      return dclPriceInQuote(pool.currentPoint, LINEAR < "wrap.near", 24, 24);
+      const poolRate = dclPriceInQuote(pool.currentPoint, LINEAR < "wrap.near", 24, 24);
+      if (plausibleLinearRate(poolRate)) return poolRate;
     }
   }
   return null;
@@ -67,9 +75,16 @@ export function buildQuotePricer(tokens: readonly ListedToken[], nearUsd: number
   };
 }
 
-type Priced = { pool: PoolRef; quote: QuotePrice; priceUsd: number; liquidityUsd: number };
+type Priced = {
+  pool: PoolRef;
+  quote: QuotePrice;
+  priceUsd: number;
+  liquidityUsd: number;
+  /** USD value of the quote side only: real money in the pool. */
+  backingUsd: number;
+};
 
-const MAX_POOLS_READ = 12;
+const MAX_POOLS_READ = 20;
 /** Quotes most memes pair with; their pools are read first. */
 const PREFERRED = new Set<string>(["wrap.near", LINEAR]);
 
@@ -88,8 +103,9 @@ async function pricePool(token: string, tokenDecimals: number, pool: PoolRef, qu
     const tokenIsX = pool.tokens[0] === token;
     if ((tokenIsX ? live.totalY : live.totalX) === 0n) return null;
     const pricing = priceLaunch({ quote: other, tokenIsX }, live, quote.usd, quote.decimals, tokenDecimals);
+    const backingUsd = toUnits(tokenIsX ? live.totalY : live.totalX, quote.decimals) * quote.usd;
     return pricing.priceUsd !== null && pricing.liquidityUsd !== null
-      ? { pool, quote, priceUsd: pricing.priceUsd, liquidityUsd: pricing.liquidityUsd }
+      ? { pool, quote, priceUsd: pricing.priceUsd, liquidityUsd: pricing.liquidityUsd, backingUsd }
       : null;
   }
   const live = await fetchV2Reserves(pool.id).catch(() => null);
@@ -99,7 +115,8 @@ async function pricePool(token: string, tokenDecimals: number, pool: PoolRef, qu
   if (!tokenAmount || !quoteAmount) return null;
   const quoteReserve = toUnits(quoteAmount, quote.decimals);
   const priceInQuote = quoteReserve / toUnits(tokenAmount, tokenDecimals);
-  return { pool, quote, priceUsd: priceInQuote * quote.usd, liquidityUsd: 2 * quoteReserve * quote.usd };
+  const backingUsd = quoteReserve * quote.usd;
+  return { pool, quote, priceUsd: priceInQuote * quote.usd, liquidityUsd: 2 * backingUsd, backingUsd };
 }
 
 /**
@@ -117,14 +134,21 @@ export async function bestPool(token: string, tokenDecimals: number, pricer: Quo
     return quote && quote.usd > 0 ? { pool, quote, preferred: PREFERRED.has(other) } : null;
   }))).filter((c): c is { pool: PoolRef; quote: QuotePrice; preferred: boolean } => c !== null);
 
-  // Indexed pools and NEAR/LiNEAR pairs first; guessed ids that don't exist just fail.
-  withQuotes.sort((a, b) => Number(b.preferred) - Number(a.preferred));
+  // Read order when a token has many pools: NEAR/LiNEAR pairs, then DCL
+  // (only Guardians create those), then classic pools oldest first, since
+  // anyone can open spam classic pools. Guessed ids that don't exist just fail.
+  const rank = (c: { pool: PoolRef; preferred: boolean }) =>
+    (c.preferred ? 0 : 2) + (c.pool.kind === "dcl" ? 0 : 1);
+  withQuotes.sort((a, b) => rank(a) - rank(b) ||
+    (a.pool.kind === "v2" && b.pool.kind === "v2" ? a.pool.id - b.pool.id : 0));
   const priced = await Promise.all(
     withQuotes.slice(0, MAX_POOLS_READ).map(({ pool, quote }) => pricePool(token, tokenDecimals, pool, quote))
   );
   return priced
     .filter((p): p is Priced => p !== null && Number.isFinite(p.priceUsd) && p.priceUsd > 0)
-    .sort((a, b) => b.liquidityUsd - a.liquidityUsd)[0] ?? null;
+    // Rank by quote-side value. Counting the token side at the pool's own
+    // price would let a pool pushed to an absurd price look deepest.
+    .sort((a, b) => b.backingUsd - a.backingUsd)[0] ?? null;
 }
 
 async function totalSupply(token: string): Promise<string | undefined> {

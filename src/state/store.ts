@@ -19,6 +19,8 @@ export interface StateStore {
    * the past (used for scheduled work such as deleting messages).
    */
   takeDue<T extends { dueAtMs: number }>(prefix: string, nowMs: number): Promise<{ userId: number; value: T }[]>;
+  /** Deletes expired entries (reads already ignore them); returns how many. */
+  purgeExpired(): Promise<number>;
 }
 
 export class InMemoryStateStore implements StateStore {
@@ -54,6 +56,13 @@ export class InMemoryStateStore implements StateStore {
     }
     return due;
   }
+  async purgeExpired(): Promise<number> {
+    let removed = 0;
+    for (const [id, row] of this.rows) {
+      if (row.expiresAt <= Date.now()) { this.rows.delete(id); removed++; }
+    }
+    return removed;
+  }
 }
 
 export class PostgresStateStore implements StateStore {
@@ -78,6 +87,14 @@ export class PostgresStateStore implements StateStore {
       where key like ${prefix + "%"} and (value->>'dueAtMs')::bigint <= ${nowMs}
       returning telegram_user_id, value`) as unknown as { telegram_user_id: string | number; value: T }[];
     return rows.map((row) => ({ userId: Number(row.telegram_user_id), value: row.value }));
+  }
+
+  async purgeExpired(): Promise<number> {
+    // Bounded per call so one cron run never holds a long delete.
+    const rows = (await this.sql`delete from bot_state where ctid in (
+      select ctid from bot_state where expires_at <= now() limit 1000
+    ) returning 1`) as unknown[];
+    return rows.length;
   }
 
   async take<T>(userId: number, key: string): Promise<T | null> {

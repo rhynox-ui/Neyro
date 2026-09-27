@@ -1,6 +1,8 @@
 import { withRpcFallback } from "../near/rpc.js";
 import { defaultStateStore, type StateStore } from "../state/store.js";
 import { DCL_CONTRACT } from "./dcl.js";
+import { neon } from "@neondatabase/serverless";
+import { config } from "../config.js";
 
 /** RHEA classic (v1/v2 AMM) exchange. */
 export const REF_V2_CONTRACT = "v2.ref-finance.near";
@@ -10,28 +12,86 @@ export type PoolRef =
   | { kind: "v2"; id: number; tokens: [string, string] }
   | { kind: "dcl"; id: string; tokens: [string, string] };
 
+/** How far each exchange has been scanned. Pools are only ever appended. */
+export type PoolCursor = { v2Scanned: number; dclScanned: number; updatedAtMs: number };
+
 /**
- * token -> pools it trades in, built by scanning both RHEA exchanges.
- * Pools are only ever appended, so `scanned` lets each refresh read just the
- * new ones. Reserves are not stored; callers read the pool live.
+ * token -> pool refs. Postgres keeps one row per (token, pool) so a lookup
+ * reads a few rows instead of parsing an index of every RHEA pool, which
+ * would cost too much CPU per request on Workers.
  */
-export type PoolIndex = {
-  v2Scanned: number;
-  dclScanned: number;
-  updatedAtMs: number;
-  /** Compact refs: "v2:<id>:<a>|<b>" or "dcl:<token_x>|<token_y>|<fee>". */
-  byToken: Record<string, string[]>;
-};
+export interface PoolStore {
+  add(pools: readonly PoolRef[]): Promise<void>;
+  forToken(token: string): Promise<string[]>;
+  count(): Promise<number>;
+}
+
+export class InMemoryPoolStore implements PoolStore {
+  private readonly byToken = new Map<string, Set<string>>();
+  async add(pools: readonly PoolRef[]) {
+    for (const pool of pools) {
+      const ref = encodePool(pool);
+      for (const token of pool.tokens) {
+        let refs = this.byToken.get(token);
+        if (!refs) this.byToken.set(token, (refs = new Set()));
+        refs.add(ref);
+      }
+    }
+  }
+  async forToken(token: string) { return [...(this.byToken.get(token) ?? [])]; }
+  async count() { return [...this.byToken.values()].reduce((n, refs) => n + refs.size, 0); }
+}
+
+export class PostgresPoolStore implements PoolStore {
+  private readonly sql: ReturnType<typeof neon>;
+  private ready: Promise<unknown> | undefined;
+  constructor(databaseUrl: string) { this.sql = neon(databaseUrl); }
+
+  /** Created on first use, so no manual migration is needed. */
+  private ensure() {
+    this.ready ??= this.sql`create table if not exists rhea_pools (
+      token text not null,
+      ref text not null,
+      primary key (token, ref)
+    )`.catch((error) => { this.ready = undefined; throw error; });
+    return this.ready;
+  }
+  async add(pools: readonly PoolRef[]) {
+    if (!pools.length) return;
+    await this.ensure();
+    const tokens: string[] = [];
+    const refs: string[] = [];
+    for (const pool of pools) {
+      for (const token of pool.tokens) { tokens.push(token); refs.push(encodePool(pool)); }
+    }
+    await this.sql`insert into rhea_pools (token, ref)
+      select * from unnest(${tokens}::text[], ${refs}::text[]) on conflict do nothing`;
+  }
+  async forToken(token: string) {
+    await this.ensure();
+    const rows = (await this.sql`select ref from rhea_pools where token=${token} limit 200`) as unknown as { ref: string }[];
+    return rows.map((row) => row.ref);
+  }
+  async count() {
+    await this.ensure();
+    const rows = (await this.sql`select count(*)::int as n from rhea_pools`) as unknown as { n: number }[];
+    return rows[0]?.n ?? 0;
+  }
+}
+
+let sharedPools: PoolStore | undefined;
+export function defaultPoolStore(): PoolStore {
+  sharedPools ??= config.DATABASE_URL ? new PostgresPoolStore(config.DATABASE_URL) : new InMemoryPoolStore();
+  return sharedPools;
+}
 
 const GLOBAL = 0;
-const INDEX_KEY = "poolindex";
-const INDEX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CURSOR_KEY = "poolindex:cursor";
+const CURSOR_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 const V2_PAGE = 250;
 const DCL_PAGE = 100;
 /** Bounds RPC calls per refresh; a first full scan finishes over a few cron runs. */
 const MAX_PAGES_PER_REFRESH = 12;
-
-const emptyIndex = (): PoolIndex => ({ v2Scanned: 0, dclScanned: 0, updatedAtMs: 0, byToken: {} });
 
 export function encodePool(pool: PoolRef): string {
   return pool.kind === "v2" ? `v2:${pool.id}:${pool.tokens.join("|")}` : `dcl:${pool.id}`;
@@ -43,14 +103,6 @@ export function decodePool(ref: string): PoolRef | null {
   const dcl = /^dcl:(([^|]+)\|([^|]+)\|\d+)$/.exec(ref);
   if (dcl) return { kind: "dcl", id: dcl[1]!, tokens: [dcl[2]!, dcl[3]!] };
   return null;
-}
-
-function add(index: PoolIndex, pool: PoolRef): void {
-  const ref = encodePool(pool);
-  for (const token of pool.tokens) {
-    const list = (index.byToken[token] ??= []);
-    if (!list.includes(ref)) list.push(ref);
-  }
 }
 
 type Json = Record<string, unknown>;
@@ -80,59 +132,53 @@ export function parseDclPools(raw: unknown): PoolRef[] {
 const view = (contractId: string, method: string, args: Json) =>
   withRpcFallback((provider) => provider.callFunction({ contractId, method, args }));
 
-let memory: PoolIndex | undefined;
-
-export async function loadPoolIndex(store: StateStore = defaultStateStore()): Promise<PoolIndex> {
-  memory ??= (await store.get<PoolIndex>(GLOBAL, INDEX_KEY).catch(() => null)) ?? undefined;
-  return memory ?? emptyIndex();
+export async function loadPoolCursor(store: StateStore = defaultStateStore()): Promise<PoolCursor> {
+  return (await store.get<PoolCursor>(GLOBAL, CURSOR_KEY).catch(() => null)) ?? { v2Scanned: 0, dclScanned: 0, updatedAtMs: 0 };
 }
 
 /**
- * Reads pools created since the last refresh (from both exchanges) and saves
- * the index. Run from the per-minute cron; cheap once caught up.
+ * Indexes pools created since the last refresh on both exchanges. Run from
+ * the per-minute cron; one or two RPC calls once caught up.
  */
-export async function refreshPoolIndex(store: StateStore = defaultStateStore()): Promise<PoolIndex> {
-  memory = undefined;
-  const index = await loadPoolIndex(store);
+export async function refreshPoolIndex(
+  store: StateStore = defaultStateStore(),
+  pools: PoolStore = defaultPoolStore()
+): Promise<PoolCursor> {
+  const cursor = await loadPoolCursor(store);
+  if (cursor.v2Scanned === 0) await store.delete(GLOBAL, "poolindex").catch(() => {}); // pre-table index blob
   let pages = 0;
-  let changed = false;
 
   while (pages < MAX_PAGES_PER_REFRESH) {
-    const raw = await view(REF_V2_CONTRACT, "get_pools", { from_index: index.v2Scanned, limit: V2_PAGE });
+    const raw = await view(REF_V2_CONTRACT, "get_pools", { from_index: cursor.v2Scanned, limit: V2_PAGE });
     pages++;
     const count = Array.isArray(raw) ? raw.length : 0;
-    for (const pool of parseV2Pools(raw, index.v2Scanned)) add(index, pool);
-    index.v2Scanned += count;
-    changed ||= count > 0;
+    await pools.add(parseV2Pools(raw, cursor.v2Scanned));
+    cursor.v2Scanned += count;
     if (count < V2_PAGE) break;
   }
   while (pages < MAX_PAGES_PER_REFRESH) {
-    const raw = await view(DCL_CONTRACT, "list_pools", { from_index: index.dclScanned, limit: DCL_PAGE });
+    const raw = await view(DCL_CONTRACT, "list_pools", { from_index: cursor.dclScanned, limit: DCL_PAGE });
     pages++;
     const count = Array.isArray(raw) ? raw.length : 0;
-    const before = Object.keys(index.byToken).length;
-    for (const pool of parseDclPools(raw)) add(index, pool);
+    await pools.add(parseDclPools(raw));
     // RHEA's own SDK calls list_pools without paging; if the contract ignores
     // the arguments and returns every pool, that list is complete.
     if (count > DCL_PAGE) {
-      changed ||= Object.keys(index.byToken).length !== before || index.dclScanned !== count;
-      index.dclScanned = count;
+      cursor.dclScanned = count;
       break;
     }
-    index.dclScanned += count;
-    changed ||= count > 0;
+    cursor.dclScanned += count;
     if (count < DCL_PAGE) break;
   }
 
-  index.updatedAtMs = Date.now();
-  if (changed) await store.set(GLOBAL, INDEX_KEY, index, INDEX_TTL_MS);
-  memory = index;
-  return index;
+  cursor.updatedAtMs = Date.now();
+  await store.set(GLOBAL, CURSOR_KEY, cursor, CURSOR_TTL_MS);
+  return cursor;
 }
 
 /** Every indexed two-token pool containing `token`. */
-export async function poolsForToken(token: string, store?: StateStore): Promise<PoolRef[]> {
-  const refs = (await loadPoolIndex(store)).byToken[token] ?? [];
+export async function poolsForToken(token: string, pools: PoolStore = defaultPoolStore()): Promise<PoolRef[]> {
+  const refs = await pools.forToken(token);
   return refs.map(decodePool).filter((pool): pool is PoolRef => pool !== null);
 }
 

@@ -42,3 +42,25 @@ test("quote pricer covers NEAR and any listed token with a price", async () => {
   assert.deepEqual(await pricer("usdt.tether-token.near"), { usd: 1, decimals: 6, symbol: "USDT" });
   assert.equal(await pricer("nopriced.near"), null);
 });
+
+test("pool store answers per token without loading every pool", async () => {
+  const { InMemoryPoolStore, poolsForToken } = await import("../src/market/pools.js");
+  const store = new InMemoryPoolStore();
+  await store.add([
+    { kind: "v2", id: 7, tokens: ["umbra.umbrafun.near", "linear-protocol.near"] },
+    { kind: "dcl", id: "linear-protocol.near|umbra.umbrafun.near|2000", tokens: ["linear-protocol.near", "umbra.umbrafun.near"] }
+  ]);
+  await store.add([{ kind: "v2", id: 7, tokens: ["umbra.umbrafun.near", "linear-protocol.near"] }]); // re-scan is harmless
+  assert.equal((await poolsForToken("umbra.umbrafun.near", store)).length, 2);
+  assert.equal((await poolsForToken("nothing.near", store)).length, 0);
+  assert.equal(await store.count(), 4);
+});
+
+test("expired state is purged", async () => {
+  const { InMemoryStateStore } = await import("../src/state/store.js");
+  const store = new InMemoryStateStore();
+  await store.set(1, "old", 1, -1);
+  await store.set(1, "live", 1, 60_000);
+  assert.equal(await store.purgeExpired(), 1);
+  assert.equal(await store.get(1, "live"), 1);
+});
