@@ -73,8 +73,17 @@ test("panel still renders for tokens with no market yet, and warns when unlisted
   const text = panelText({ token: { ...token, listed: false }, market: null, side: "sell", amountHuman: "3", slippagePct: 10 }, "12.5");
   assert.match(text, /No market data yet/);
   assert.match(text, /Not on RHEA's token list/);
-  assert.match(text, /🔴 SELL Bagwork\n💳 Amount: 3 Bagwork/);
-  assert.match(text, /💰 Your balance: 12.5 Bagwork/);
+  assert.match(text, /🔴 SELL Bagwork\n💳 Amount: 3 Bagwork · 24% of holdings/);
+  assert.match(text, /💰 Holding: 12.5 Bagwork/);
+});
+
+test("sell side shows the chosen percent, holdings and their USD value", () => {
+  const market = parseDexScreenerPairs(pairs, ADDRESS)!;
+  const text = panelText({ token, market, side: "sell", amountHuman: "500000.123456789", sellPct: 50, slippagePct: 5 }, "1000000.24691358");
+  assert.match(text, /💳 Amount: 500,000\.1235 Bagwork · 50% of holdings \(~\$260\.35\)/);
+  assert.match(text, /💰 Holding: 1,000,000\.2469 Bagwork \(~\$520\.70\)/);
+  assert.match(panelText({ token, market, side: "sell", amountHuman: null, slippagePct: 5 }, null), /💰 Holding: unavailable \(tap Refresh\)/);
+  assert.match(panelText({ token, market, side: "buy", amountHuman: null, slippagePct: 5 }, "0", "1.5"), /👛 Wallet: 1\.5 NEAR available$/);
 });
 
 type Button = { text: string; callback_data?: string; url?: string };
@@ -98,7 +107,7 @@ test("keyboard layout mirrors the Mango card", () => {
 });
 
 test("sell keyboard offers percentages and marks custom slippage", () => {
-  const kb = panelKeyboard({ token, market: null, side: "sell", amountHuman: "50%", slippagePct: 3 }, "10");
+  const kb = panelKeyboard({ token, market: null, side: "sell", amountHuman: "5", sellPct: 50, slippagePct: 3 }, "10");
   assert.deepEqual(rows(kb)[0], ["🟢 BUY", "🔴 SELL"]);
   assert.deepEqual(rows(kb)[1], ["25%", "50% ✓", "75%", "100%"]);
   assert.deepEqual(rows(kb)[3], ["Slippage 5%", "10%", "15%", "✓ 3% · ✏️"]);

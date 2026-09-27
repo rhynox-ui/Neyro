@@ -54,6 +54,7 @@ async function loadMarket(
 }
 import { onchainMarket, type QuotePricer } from "../market/onchain.js";
 import { ftBalanceOf, ftMetadata } from "../near/ft.js";
+import { getNearBalance, tradableNear } from "../near/account.js";
 import { decodeIcon } from "../market/icon.js";
 import { looksLikeContractId } from "../near/tokens.js";
 import { stripAssetPrefix, type NearToken } from "../rhea/client.js";
@@ -90,6 +91,8 @@ export type PanelState = {
   amountHuman: string | null;
   slippagePct: number;
   awaiting?: "amount" | "slippage";
+  /** Sell preset picked (25/50/75/100), shown on the card and button. */
+  sellPct?: number;
   /** The Telegram message showing this panel, so it can be updated in place. */
   chatId?: number;
   messageId?: number;
@@ -133,13 +136,39 @@ function liquidityShare(market: NearMarket): string {
   return `  •  ${((liquidityUsd / marketCapUsd) * 100).toFixed(2)}% of mcap`;
 }
 
-export function panelText(state: PanelState, ownedHuman: string | null): string {
+/** "1,234.567891" — readable token amounts (at most 6 decimals). */
+export function tokenAmount(human: string): string {
+  const value = Number(human);
+  if (!Number.isFinite(value)) return human;
+  return value.toLocaleString("en-US", { maximumFractionDigits: value >= 1 ? 4 : 6 });
+}
+
+function usdOf(amount: number, priceUsd: string | null | undefined): string {
+  const price = Number(priceUsd);
+  if (!priceUsd || !Number.isFinite(price) || !(amount > 0)) return "";
+  const usd = amount * price;
+  return ` (~$${usd < 0.01 ? usd.toPrecision(2) : usd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+}
+
+/**
+ * `ownedHuman`: the active wallet's token balance, null when it couldn't be
+ * read. `nearHuman`: NEAR available to trade, shown on the buy side.
+ */
+export function panelText(state: PanelState, ownedHuman: string | null, nearHuman: string | null = null): string {
   const { token, market, side } = state;
   const symbol = escapeHtml(market?.symbol ?? token.symbol);
   const name = escapeHtml(market?.name ?? token.symbol);
-  const selected = state.amountHuman
-    ? `${escapeHtml(state.amountHuman)} ${side === "buy" ? "NEAR" : symbol}`
-    : "Not selected";
+  const owned = ownedHuman === null ? null : Number(ownedHuman);
+  const amount = Number(state.amountHuman);
+  const share = state.sellPct ?? (owned && amount > 0 ? Math.min(100, (amount / owned) * 100) : null);
+  const selected = !state.amountHuman
+    ? "Not selected"
+    : side === "buy"
+      ? `${escapeHtml(state.amountHuman)} NEAR`
+      : `${escapeHtml(tokenAmount(state.amountHuman))} ${symbol}${share !== null ? ` · ${Number(share.toFixed(1))}% of holdings` : ""}${usdOf(amount, market?.priceUsd)}`;
+  const holding = owned === null
+    ? `💰 Holding: unavailable (tap Refresh)`
+    : `💰 Holding: ${escapeHtml(tokenAmount(ownedHuman!))} ${symbol}${usdOf(owned, market?.priceUsd)}`;
 
   const marketLines = market
     ? [
@@ -174,7 +203,9 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
     side === "buy" ? `🟢 BUY ${symbol}` : `🔴 SELL ${symbol}`,
     `💳 Amount: ${selected}`,
     `⚙️ Slippage: ${state.slippagePct}%`,
-    ...(ownedHuman && Number(ownedHuman) > 0 ? [`💰 Your balance: ${escapeHtml(ownedHuman)} ${symbol}`] : [])
+    // Sell side always shows holdings; buy side when the user holds some.
+    ...(side === "sell" || (owned !== null && owned > 0) ? [holding] : []),
+    ...(side === "buy" && nearHuman !== null ? [`👛 Wallet: ${escapeHtml(tokenAmount(nearHuman))} NEAR available`] : [])
   ].join("\n");
 }
 
@@ -182,7 +213,8 @@ export function panelKeyboard(state: PanelState, ownedHuman: string | null): Inl
   const { side, amountHuman, slippagePct } = state;
   const symbol = state.market?.symbol ?? state.token.symbol;
   const sellAvailable = ownedHuman !== null && Number(ownedHuman) > 0;
-  const tick = (value: string) => (amountHuman === value ? " ✓" : "");
+  const tick = (value: string) =>
+    (value.endsWith("%") ? state.sellPct === Number(value.slice(0, -1)) : amountHuman === value) ? " ✓" : "";
   const kb = new InlineKeyboard()
     .text("🟢 BUY", "tp:side:buy")
     .text(`🔴 SELL${sellAvailable ? "" : " 🔒"}`, "tp:side:sell")
@@ -203,7 +235,9 @@ export function panelKeyboard(state: PanelState, ownedHuman: string | null): Inl
     .row();
 
   kb.text(
-    side === "buy" ? `🟢 BUY ${amountHuman ?? "—"} NEAR` : `🔴 SELL ${amountHuman ?? "—"} ${symbol}`,
+    side === "buy"
+      ? `🟢 BUY ${amountHuman ?? "—"} NEAR`
+      : `🔴 SELL ${state.sellPct ? `${state.sellPct}%` : amountHuman ? tokenAmount(amountHuman) : "—"} ${symbol}`,
     "tp:exec"
   ).row();
 
@@ -265,14 +299,21 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
     }
   }
 
+  async function availableNear(userId: number): Promise<string | null> {
+    const wallet = await walletService.getWallet(userId).catch(() => null);
+    if (!wallet) return null;
+    const balance = await getNearBalance(wallet.accountId).catch(() => null);
+    return balance ? formatUnits(tradableNear(balance).toString(), 24) : null;
+  }
+
   /**
    * Shows the panel. With `edit`, updates the panel's own message (the tapped
    * message, or the stored one after a typed reply); otherwise sends a new
    * card, which replaces the previous panel in the chat.
    */
   async function render(ctx: Context, userId: number, state: PanelState, edit: boolean): Promise<void> {
-    const owned = await ownedBalance(userId, state.token);
-    const text = panelText(state, owned?.human ?? null);
+    const [owned, nearHuman] = await Promise.all([ownedBalance(userId, state.token), availableNear(userId)]);
+    const text = panelText(state, owned?.human ?? null, nearHuman);
     const options = {
       parse_mode: "HTML" as const,
       ...previewOptions(await logoUrl(state.token, state.market)),
@@ -347,27 +388,34 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
       const side = ctx.match[1] as Side;
       if (side === "sell") {
         const owned = await ownedBalance(userId, state.token);
-        if (!owned || owned.base === 0n) {
-          await ctx.answerCallbackQuery("You don't own this token yet.");
+        if (!owned) {
+          await ctx.answerCallbackQuery(`Couldn't read your ${state.token.symbol} balance. Tap Refresh and try again.`);
+          return;
+        }
+        if (owned.base === 0n) {
+          await ctx.answerCallbackQuery(`The active wallet holds no ${state.token.symbol}. Switch wallets in /wallet if you bought with another one.`);
           return;
         }
       }
       await ctx.answerCallbackQuery();
-      await render(ctx, userId, { ...state, side, amountHuman: null, slippagePct: await preferredSlippage(userId, side) }, true);
+      await render(ctx, userId, { ...state, side, amountHuman: null, sellPct: undefined, slippagePct: await preferredSlippage(userId, side) }, true);
     }));
 
     pm.callbackQuery(/^tp:amt:(\d+(?:\.\d+)?%?)$/, (ctx) => withPanel(ctx, async (userId, state) => {
       const raw = ctx.match[1]!;
       let amountHuman = raw;
+      let sellPct: number | undefined;
       if (raw.endsWith("%")) {
         if (state.side !== "sell") return void await ctx.answerCallbackQuery();
         const owned = await ownedBalance(userId, state.token);
         if (!owned) return void await ctx.answerCallbackQuery(`Couldn't check your ${state.token.symbol} balance. Try again.`);
         const base = (owned.base * BigInt(raw.slice(0, -1))) / 100n;
+        if (base === 0n) return void await ctx.answerCallbackQuery(`You don't hold any ${state.token.symbol} in this wallet.`);
         amountHuman = formatUnits(base.toString(), state.token.decimals);
+        sellPct = Number(raw.slice(0, -1));
       }
       await ctx.answerCallbackQuery();
-      await render(ctx, userId, { ...state, amountHuman }, true);
+      await render(ctx, userId, { ...state, amountHuman, sellPct }, true);
     }));
 
     pm.callbackQuery("tp:custom", (ctx) => withPanel(ctx, async (userId, state) => {
@@ -508,7 +556,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
             return void await replyNotice(ctx, `You only have ${owned.human} ${state.token.symbol}.`);
           }
         }
-        return void await render(ctx, userId, { ...state, awaiting: undefined, amountHuman: text }, true);
+        return void await render(ctx, userId, { ...state, awaiting: undefined, amountHuman: text, sellPct: undefined }, true);
       }
 
       if (state?.awaiting === "slippage") {
