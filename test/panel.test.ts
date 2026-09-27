@@ -209,16 +209,32 @@ test("CoinGecko on-chain source sends the key header for its plan", async () => 
   const { fetchCoinGeckoOnchainMarket } = await import("../src/market/geckoterminal.js");
   const seen: { url: string; headers: Record<string, string> }[] = [];
   const fetcher = (async (url: string, init: RequestInit) => {
+    if (url.includes("/info")) return new Response(JSON.stringify({ data: { attributes: { twitter_handle: "umbra" } } }), { status: 200 });
     seen.push({ url, headers: init.headers as Record<string, string> });
     return new Response(JSON.stringify(geckoFixture), { status: 200 });
   }) as unknown as typeof fetch;
 
   const market = (await fetchCoinGeckoOnchainMarket(ADDRESS, "demo-key", "demo", fetcher))!;
   assert.equal(market.volume24hUsd, 6180000);
+  assert.deepEqual(market.links, [{ label: "X", url: "https://x.com/umbra" }]);
   assert.equal(seen[0]!.url, `https://api.coingecko.com/api/v3/onchain/networks/near/tokens/${ADDRESS}?include=top_pools`);
   assert.equal(seen[0]!.headers["x-cg-demo-api-key"], "demo-key");
 
   await fetchCoinGeckoOnchainMarket(ADDRESS, "pro-key", "pro", fetcher);
   assert.ok(seen[1]!.url.startsWith("https://pro-api.coingecko.com/"));
   assert.equal(seen[1]!.headers["x-cg-pro-api-key"], "pro-key");
+});
+
+test("CoinGecko token info becomes safe links", async () => {
+  const { parseCoinGeckoTokenInfo } = await import("../src/market/geckoterminal.js");
+  assert.deepEqual(parseCoinGeckoTokenInfo({ data: { attributes: {
+    websites: ["https://umbra.fun", "javascript:alert(1)"],
+    twitter_handle: "@umbrafun",
+    telegram_handle: "umbra fun <x>",
+    discord_url: "https://discord.gg/umbra"
+  } } }), [
+    { label: "Website", url: "https://umbra.fun/" },
+    { label: "X", url: "https://x.com/umbrafun" },
+    { label: "Discord", url: "https://discord.gg/umbra" }
+  ]);
 });

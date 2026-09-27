@@ -1,4 +1,5 @@
-import { safeUrl, type NearMarket } from "./dexscreener.js";
+import { safeUrl, type NearMarket, type TokenLink } from "./dexscreener.js";
+import { defaultStateStore, type StateStore } from "../state/store.js";
 
 const GECKOTERMINAL_TOKEN_URL = "https://api.geckoterminal.com/api/v2/networks/near/tokens/";
 const TIMEOUT_MS = 8_000;
@@ -28,7 +29,6 @@ export function parseGeckoTerminalToken(json: unknown, address: string): NearMar
   const p = pool.attributes as Json;
 
   const image = safeUrl(token.image_url);
-  const createdAt = p.pool_created_at ? Date.parse(String(p.pool_created_at)) : NaN;
   const dex = String(pool.relationships?.dex?.data?.id ?? "DEX").slice(0, 24);
   return {
     address,
@@ -46,7 +46,9 @@ export function parseGeckoTerminalToken(json: unknown, address: string): NearMar
     priceChange24hPct: num(p.price_change_percentage?.h24),
     txns24hBuys: num(p.transactions?.h24?.buys),
     txns24hSells: num(p.transactions?.h24?.sells),
-    pairCreatedAtMs: Number.isFinite(createdAt) ? createdAt : null,
+    // NEAR pools here report the DEX contract's date (e.g. 1252d for a 16h-old
+    // UMBRA pool), not the pair's, so it isn't shown.
+    pairCreatedAtMs: null,
     // GeckoTerminal returns a placeholder ".../missing.png" when there is no logo.
     imageUrl: image && !/missing/i.test(image) ? image : null,
     links: []
@@ -86,5 +88,49 @@ export async function fetchCoinGeckoOnchainMarket(
   const header = plan === "pro" ? "x-cg-pro-api-key" : "x-cg-demo-api-key";
   const url = `${host}/api/v3/onchain/networks/near/tokens/${encodeURIComponent(address)}?include=top_pools`;
   const json = await fetchTokenJson(url, { [header]: apiKey }, fetcher, "CoinGecko", address);
-  return json === null ? null : parseGeckoTerminalToken(json, address);
+  const market = json === null ? null : parseGeckoTerminalToken(json, address);
+  if (!market) return null;
+  const links = await coinGeckoTokenLinks(address, `${host}/api/v3/onchain/networks/near/tokens/${encodeURIComponent(address)}/info`, { [header]: apiKey }, fetcher)
+    .catch(() => []);
+  return { ...market, links };
+}
+
+/** Website and socials from CoinGecko's token info (team-submitted handles). */
+export function parseCoinGeckoTokenInfo(json: unknown): TokenLink[] {
+  const info = (json as Json)?.data?.attributes as Json | undefined;
+  if (!info) return [];
+  const links: TokenLink[] = [];
+  const push = (label: string, value: string | null) => {
+    if (value && !links.some((link) => link.url === value)) links.push({ label, url: value });
+  };
+  const handle = (value: unknown) => {
+    const text = String(value ?? "").trim().replace(/^@/, "");
+    return /^[A-Za-z0-9_]{1,64}$/.test(text) ? text : null;
+  };
+  for (const site of Array.isArray(info.websites) ? info.websites : []) push("Website", safeUrl(site));
+  const twitter = handle(info.twitter_handle);
+  if (twitter) push("X", `https://x.com/${twitter}`);
+  const telegram = handle(info.telegram_handle);
+  if (telegram) push("Telegram", `https://t.me/${telegram}`);
+  push("Discord", safeUrl(info.discord_url));
+  return links.slice(0, 4);
+}
+
+const LINKS_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Links change rarely; cached a day so card views don't spend API quota. */
+async function coinGeckoTokenLinks(
+  address: string,
+  url: string,
+  headers: Record<string, string>,
+  fetcher: typeof fetch,
+  store: StateStore = defaultStateStore()
+): Promise<TokenLink[]> {
+  const key = `cglinks:${address}`;
+  const cached = await store.get<TokenLink[]>(0, key).catch(() => null);
+  if (cached) return cached;
+  const json = await fetchTokenJson(url, headers, fetcher, "CoinGecko info", address);
+  const links = json === null ? [] : parseCoinGeckoTokenInfo(json);
+  await store.set(0, key, links, LINKS_TTL_MS).catch(() => {});
+  return links;
 }

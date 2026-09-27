@@ -148,7 +148,7 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
         `💧 Liq: ${money(market.liquidityUsd)}${liquidityShare(market)}`,
         `📈 24h: ${pct(market.priceChange24hPct)}  •  Vol: ${money(market.volume24hUsd)}`,
         `🔄 24h Txns: ${market.txns24hBuys ?? "—"} buys / ${market.txns24hSells ?? "—"} sells`,
-        `⏳ Pair age: ${ageLabel(market.pairCreatedAtMs)}`,
+        ...(market.pairCreatedAtMs ? [`⏳ Pair age: ${ageLabel(market.pairCreatedAtMs)}`] : []),
         ...(market.cachedAtMs !== undefined
           ? [`🕒 24h stats from ${ageLabel(market.cachedAtMs)} ago (market data busy)`]
           : market.onchain
@@ -167,7 +167,9 @@ export function panelText(state: PanelState, ownedHuman: string | null): string 
     `<code>${escapeHtml(contractIdOf(token))}</code>`,
     "",
     ...marketLines,
-    ...(token.listed ? [] : ["⚠️ Not on RHEA's token list. Verify the contract; anyone can reuse a symbol."]),
+    // Unlisted tokens are only accepted by exact contract id; warn only when
+    // nothing else (a market with liquidity) vouches for the token either.
+    ...(token.listed || market ? [] : ["⚠️ Not on RHEA's token list. Verify the contract; anyone can reuse a symbol."]),
     "",
     side === "buy" ? `🟢 BUY ${symbol}` : `🔴 SELL ${symbol}`,
     `💳 Amount: ${selected}`,
