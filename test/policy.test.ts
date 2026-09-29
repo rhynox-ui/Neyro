@@ -10,7 +10,7 @@ const ME = "a".repeat(64);
 const MEME = "meme-1.nearlytrade.near";
 
 const buy = { side: "buy" as const, accountId: ME, tokenIn: "wrap.near", tokenOut: MEME, amountIn: 5n * NEAR, dexContracts: DEFAULT_DEX_CONTRACTS };
-const sell = { side: "sell" as const, accountId: ME, tokenIn: MEME, tokenOut: "wrap.near", amountIn: 1000n, dexContracts: DEFAULT_DEX_CONTRACTS };
+const sell = { side: "sell" as const, accountId: ME, tokenIn: MEME, tokenOut: "wrap.near", amountIn: 1000n, maxNativeWithdraw: 5n, dexContracts: DEFAULT_DEX_CONTRACTS };
 
 const buyBatch = () => [
   { receiverId: MEME, actions: [functionCall("storage_deposit", { account_id: ME, registration_only: true }, 10n * TGAS, 1_250_000_000_000_000_000_000n)] },
@@ -36,6 +36,10 @@ test("tokens can only go to allowlisted DEX contracts, up to the agreed amount",
   const redirected = buyBatch();
   redirected[1]!.actions[1] = functionCall("ft_transfer_call", { receiver_id: "attacker.near", amount: "1", msg: "" }, 1n, 1n);
   blocked(() => assertSwapMatchesIntent(redirected, buy), /sends tokens to attacker\.near/);
+
+  const tooMuchUnwrap = sellBatch();
+  tooMuchUnwrap[1]!.actions[0] = functionCall("near_withdraw", { amount: "6" }, 1n, 1n);
+  blocked(() => assertSwapMatchesIntent(tooMuchUnwrap, sell), /unwraps more native NEAR/);
 
   const tooMuch = sellBatch();
   tooMuch[0]!.actions[0] = functionCall("ft_transfer_call", { receiver_id: "v2.ref-finance.near", amount: "1001", msg: "" }, 1n, 1n);
@@ -63,6 +67,7 @@ test("NEAR can't leave except as the agreed wrap and small storage deposits", ()
   blocked(() => assertSwapMatchesIntent(overWrap, buy), /wraps more NEAR/);
 
   blocked(() => assertSwapMatchesIntent([{ receiverId: "wrap.near", actions: [functionCall("near_deposit", {}, 1n, 1n)] }], sell), /unexpected NEAR wrap/);
+  blocked(() => assertSwapMatchesIntent([{ receiverId: "wrap.near", actions: [functionCall("near_withdraw", { amount: "1" }, 1n, 1n)] }], buy), /unexpected unwrap/);
 
   const bigStorage = buyBatch();
   bigStorage[0]!.actions[0] = functionCall("storage_deposit", { account_id: ME }, 1n, NEAR);
