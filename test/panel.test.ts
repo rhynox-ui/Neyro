@@ -110,7 +110,7 @@ test("sell keyboard offers percentages and marks custom slippage", () => {
   const kb = panelKeyboard({ token, market: null, side: "sell", amountHuman: "5", sellPct: 50, slippagePct: 3 }, "10");
   assert.deepEqual(rows(kb)[0], ["🟢 BUY", "🔴 SELL"]);
   assert.deepEqual(rows(kb)[1], ["25% · 2.5", "50% · 5 ✓"]);
-  assert.deepEqual(rows(kb)[2], ["75% · 7.5", "100% · 10"]);
+  assert.deepEqual(rows(kb)[2], ["75% · 7.5", "💯 ALL · 10"]);
   assert.deepEqual(rows(kb)[4], ["Slippage 5%", "10%", "15%", "✓ 3% · ✏️"]);
   assert.deepEqual(rows(kb)[5], ["🔴 SELL 50% Bagwork"]);
 
