@@ -43,3 +43,10 @@ test("RHEA registration parser rejects unknown payloads", () => {
     /unrecognized token registration response/
   );
 });
+
+test("NEP-141 storage registration parser treats an object as registered", async () => {
+  const { isTokenStorageRegistered } = await import("../src/rhea/registration.js");
+  assert.equal(isTokenStorageRegistered({ total: "5000000000000000000000", available: "0" }), true);
+  assert.equal(isTokenStorageRegistered(null), false);
+  assert.equal(isTokenStorageRegistered(undefined), false);
+});
