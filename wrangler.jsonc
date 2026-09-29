@@ -16,6 +16,7 @@
   // testnet by accident. Secrets (bot token, master key, database URL) are
   // set in the dashboard, not here.
   "vars": {
+    "NODE_ENV": "production",
     "NEAR_NETWORK": "mainnet",
     "NEAR_RPC_URL": "https://rpc.mainnet.fastnear.com",
     "NEAR_RPC_FALLBACK_URL": "https://near.drpc.org",
