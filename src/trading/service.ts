@@ -37,10 +37,12 @@ function cleanupPending(): void {
   }
 }
 
-function isExecutionUncertain(error: unknown): boolean {
-  if (!(error instanceof SwapSdkError)) return false;
+function getUncertainExecutionStage(error: unknown): string | undefined {
+  if (!(error instanceof SwapSdkError)) return undefined;
 
-  return ["broadcast", "submit", "status", "report"].includes(error.stage);
+  return ["broadcast", "submit", "status", "report"].includes(error.stage)
+    ? error.stage
+    : undefined;
 }
 
 export class TradingService {
@@ -180,13 +182,15 @@ export class TradingService {
 
       return result;
     } catch (error) {
-      if (isExecutionUncertain(error)) {
+      const uncertainStage = getUncertainExecutionStage(error);
+
+      if (uncertainStage) {
         await this.repository.updateStatus(
           userId,
           id,
           "executing",
           undefined,
-          `execution_uncertain:${error.stage}`
+          `execution_uncertain:${uncertainStage}`
         );
 
         throw new Error(
