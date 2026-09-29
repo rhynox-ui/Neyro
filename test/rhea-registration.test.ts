@@ -5,10 +5,9 @@ process.env.DATABASE_URL ??= "https://example.com/test-db";
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  parseRegistrationResult,
-  isTokenStorageRegistered
-} from "../src/rhea/registration.js";
+
+const { parseRegistrationResult, isTokenStorageRegistered } =
+  await import("../src/rhea/registration.js");
 
 test("RHEA registration parser accepts boolean arrays", () => {
   assert.deepEqual(parseRegistrationResult([true, false], ["a.near", "b.near"]), [true, false]);
