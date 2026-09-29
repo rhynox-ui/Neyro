@@ -513,7 +513,7 @@ export function registerBotHandlers(bot: Bot) {
         tokens: plan.tokens,
         requiredDeposit: plan.requiredDeposit.toString()
       }, 5 * 60 * 1000);
-      await replyScreen(ctx, "rhea-register",
+      await replyScreen(ctx, "withdraw",
         "🧾 <b>RHEA registration required</b>\n\n" +
         `Tokens: ${plan.tokens.map((item) => code(item)).join(", ")}\nRegistration deposit: ${formatNear(plan.requiredDeposit)} NEAR\n\nThis only pays storage deposits; it does not trade.`,
         {
@@ -574,7 +574,7 @@ export function registerBotHandlers(bot: Bot) {
         return void await replyNotice(ctx, "ℹ️ RHEA has no recoverable internal balance for this wallet.");
       }
       const lines = balances.map((item) => `• ${code(item.token)} — ${code(item.amount)} base units`);
-      await replyScreen(ctx, "rhea-recovery",
+      await replyScreen(ctx, "withdraw",
         "🛟 <b>RHEA recovery balances</b>\n\n" +
         "These are balances held inside RHEA AggregateDex, not your wallet balance.\n\n" +
         lines.join("\n") +
