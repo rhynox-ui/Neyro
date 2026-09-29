@@ -1,4 +1,4 @@
-import { parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
+import { parseUnits, SwapSdkError } from "@rhea-finance/cross-chain-aggregation-dex";
 import { RheaClient } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
@@ -35,6 +35,12 @@ function cleanupPending(): void {
   for (const [id, trade] of pending) {
     if (trade.expiresAt <= now) pending.delete(id);
   }
+}
+
+function isExecutionUncertain(error: unknown): boolean {
+  if (!(error instanceof SwapSdkError)) return false;
+
+  return ["broadcast", "submit", "status", "report"].includes(error.stage);
 }
 
 export class TradingService {
@@ -174,6 +180,20 @@ export class TradingService {
 
       return result;
     } catch (error) {
+      if (isExecutionUncertain(error)) {
+        await this.repository.updateStatus(
+          userId,
+          id,
+          "executing",
+          undefined,
+          `execution_uncertain:${error.stage}`
+        );
+
+        throw new Error(
+          "Trade execution status is uncertain. Do not retry with a new trade until the transaction status is reconciled."
+        );
+      }
+
       await this.repository.updateStatus(
         userId,
         id,
