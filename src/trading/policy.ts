@@ -7,7 +7,7 @@ import { UserFacingError } from "../errors.js";
  * receivers) or call directly. Extend with RHEA_EXTRA_CONTRACTS if RHEA's
  * builder routes through another contract; unknown receivers are blocked.
  */
-export const DEFAULT_DEX_CONTRACTS = ["v2.ref-finance.near", "dclv2.ref-labs.near"];
+export const DEFAULT_DEX_CONTRACTS = ["v2.ref-finance.near", "dclv2.ref-labs.near", "aggregatedex.near"];
 
 const WRAPPED_NEAR = "wrap.near";
 /** Storage registrations (NEP-145) cost ~0.00125 NEAR each; allow a few. */
