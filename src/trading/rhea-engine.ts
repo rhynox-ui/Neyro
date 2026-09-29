@@ -60,6 +60,9 @@ export class RheaTradingEngine implements TradingEngine {
 
   private async ensureRheaRegistration(accountId: string, tokens: readonly string[]): Promise<void> {
     const uniqueTokens = [...new Set(tokens.map((token) => token.trim().toLowerCase().replace(/^nep141:/, "")).filter(Boolean))];
+    if (uniqueTokens.length > 16) {
+      throw new UserFacingError("RHEA route requires too many token registrations; refresh the quote and try again.");
+    }
     this.signer?.addAllowedReceivers?.(uniqueTokens);
     this.signer?.addAllowedReceivers?.(["aggregatedex.near"]);
 
@@ -68,6 +71,14 @@ export class RheaTradingEngine implements TradingEngine {
 
     const balance = await getNearBalance(accountId);
     const required = plan.requiredDeposit;
+    const maxAutoRegistration = BigInt(config.MAX_AUTO_RHEA_REGISTRATION_YOCTO);
+    if (required > maxAutoRegistration) {
+      throw new UserFacingError(
+        "RHEA token registration would require " + plan.requiredDeposit.toString() +
+        " yoctoNEAR, above Neyro's automatic registration limit of " +
+        config.MAX_AUTO_RHEA_REGISTRATION_YOCTO + " yoctoNEAR. Register the route tokens manually or refresh the trade."
+      );
+    }
     const spendableAfterRegistration = balance.available - required;
     if (spendableAfterRegistration < BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO)) {
       throw new UserFacingError(

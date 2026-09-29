@@ -706,7 +706,7 @@ export function registerBotHandlers(bot: Bot) {
     if (parts.length !== 2) {
       return void await ctx.reply(side === "buy"
         ? "⚡ Usage: /buy <token> [amount-near], or paste a token contract id"
-        : "💰 Usage: /sell <token> [amount-token], or paste a token contract id");
+        : "💰 Usage: /sell <token> [amount-token|all], or paste a token contract id");
     }
 
     try {

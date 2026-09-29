@@ -45,6 +45,16 @@ test("tokens can only go to allowlisted DEX contracts, up to the agreed amount",
   blocked(() => assertSwapMatchesIntent(wrongToken, sell), /unexpected contract usdt/);
 });
 
+test("arbitrary DEX methods are never signed", () => {
+  blocked(
+    () => assertSwapMatchesIntent(
+      [{ receiverId: "aggregatedex.near", actions: [functionCall("withdraw", {}, 1n, 0n)] }],
+      sell
+    ),
+    /unexpected call withdraw/
+  );
+});
+
 test("NEAR can't leave except as the agreed wrap and small storage deposits", () => {
   blocked(() => assertSwapMatchesIntent([{ receiverId: "wrap.near", actions: [{ type: "Transfer", params: { deposit: "1" } }] }], buy), /plain NEAR transfer/);
 
@@ -62,7 +72,7 @@ test("NEAR can't leave except as the agreed wrap and small storage deposits", ()
   otherAccount[0]!.actions[0] = functionCall("storage_deposit", { account_id: "someone.near" }, 1n, 1n);
   blocked(() => assertSwapMatchesIntent(otherAccount, buy), /another account/);
 
-  blocked(() => assertSwapMatchesIntent([{ receiverId: "v2.ref-finance.near", actions: [functionCall("withdraw", {}, 1n, NEAR)] }], sell), /carries a deposit/);
+  blocked(() => assertSwapMatchesIntent([{ receiverId: "v2.ref-finance.near", actions: [functionCall("withdraw", {}, 1n, NEAR)] }], sell), /unexpected call withdraw/);
 });
 
 test("policy reasons reach the user through SDK error wrappers", () => {

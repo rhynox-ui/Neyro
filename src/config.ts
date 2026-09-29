@@ -11,6 +11,7 @@ const schema = z.object({
   NEAR_RPC_EXTRA_URLS: z.string().optional(),
 
   NEAR_SPENDABLE_RESERVE_YOCTO: z.string().regex(/^\d+$/).default("25000000000000000000000"),
+  MAX_AUTO_RHEA_REGISTRATION_YOCTO: z.string().regex(/^\d+$/).default("100000000000000000000000"),
   MAX_TRADE_BPS_OF_BALANCE: z.coerce.number().int().min(1).max(10_000).default(2_500),
 
   FASTNEAR_API_URL: z.string().url().optional(),
@@ -49,6 +50,20 @@ const schema = z.object({
       code: "custom",
       path: ["DATABASE_URL"],
       message: "DATABASE_URL is required in production; persistent storage is mandatory for production trading"
+    });
+  }
+  if (env.NODE_ENV === "production" && !env.NEYRO_MASTER_KEY) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NEYRO_MASTER_KEY"],
+      message: "NEYRO_MASTER_KEY is required in production"
+    });
+  }
+  if (env.NODE_ENV === "production" && !env.TELEGRAM_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["TELEGRAM_WEBHOOK_SECRET"],
+      message: "TELEGRAM_WEBHOOK_SECRET is required in production"
     });
   }
 });
