@@ -57,7 +57,7 @@ test("unexpected NEAR receivers are blocked", () => {
 
 
 test("RHEA route token extraction prefers protocol-provided token list", async () => {
-  const { extractRheaRouteTokens } = await import("../src/rhea/registration.js");
+  const { extractRheaRouteTokens } = await import("../src/rhea/route.js");
   assert.deepEqual(
     extractRheaRouteTokens(
       { tokens: ["wrap.near", "foo.near", "wrap.near"] },
