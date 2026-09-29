@@ -5,6 +5,7 @@ import { getNearBalance, type NearBalance } from "../near/account.js";
 import { ftBalanceOf } from "../near/ft.js";
 import { functionCall } from "../near/actions.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
+import { looksLikeContractId } from "../near/tokens.js";
 
 const WRAPPED_NEAR = "wrap.near";
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
