@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeFee, feeActions, type FeePlan } from "../src/trading/fee.js";
+import { computeFee, feeActions, feeTransaction, type FeePlan } from "../src/trading/fee.js";
 import { assessFill } from "../src/trading/outcome.js";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
@@ -36,6 +36,8 @@ test("protocol fees are always native NEAR transfers", () => {
   const transfer = feeActions(sell)[0]!;
   assert.equal(transfer.type, "Transfer");
   if (transfer.type === "Transfer") assert.equal(transfer.params.deposit, "7");
+  assert.equal(feeTransaction(sell).receiverId, "fees.neyro.near");
+  assert.equal(feeTransaction(sell).actions[0]?.type, "Transfer");
 });
 
 test("a refunded swap is not a fill (the fee is only charged after a fill)", () => {
