@@ -150,7 +150,33 @@ export class RheaClient {
     const msg = typeof data?.msg === "string" ? data.msg : "";
     const signature = typeof data?.signature === "string" ? data.signature : "";
     const tokens = Array.isArray(data?.tokens) ? data.tokens.filter((item): item is string => typeof item === "string").map(stripAssetPrefix) : [];
-    if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || BigInt(amountOut) <= 0n || BigInt(minAmountOut) <= 0n || BigInt(minAmountOut) > BigInt(amountOut) || !msg || !signature || tokens.length === 0) {
+    const missingRouteFields = [
+      /^\d+$/.test(amountIn) ? null : "amount_in",
+      /^\d+$/.test(amountOut) && BigInt(amountOut) > 0n ? null : "amount_out",
+      /^\d+$/.test(minAmountOut) && BigInt(minAmountOut) > 0n ? null : "min_amount_out",
+      minAmountOut && amountOut && BigInt(minAmountOut) <= BigInt(amountOut) ? null : "min_amount_out>amount_out",
+      msg ? null : "msg",
+      signature ? null : "signature",
+      tokens.length > 0 ? null : "tokens"
+    ].filter((value): value is string => value !== null);
+    if (missingRouteFields.length > 0) {
+      console.error("RHEA SmartRouter route shape rejected", {
+        keys: data ? Object.keys(data) : [],
+        fieldTypes: {
+          amount_in: typeof data?.amount_in,
+          amount_out: typeof data?.amount_out,
+          min_amount_out: typeof data?.min_amount_out,
+          msg: typeof data?.msg,
+          signature: typeof data?.signature,
+          tokens: Array.isArray(data?.tokens) ? "array" : typeof data?.tokens
+        },
+        amountIn,
+        amountOut,
+        minAmountOut,
+        tokenCount: tokens.length,
+        tokenSample: tokens.slice(0, 8),
+        missingRouteFields
+      });
       throw new UserFacingError("RHEA SmartRouter returned an incomplete route");
     }
     if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new UserFacingError("RHEA SmartRouter changed the requested input amount");
