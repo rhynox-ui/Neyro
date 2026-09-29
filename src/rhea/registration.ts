@@ -13,7 +13,10 @@ export type RheaRegistrationCheck = {
 };
 
 export function isTokenStorageRegistered(value: unknown): boolean {
-  return Boolean(value && typeof value === "object");
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const total = (value as Record<string, unknown>).total;
+  if (typeof total !== "string" || !/^\d+$/.test(total)) return false;
+  return BigInt(total) > 0n;
 }
 
 export function parseRegistrationResult(value: unknown, tokens: readonly string[]): boolean[] {
