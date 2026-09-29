@@ -16,10 +16,7 @@ test("normalizes router price impact values", () => {
 
 test("price impact uses quoted execution value versus reference value", () => {
   // $100 in, $91.3 out at the reference rate => 8.7% impact.
-  assert.equal(
-    estimatePriceImpact(100n, 0, 1, 913n, 1, 1),
-    0.087
-  );
+  assert.ok(Math.abs(estimatePriceImpact(100n, 0, 1, 913n, 1, 1)! - 0.087) < 1e-12);
 });
 
 test("price-impact confirmation text follows the requested thresholds", () => {
