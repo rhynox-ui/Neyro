@@ -24,6 +24,7 @@ export type TradeRequest = {
   tokenOut: AssetRef;
   amountIn: string;
   slippageBps: number;
+  idempotencyKey: string;
 };
 
 export interface TradingEngine {
