@@ -32,7 +32,7 @@ export async function getFtBalance(
   return withRpcFallback(async (provider) => {
     const result = await provider.callFunction({
       contractId: tokenContract,
-      methodName: "ft_balance_of",
+      method: "ft_balance_of",
       args: { account_id: accountId }
     });
 
