@@ -140,7 +140,7 @@ export class TradingService {
       const amount = BigInt(total);
       if (amount > balance) {
         throw new UserFacingError(
-          `Not enough NEAR: ${formatUnits(balance.toString(), 24)} NEAR available to trade (0.05 NEAR is kept for gas and storage)`
+          `Not enough NEAR: ${formatUnits(balance.toString(), 24)} NEAR available to trade (${formatUnits(config.NEAR_SPENDABLE_RESERVE_YOCTO, 24)} NEAR is kept for gas and storage)`
         );
       }
     } else {
