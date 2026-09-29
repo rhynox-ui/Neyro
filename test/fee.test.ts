@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeFee, feeActions, feeReceiver, type FeePlan } from "../src/trading/fee.js";
+import { computeFee, feeActions, feeReceiver, formatNativeFee, type FeePlan } from "../src/trading/fee.js";
 import { assessFill } from "../src/trading/outcome.js";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
@@ -43,6 +43,10 @@ test("a refunded swap is not a fill (the fee is only charged after a fill)", () 
   assert.deepEqual(assessFill("sell", 100n, 100n), { filled: false, amount: 0n });
   assert.deepEqual(assessFill("sell", 100n, 7n), { filled: true, amount: 93n });
   assert.deepEqual(assessFill("buy", 0n, 0n), { filled: false, amount: 0n });
+});
+
+test("native fee formatting never uses the sold token decimals", () => {
+  assert.equal(formatNativeFee("3761567417580738955000000"), "3.761567417580738955 NEAR");
 });
 
 test("fee label", () => {
