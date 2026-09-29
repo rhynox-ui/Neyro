@@ -1,6 +1,7 @@
 import { RheaClient } from "../rhea/client.js";
 import type { TradeQuote, TradeRequest, TradingEngine } from "../domain/trading.js";
 import { createNeyroNearExecutor, type NearTransactionSigner } from "../near/rhea-executor.js";
+import { requireRheaTokenRegistration, extractRheaRouteTokens } from "../rhea/registration.js";
 
 export class RheaTradingEngine implements TradingEngine {
   private readonly rhea: RheaClient;
@@ -40,6 +41,12 @@ export class RheaTradingEngine implements TradingEngine {
     request: TradeRequest,
     quote: TradeQuote
   ): Promise<{ transactionHash: string }> {
+    const tokens = extractRheaRouteTokens(
+      quote.raw,
+      [request.tokenIn.address, request.tokenOut.address]
+    );
+    await requireRheaTokenRegistration(request.accountId, tokens);
+
     const result = await this.rhea.swap(
       quote.raw,
       request.idempotencyKey
