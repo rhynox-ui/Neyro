@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
-    "@rhea-finance/cross-chain-aggregation-dex": "^2.0.7",
+    "@rhea-finance/cross-chain-aggregation-dex": "2.0.7",
     "dotenv": "^17.2.2",
     "grammy": "^1.38.4",
     "near-api-js": "^7.0.0",
