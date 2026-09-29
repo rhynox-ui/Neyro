@@ -24,7 +24,7 @@ async function ftBalanceOf(contractId: string, accountId: string): Promise<strin
   return withRpcFallback(async (provider) => {
     const result = await provider.callFunction({
       contractId,
-      methodName: "ft_balance_of",
+      method: "ft_balance_of",
       args: { account_id: accountId }
     });
 
