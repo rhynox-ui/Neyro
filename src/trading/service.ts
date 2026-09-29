@@ -115,7 +115,8 @@ export class TradingService {
       tokenIn,
       tokenOut,
       amountIn,
-      slippageBps
+      slippageBps,
+      idempotencyKey: id
     };
 
     const engine = new RheaTradingEngine();
