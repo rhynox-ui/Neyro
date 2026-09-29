@@ -10,6 +10,7 @@ export type RheaRegistrationCheck = {
 };
 
 import { extractRheaRouteTokens } from "./route.js";
+export { extractRheaRouteTokens } from "./route.js";
 
 function parseRegistrationResult(value: unknown, tokens: readonly string[]): boolean[] {
   if (Array.isArray(value) && value.every((item) => typeof item === "boolean")) {
