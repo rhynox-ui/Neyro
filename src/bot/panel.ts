@@ -62,7 +62,7 @@ import type { TradingService, ExecutionResult } from "../trading/service.js";
 import type { WalletService } from "../wallet/service.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { userMessage } from "../errors.js";
-import { describeRoute, valueLossWarning } from "../trading/outcome.js";
+import { describeRoute, priceImpactWarning } from "../trading/outcome.js";
 import { deleteIncoming, keepScreen, replyNotice, trackScreen } from "./screens.js";
 import { defaultStateStore, type StateStore } from "../state/store.js";
 import {
@@ -481,7 +481,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
               : []),
             `Slippage: ${state.slippagePct}%`,
             `Router: ${escapeHtml(describeRoute(prepared.quote.direct ? undefined : prepared.quote.raw?.route, prepared.quote.raw?.alternatives?.length ?? 0))}`,
-            ...(valueLossWarning(prepared.valueLoss) ? ["", escapeHtml(valueLossWarning(prepared.valueLoss)!)] : []),
+            ...(priceImpactWarning(prepared.priceImpact) ? ["", escapeHtml(priceImpactWarning(prepared.priceImpact)!)] : []),
             "",
             `Quote expires in ${seconds}s. Confirm trade?`
           ].join("\n"),

@@ -43,13 +43,25 @@ export function quoteDeadline(
   return Math.min(ms, fallback);
 }
 
-/**
- * Share of the trade's USD value lost between what goes in and what the
- * quote says comes out: pool fees (up to 19.99% on a permissionless RHEA
- * Classic pool) plus price impact. Null when either side has no USD price.
- * Negative values (a quote better than the reference price) are clamped to 0.
+/** Normalize a router/API price-impact field into a decimal fraction.
+ * Accepts 0.087, 8.7, or "8.7%".
  */
-export function estimateValueLoss(
+export function normalizePriceImpact(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const text = String(value).trim();
+  const hasPercent = text.endsWith("%");
+  const parsed = Number(text.replace(/%$/, ""));
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  const fraction = hasPercent || parsed > 1 ? parsed / 100 : parsed;
+  return Math.max(0, fraction);
+}
+
+/**
+ * Fallback impact estimate when the router does not expose one.
+ * This compares the quoted execution rate with the current reference
+ * USD rate using the exact amount being swapped.
+ */
+export function estimatePriceImpact(
   amountIn: bigint,
   decimalsIn: number,
   priceIn: number | null,
@@ -57,20 +69,20 @@ export function estimateValueLoss(
   decimalsOut: number,
   priceOut: number | null
 ): number | null {
-  if (!priceIn || !priceOut || amountIn <= 0n) return null;
+  if (!priceIn || !priceOut || amountIn <= 0n || amountOut <= 0n) return null;
   const valueIn = (Number(amountIn) / 10 ** decimalsIn) * priceIn;
   const valueOut = (Number(amountOut) / 10 ** decimalsOut) * priceOut;
-  if (!(valueIn > 0) || !Number.isFinite(valueOut)) return null;
-  return Math.max(0, 1 - valueOut / valueIn);
+  if (!(valueIn > 0) || !Number.isFinite(valueIn) || !Number.isFinite(valueOut)) return null;
+  return Math.max(0, Math.min(1, 1 - valueOut / valueIn));
 }
 
-/** Warning line for the confirm screen, or undefined when the loss is normal. */
-export function valueLossWarning(loss: number | null): string | undefined {
-  if (loss === null || loss < 0.03) return undefined;
-  const pct = (loss * 100).toFixed(1);
-  return loss >= 0.15
-    ? `🚨 You lose about ${pct}% of the trade's value to pool fees and price impact. This pool may charge a very high fee or have very little liquidity.`
-    : `⚠️ About ${pct}% of the trade's value goes to pool fees and price impact.`;
+/** Exact user-facing price-impact line for trade confirmation. */
+export function priceImpactWarning(impact: number | null): string | undefined {
+  if (impact === null || !Number.isFinite(impact)) return undefined;
+  const pct = (impact * 100).toFixed(1);
+  return impact >= 0.15
+    ? `🚨 Very high price impact: ~${pct}%`
+    : `price impact: ~${pct}%`;
 }
 
 /** "rhea · dcl (best of 3 routes)" from the SDK's route summary. */

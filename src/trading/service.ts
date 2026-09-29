@@ -15,7 +15,7 @@ import {
   type TradeRepository,
   type TradeStatus
 } from "./repository.js";
-import { assessFill, classifyBatch, estimateValueLoss, quoteDeadline } from "./outcome.js";
+import { assessFill, classifyBatch, estimatePriceImpact, normalizePriceImpact, quoteDeadline } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, feeActions, feeReceiver, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
@@ -206,12 +206,17 @@ export class TradingService {
 
     // Pool fees and price impact, measured in USD against reference prices.
     const [priceIn, priceOut] = await Promise.all([this.priceUsd(tokenIn), this.priceUsd(tokenOut)]);
-    const valueLoss = estimateValueLoss(
+    const routerImpact = normalizePriceImpact(
+      (quote as unknown as { priceImpact?: unknown }).priceImpact ??
+      (quote.raw as unknown as { priceImpact?: unknown; price_impact?: unknown } | undefined)?.priceImpact ??
+      (quote.raw as unknown as { price_impact?: unknown } | undefined)?.price_impact
+    );
+    const priceImpact = routerImpact ?? estimatePriceImpact(
       BigInt(amountIn), tokenIn.decimals ?? 0, priceIn,
       BigInt(quote.expectedOut), tokenOut.decimals ?? 0, priceOut
     );
 
-    return { id, request, quote, expiresAt, unlisted: !token.listed, fee, total: total.toString(), valueLoss };
+    return { id, request, quote, expiresAt, unlisted: !token.listed, fee, total: total.toString(), priceImpact };
   }
 
   /**
