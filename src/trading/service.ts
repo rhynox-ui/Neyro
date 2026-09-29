@@ -3,7 +3,7 @@ import { RheaClient } from "../rhea/client.js";
 import { RheaTradingEngine } from "./rhea-engine.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
 import { WalletService } from "../wallet/service.js";
-import { getNearBalance } from "../near/account.js";
+import { getFtBalance, getNearBalance } from "../near/account.js";
 import { assertSlippageAllowed, assertTradeShareAllowed, getSpendableBalance } from "../security/risk.js";
 import type { TradeQuote, TradeRequest } from "../domain/trading.js";
 import { NoopTradeRepository, PostgresTradeRepository, type TradeRepository } from "./repository.js";
@@ -81,18 +81,30 @@ export class TradingService {
     const slippageBps = DEFAULT_SLIPPAGE_BPS;
     assertSlippageAllowed(slippageBps);
 
+    const nearBalance = BigInt(await getNearBalance(wallet.accountId));
+    const reserve = BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO);
+    getSpendableBalance(nearBalance, reserve);
+
     if (side === "buy") {
-      const balance = BigInt(await getNearBalance(wallet.accountId));
-      const reserve = BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO);
-      const spendableBalance = getSpendableBalance(balance, reserve);
+      const spendableBalance = getSpendableBalance(nearBalance, reserve);
       const amount = BigInt(amountIn);
 
       if (amount > spendableBalance) {
         throw new Error("Insufficient NEAR balance after the safety reserve");
       }
 
+      const shareBps = Number((amount * 10000n) / spendableBalance);
+      assertTradeShareAllowed(shareBps);
+    } else {
+      const tokenBalance = await getFtBalance(wallet.accountId, token.address);
+      const amount = BigInt(amountIn);
+
+      if (amount > tokenBalance) {
+        throw new Error("Insufficient token balance");
+      }
+
       const shareBps = Number(
-        (amount * 10000n) / spendableBalance
+        (amount * 10000n) / (tokenBalance === 0n ? 1n : tokenBalance)
       );
       assertTradeShareAllowed(shareBps);
     }
