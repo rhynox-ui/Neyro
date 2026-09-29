@@ -1,7 +1,5 @@
-import { functionCall, type WalletAction } from "../near/actions.js";
+import type { WalletAction } from "../near/actions.js";
 
-const STORAGE_DEPOSIT_GAS = 10_000_000_000_000n;
-const FT_TRANSFER_GAS = 15_000_000_000_000n;
 export const WRAPPED_NEAR = "wrap.near";
 export const NATIVE_NEAR = "near";
 
@@ -18,8 +16,6 @@ export type FeePlan = {
   /** Native NEAR is always used for protocol fees. */
   contractId: string;
   amount: string;
-  /** yoctoNEAR storage deposit to register the treasury on contractId, if needed. */
-  registerTreasury?: string;
   capped: boolean;
 };
 
@@ -48,9 +44,6 @@ export function computeFee(
 export function feeActions(plan: FeePlan): WalletAction[] {
   const amount = BigInt(plan.amount);
   return [
-    ...(plan.registerTreasury
-      ? [functionCall("storage_deposit", { account_id: plan.treasury, registration_only: true }, STORAGE_DEPOSIT_GAS, BigInt(plan.registerTreasury))]
-      : []),
     {
       type: "Transfer" as const,
       params: { deposit: amount.toString() }
