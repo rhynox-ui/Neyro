@@ -479,7 +479,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
                 ]
               : []),
             `Slippage: ${state.slippagePct}%`,
-            `Router: ${escapeHtml(describeRoute(prepared.quote.raw.route, prepared.quote.raw.alternatives?.length ?? 0))}`,
+            `Router: ${escapeHtml(describeRoute(prepared.quote.direct ? undefined : prepared.quote.raw?.route, prepared.quote.raw?.alternatives?.length ?? 0))}`,
             ...(valueLossWarning(prepared.valueLoss) ? ["", escapeHtml(valueLossWarning(prepared.valueLoss)!)] : []),
             "",
             `Quote expires in ${seconds}s. Confirm trade?`
