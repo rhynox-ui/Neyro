@@ -2,6 +2,7 @@ import type { Account } from "near-api-js";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 import { storageRegistrationCost } from "../near/ft.js";
 import { createNearConnection } from "../near/client.js";
+import { UserFacingError } from "../errors.js";
 import { extractRheaRouteTokens } from "./route.js";
 
 export { extractRheaRouteTokens } from "./route.js";
@@ -57,12 +58,20 @@ export async function checkRheaTokenRegistration(account: Account, tokens: reado
   return { tokens: uniqueTokens, registered, missing };
 }
 
+function registrationError(tokens: readonly string[]): UserFacingError {
+  return new UserFacingError(
+    "RHEA registration is required before this trade. " +
+    `Register ${tokens.join(", ")} with /rhea-register, then confirm the trade again. ` +
+    "No trade transaction was submitted."
+  );
+}
+
 export async function requireRheaTokenRegistration(accountId: string, tokens: readonly string[]): Promise<RheaRegistrationCheck> {
   const account = createNearConnection().account(accountId);
   const check = await checkRheaTokenRegistration(account, tokens);
 
   if (check.missing.length > 0) {
-    throw new Error("RHEA token registration required before execution: " + check.missing.join(", ") + ". No trade transaction was submitted.");
+    throw registrationError(check.missing);
   }
 
   for (const token of check.tokens) {
@@ -80,7 +89,7 @@ export async function requireRheaTokenRegistration(accountId: string, tokens: re
     ]);
 
     if (!isTokenStorageRegistered(userStorage) || !isTokenStorageRegistered(aggregateStorage)) {
-      throw new Error(`RHEA token storage registration required for ${token}. No trade transaction was submitted.`);
+      throw registrationError([token]);
     }
   }
 

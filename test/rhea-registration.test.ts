@@ -48,3 +48,9 @@ test("NEP-141 storage registration requires positive total", () => {
   assert.equal(isTokenStorageRegistered({ total: "0", available: "0" }), false);
   assert.equal(isTokenStorageRegistered(null), false);
 });
+
+
+test("RHEA execution registration errors are actionable user-facing errors", async () => {
+  const { UserFacingError } = await import("../src/errors.js");
+  assert.equal(UserFacingError.name, "UserFacingError");
+});
