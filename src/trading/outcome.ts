@@ -3,6 +3,17 @@ import type { SentTransaction } from "../wallet/near-account-signer.js";
 
 export type BatchOutcome = "executed" | "reverted" | "partial" | "unknown" | "failed";
 
+/** Convert known on-chain swap failures into actionable, non-sensitive user text. */
+export function friendlyExecutionFailure(reason: string | undefined, slippageBps: number): string | undefined {
+  if (!reason) return undefined;
+  if (/slippage error/i.test(reason)) {
+    const tolerance = slippageBps % 100 === 0 ? String(slippageBps / 100) : (slippageBps / 100).toFixed(2);
+    return `Price moved beyond your ${tolerance}% slippage tolerance. Nothing was exchanged and no protocol fee was charged. Refresh the quote and confirm again.`;
+  }
+  return reason;
+}
+
+
 /**
  * Classifies what actually happened on chain for a transaction batch,
  * independently of whatever error the SDK raised.
