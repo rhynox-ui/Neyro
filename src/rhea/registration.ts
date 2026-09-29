@@ -58,7 +58,15 @@ export async function checkRheaTokenRegistration(account: Account, tokens: reado
   return { tokens: uniqueTokens, registered, missing };
 }
 
-function registrationError(tokens: readonly string[]): UserFacingError {\n  return new UserFacingError(\n    "RHEA registration is required before this trade. " +\n    `Register ${tokens.join(", ")} with /rhea-register, then confirm the trade again. ` +\n    "No trade transaction was submitted."\n  );\n}\n\nexport async function requireRheaTokenRegistration(accountId: string, tokens: readonly string[]): Promise<RheaRegistrationCheck> {
+function registrationError(tokens: readonly string[]): UserFacingError {
+  return new UserFacingError(
+    "RHEA registration is required before this trade. " +
+    `Register ${tokens.join(", ")} with /rhea-register, then confirm the trade again. ` +
+    "No trade transaction was submitted."
+  );
+}
+
+export async function requireRheaTokenRegistration(accountId: string, tokens: readonly string[]): Promise<RheaRegistrationCheck> {
   const account = createNearConnection().account(accountId);
   const check = await checkRheaTokenRegistration(account, tokens);
 
