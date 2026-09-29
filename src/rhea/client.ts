@@ -140,18 +140,28 @@ export class RheaClient {
     if (body && typeof body.code === "number" && body.code !== 0) {
       throw new UserFacingError(`RHEA SmartRouter rejected route (code ${body.code})${typeof body.msg === "string" ? `: ${cleanRheaText(body.msg)}` : ""}`);
     }
-    const data = body?.data && typeof body.data === "object" ? body.data as Record<string, unknown> : body;
+    const data = extractSmartRouterPayload(body);
     if (data && typeof data.code === "number" && data.code !== 0) {
       throw new UserFacingError(`RHEA SmartRouter rejected route (code ${data.code})${typeof data.msg === "string" ? `: ${cleanRheaText(data.msg)}` : ""}`);
     }
-    const amountIn = String(data?.amount_in ?? "");
-    const amountOut = String(data?.amount_out ?? "");
-    const minAmountOut = String(data?.min_amount_out ?? "");
-    const msg = typeof data?.msg === "string" ? data.msg : "";
-    const signature = typeof data?.signature === "string" ? data.signature : "";
-    const tokens = Array.isArray(data?.tokens) ? data.tokens.filter((item): item is string => typeof item === "string").map(stripAssetPrefix) : [];
-    if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || BigInt(amountOut) <= 0n || BigInt(minAmountOut) <= 0n || BigInt(minAmountOut) > BigInt(amountOut) || !msg || !signature || tokens.length === 0) {
-      throw new UserFacingError("RHEA SmartRouter returned an incomplete route");
+    const amountIn = stringField(data, "amount_in", "amountIn");
+    const amountOut = stringField(data, "amount_out", "amountOut");
+    const minAmountOut = stringField(data, "min_amount_out", "minAmountOut");
+    const msg = stringField(data, "msg", "message");
+    const signature = stringField(data, "signature");
+    const tokens = normalizeRouteTokens(data?.tokens ?? data?.routeTokens ?? data?.pathTokens);
+    const missing = [
+      !/^\d+$/.test(amountIn) ? "amount_in" : "",
+      !/^\d+$/.test(amountOut) || BigInt(amountOut || "0") <= 0n ? "amount_out" : "",
+      !/^\d+$/.test(minAmountOut) || BigInt(minAmountOut || "0") <= 0n ? "min_amount_out" : "",
+      !msg ? "msg" : "",
+      !signature ? "signature" : "",
+      tokens.length === 0 ? "tokens" : ""
+    ].filter(Boolean);
+    if (missing.length > 0 || BigInt(minAmountOut || "0") > BigInt(amountOut || "0")) {
+      const topKeys = body ? Object.keys(body).slice(0, 20).join(",") : "none";
+      const dataKeys = data ? Object.keys(data).slice(0, 20).join(",") : "none";
+      throw new UserFacingError(`RHEA SmartRouter returned an incomplete route (missing: ${missing.join(",") || "valid min_amount_out"}; data keys: ${dataKeys}; response keys: ${topKeys})`);
     }
     if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new UserFacingError("RHEA SmartRouter changed the requested input amount");
     const expectedInput = stripAssetPrefix(tokenIn);
@@ -240,6 +250,58 @@ function rheaApiError(body: Record<string, unknown> | null): string | undefined 
 
 export function isRheaUnifiedTokenNotFound(error: unknown): boolean {
   return error instanceof Error && /token .*not found on chain/i.test(error.message);
+}
+
+function extractSmartRouterPayload(body: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!body) return null;
+  const candidates: unknown[] = [body];
+  for (const key of ["data", "result", "route"]) {
+    const value = body[key];
+    if (typeof value === "string") {
+      try { candidates.push(JSON.parse(value)); } catch {}
+    } else {
+      candidates.push(value);
+    }
+  }
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      const record = candidate as Record<string, unknown>;
+      if ("code" in record && typeof record.code === "number" && record.code !== 0) return record;
+      if ("amount_in" in record || "amountIn" in record || "amount_out" in record || "amountOut" in record) return record;
+      for (const key of ["data", "result", "route"]) {
+        const nested = record[key];
+        if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+          const nestedRecord = nested as Record<string, unknown>;
+          if ("code" in nestedRecord && typeof nestedRecord.code === "number" && nestedRecord.code !== 0) return nestedRecord;
+          if ("amount_in" in nestedRecord || "amountIn" in nestedRecord || "amount_out" in nestedRecord || "amountOut" in nestedRecord) return nestedRecord;
+        }
+      }
+    }
+  }
+  return body;
+}
+
+function stringField(record: Record<string, unknown> | null, ...keys: string[]): string {
+  if (!record) return "";
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") return String(value);
+  }
+  return "";
+}
+
+function normalizeRouteTokens(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (typeof item === "string") return stripAssetPrefix(item);
+    if (item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      for (const key of ["address", "contractAddress", "token", "tokenId", "id"]) {
+        if (typeof record[key] === "string") return stripAssetPrefix(record[key]);
+      }
+    }
+    return "";
+  }).filter(Boolean);
 }
 
 function cleanRheaText(text: string): string {

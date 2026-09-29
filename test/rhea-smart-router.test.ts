@@ -44,6 +44,38 @@ test("direct RHEA SmartRouter quote normalizes the documented response", async (
   }
 });
 
+test("direct RHEA SmartRouter quote accepts wrapped/camelCase responses", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      code: 0,
+      msg: "success",
+      data: {
+        amountIn: request.amountIn,
+        amountOut: "123456789",
+        minAmountOut: "122000000",
+        msg: "route-message",
+        signature: "route-signature",
+        tokens: [
+          { address: "wrap.near" },
+          { contractAddress: "shore-4lzt.launch.shoremarkets.near" }
+        ]
+      }
+    })
+  })) as typeof fetch;
+  try {
+    const quote = await new RheaClient().quoteDirect(request);
+    assert.equal(quote.amountIn, request.amountIn);
+    assert.equal(quote.amountOut, "123456789");
+    assert.equal(quote.minAmountOut, "122000000");
+    assert.deepEqual(quote.tokens, ["wrap.near", "shore-4lzt.launch.shoremarkets.near"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("direct RHEA buy builds wrap then aggregated DEX transfer", () => {
   const quote = {
     kind: "rhea-smart-router" as const,
