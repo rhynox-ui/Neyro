@@ -21,6 +21,10 @@ export class WalletService {
   private readonly repository: WalletRepository;
 
   constructor(repository?: WalletRepository) {
+    if (!repository && config.NODE_ENV === "production" && !config.DATABASE_URL) {
+      throw new Error("Production wallet storage requires DATABASE_URL");
+    }
+
     this.repository = repository ?? (config.DATABASE_URL
       ? new PostgresWalletRepository(config.DATABASE_URL)
       : new InMemoryWalletRepository());
