@@ -49,3 +49,10 @@ export function feeActions(plan: FeePlan): WalletAction[] {
     }
   ];
 }
+
+
+/** Build the complete native-NEAR protocol-fee transaction. */
+export function feeTransaction(plan: FeePlan): { receiverId: string; actions: WalletAction[] } {
+  if (plan.contractId !== "near") throw new Error("Protocol fee asset must be native NEAR");
+  return { receiverId: plan.treasury, actions: feeActions(plan) };
+}
