@@ -4,7 +4,7 @@ import { RheaTradingEngine } from "./rhea-engine.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
 import { WalletService } from "../wallet/service.js";
 import { getNearBalance } from "../near/account.js";
-import { assertSlippageAllowed, assertTradeShareAllowed } from "../security/risk.js";
+import { assertSlippageAllowed, assertTradeShareAllowed, getSpendableBalance } from "../security/risk.js";
 import type { TradeQuote, TradeRequest } from "../domain/trading.js";
 import { NoopTradeRepository, PostgresTradeRepository, type TradeRepository } from "./repository.js";
 import { config } from "../config.js";
@@ -83,11 +83,16 @@ export class TradingService {
 
     if (side === "buy") {
       const balance = BigInt(await getNearBalance(wallet.accountId));
+      const reserve = BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO);
+      const spendableBalance = getSpendableBalance(balance, reserve);
       const amount = BigInt(amountIn);
-      if (amount > balance) throw new Error("Insufficient NEAR balance");
+
+      if (amount > spendableBalance) {
+        throw new Error("Insufficient NEAR balance after the safety reserve");
+      }
 
       const shareBps = Number(
-        (amount * 10000n) / (balance === 0n ? 1n : balance)
+        (amount * 10000n) / spendableBalance
       );
       assertTradeShareAllowed(shareBps);
     }
