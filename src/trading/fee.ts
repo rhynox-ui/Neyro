@@ -1,7 +1,5 @@
 import type { WalletAction } from "../near/actions.js";
 
-export const WRAPPED_NEAR = "wrap.near";
-export const NATIVE_NEAR = "near";
 
 /**
  * How the protocol fee is collected for one trade. Serializable: it is
