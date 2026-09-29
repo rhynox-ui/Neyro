@@ -6,6 +6,7 @@ const schema = z.object({
   NEAR_NETWORK: z.enum(["mainnet", "testnet"]).default("testnet"),
   NEAR_RPC_URL: z.string().url().default("https://rpc.testnet.fastnear.com"),
   NEAR_RPC_FALLBACK_URL: z.string().url().optional(),
+  NEAR_SPENDABLE_RESERVE_YOCTO: z.string().regex(/^\\d+$/).default("10000000000000000000000"),
   RHEA_API_URL: z.string().url().default("https://api.rhea.finance"),
   RHEA_API_TOKEN: z.string().optional(),
   NEYRO_MASTER_KEY: z.string().optional(),
