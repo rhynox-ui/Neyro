@@ -5,7 +5,7 @@ export type TransactionReconciliation =
   | { status: "failed"; transactionHash: string; error: string }
   | { status: "unknown"; transactionHash: string; error: string };
 
-function hasFailure(value: unknown): boolean {
+export function hasFailure(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some(hasFailure);
 
@@ -15,6 +15,26 @@ function hasFailure(value: unknown): boolean {
   return Object.values(record).some((item) =>
     item && typeof item === "object" ? hasFailure(item) : false
   );
+}
+
+export function classifyNearTransactionResult(
+  status: unknown,
+  receiptsOutcome: unknown
+): "confirmed" | "failed" | "unknown" {
+  if (hasFailure(status) || hasFailure(receiptsOutcome)) return "failed";
+
+  if (
+    status &&
+    typeof status === "object" &&
+    (
+      Object.prototype.hasOwnProperty.call(status, "SuccessValue") ||
+      Object.prototype.hasOwnProperty.call(status, "SuccessReceiptId")
+    )
+  ) {
+    return "confirmed";
+  }
+
+  return "unknown";
 }
 
 export async function reconcileNearTransaction(
@@ -30,7 +50,12 @@ export async function reconcileNearTransaction(
       receipts_outcome?: unknown;
     };
 
-    if (hasFailure(result.status) || hasFailure(result.receipts_outcome)) {
+    const classification = classifyNearTransactionResult(
+      result.status,
+      result.receipts_outcome
+    );
+
+    if (classification === "failed") {
       return {
         status: "failed",
         transactionHash,
@@ -38,15 +63,7 @@ export async function reconcileNearTransaction(
       };
     }
 
-    const status = result.status;
-    if (
-      status &&
-      typeof status === "object" &&
-      (
-        Object.prototype.hasOwnProperty.call(status, "SuccessValue") ||
-        Object.prototype.hasOwnProperty.call(status, "SuccessReceiptId")
-      )
-    ) {
+    if (classification === "confirmed") {
       return { status: "confirmed", transactionHash };
     }
 
