@@ -237,7 +237,8 @@ export function panelKeyboard(state: PanelState, ownedHuman: string | null): Inl
     SELL_PERCENTS.forEach((value, i) => {
       if (i === 2) kb.row();
       const part = sellAvailable ? ` · ${compactAmount((owned! * Number(value.slice(0, -1))) / 100)}` : "";
-      kb.text(`${value}${part}${tick(value)}`, `tp:amt:${value}`);
+      const label = value === "100%" ? `💯 ALL${part ? ` · ${compactAmount(owned!)}` : ""}` : `${value}${part}`;
+      kb.text(`${label}${tick(value)}`, `tp:amt:${value}`);
     });
   }
   kb.row().text("✏️ Custom", "tp:custom").row();

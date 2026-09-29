@@ -494,7 +494,7 @@ export function registerBotHandlers(bot: Bot) {
 
   pm.command("portfolio", showPortfolio);
 
-  pm.command("withdraw", async (ctx) => {
+  pm.command("rhea-register", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
     const query = String(ctx.match ?? "").trim();
@@ -565,7 +565,7 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  pm.command("withdraw", async (ctx) => {
+  pm.command("rhea-recovery", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
     try {
@@ -723,7 +723,7 @@ export function registerBotHandlers(bot: Bot) {
         `Side: ${side.toUpperCase()}\n` +
         `You spend: ${prepared.fee ? formatUnits(prepared.total, prepared.request.tokenIn.decimals ?? 0) : input} ${symbolIn}\n` +
         (prepared.fee
-          ? `Fee: ${formatUnits(prepared.fee.amount, prepared.request.tokenIn.decimals ?? 0)} ${symbolIn}${prepared.fee.capped ? " (capped)" : ""}\nSwapping: ${input} ${symbolIn}\n`
+          ? `Fee: ${formatUnits(prepared.fee.amount, 24)} NEAR${prepared.fee.capped ? " (capped)" : ""}\nSwapping: ${input} ${symbolIn}\n`
           : "") +
         `Expected: ${output} ${symbolOut}\n` +
         `Minimum: ${minimum} ${symbolOut}\n` +

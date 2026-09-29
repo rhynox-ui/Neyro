@@ -12,7 +12,7 @@ export type FeePlan = {
   side: "buy" | "sell";
   treasury: string;
   /** Native NEAR is always used for protocol fees. */
-  contractId: string;
+  contractId: "near";
   amount: string;
   capped: boolean;
 };
@@ -40,6 +40,7 @@ export function computeFee(
 }
 
 export function feeActions(plan: FeePlan): WalletAction[] {
+  if (plan.contractId !== "near") throw new Error("Protocol fee asset must be native NEAR");
   const amount = BigInt(plan.amount);
   return [
     {
