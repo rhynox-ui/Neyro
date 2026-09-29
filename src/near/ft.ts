@@ -77,7 +77,10 @@ export async function storageRegistrationCost(contractId: string, accountId: str
       method: "storage_balance_of",
       args: { account_id: accountId }
     });
-    if (balance) return 0n;
+    if (balance && typeof balance === "object") {
+      const total = (balance as { total?: unknown }).total;
+      if (typeof total === "string" && /^\d+$/.test(total) && BigInt(total) > 0n) return 0n;
+    }
     const bounds = await provider.callFunction({ contractId, method: "storage_balance_bounds", args: {} });
     const min = (bounds as { min?: unknown } | undefined)?.min;
     if (typeof min !== "string" || !/^\d+$/.test(min)) throw new Error("Invalid storage_balance_bounds response");

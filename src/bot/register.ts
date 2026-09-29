@@ -5,6 +5,7 @@ import { getNearBalance, type NearBalance } from "../near/account.js";
 import { ftBalanceOf } from "../near/ft.js";
 import { functionCall } from "../near/actions.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
+import { looksLikeContractId } from "../near/tokens.js";
 
 const WRAPPED_NEAR = "wrap.near";
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
@@ -22,6 +23,9 @@ import { describeRoute, valueLossWarning } from "../trading/outcome.js";
 import { ageLabel, createTokenPanel, feeLabel, SLIPPAGE_PRESETS } from "./panel.js";
 import { SettingsService, type SlippagePrefs } from "../settings/service.js";
 import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discovery/nearly.js";
+import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
+import { buildRheaRegistrationPlan } from "../rhea/registration.js";
+import { defaultStateStore } from "../state/store.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -489,6 +493,167 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.command("portfolio", showPortfolio);
+
+  pm.command("withdraw", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    const query = String(ctx.match ?? "").trim();
+    if (!query) return void await replyNotice(ctx, "Usage: /rhea-register <token-contract>");
+    try {
+      const token = await tradingService.resolveToken(query);
+      if (token.address === WRAPPED_NEAR) {
+        throw new Error("Choose a token other than wrap.near");
+      }
+      const plan = await buildRheaRegistrationPlan(wallet.accountId, [WRAPPED_NEAR, token.address]);
+      if (plan.transactions.length === 0) {
+        return void await replyNotice(ctx, "✅ RHEA registration is already complete for this token.");
+      }
+      const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+      await defaultStateStore().set(ctx.from.id, `rhea-register:${id}`, {
+        tokens: plan.tokens,
+        requiredDeposit: plan.requiredDeposit.toString()
+      }, 5 * 60 * 1000);
+      await replyScreen(ctx, "withdraw",
+        "🧾 <b>RHEA registration required</b>\n\n" +
+        `Tokens: ${plan.tokens.map((item) => code(item)).join(", ")}\nRegistration deposit: ${formatNear(plan.requiredDeposit)} NEAR\n\nThis only pays storage deposits; it does not trade.`,
+        {
+          ...HTML,
+          reply_markup: new InlineKeyboard()
+            .text("✅ Register", `rg:confirm:${id}`)
+            .text("❌ Cancel", `rg:cancel:${id}`)
+        }
+      );
+    } catch (error) {
+      console.error("RHEA registration prepare error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't prepare RHEA registration")}`);
+    }
+  });
+
+  pm.callbackQuery(/^rg:(confirm|cancel):([a-f0-9]{16})$/, async (ctx) => {
+    const id = ctx.match[2]!;
+    if (ctx.match[1] === "cancel") {
+      await defaultStateStore().delete(ctx.from.id, `rhea-register:${id}`);
+      await ctx.answerCallbackQuery("Cancelled");
+      await ctx.editMessageText("❌ RHEA registration cancelled.", HTML);
+      return;
+    }
+    await ctx.answerCallbackQuery("Registering…");
+    try {
+      const pending = await defaultStateStore().take<{ tokens: string[]; requiredDeposit: string }>(ctx.from.id, `rhea-register:${id}`);
+      if (!pending) throw new Error("RHEA registration confirmation expired");
+      const wallet = await walletService.getWallet(ctx.from.id);
+      if (!wallet) throw new Error("Wallet not found");
+      const plan = await buildRheaRegistrationPlan(wallet.accountId, pending.tokens);
+      if (plan.transactions.length === 0) {
+        return void await ctx.editMessageText("✅ RHEA registration is already complete.", HTML);
+      }
+      const signer = new NearAccountSigner(await walletService.getSigningAccount(ctx.from.id, wallet.accountId), {
+        allowedReceivers: [...plan.tokens, "aggregatedex.near"]
+      });
+      const sent = await signer.signAndSendTransactions(plan.transactions, {});
+      await signer.reconcile();
+      if (sent.txHashes.length === 0 || signer.sent.some((item) => item.result !== "executed")) {
+        throw new Error("RHEA registration did not fully confirm");
+      }
+      await ctx.editMessageText(
+        `✅ <b>RHEA registration complete</b>${renderTxHashes(sent.txHashes)}`,
+        HTML
+      );
+    } catch (error) {
+      console.error("RHEA registration execution error:", error);
+      await ctx.editMessageText(`❌ ${userMessage(error, "RHEA registration could not be completed")}`, HTML);
+    }
+  });
+
+  pm.command("withdraw", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    try {
+      const balances = await getRheaInternalBalances(wallet.accountId);
+      if (balances.length === 0) {
+        return void await replyNotice(ctx, "ℹ️ RHEA has no recoverable internal balance for this wallet.");
+      }
+      const lines = balances.map((item) => `• ${code(item.token)} — ${code(item.amount)} base units`);
+      await replyScreen(ctx, "withdraw",
+        "🛟 <b>RHEA recovery balances</b>\n\n" +
+        "These are balances held inside RHEA AggregateDex, not your wallet balance.\n\n" +
+        lines.join("\n") +
+        "\n\nUse <code>/rhea-withdraw &lt;token&gt;</code> to recover one.",
+        HTML
+      );
+    } catch (error) {
+      console.error("RHEA recovery balance error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "RHEA recovery balance is temporarily unavailable")}`);
+    }
+  });
+
+  pm.command("rhea-withdraw", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    const token = String(ctx.match ?? "").trim().toLowerCase().replace(/^nep141:/, "");
+    if (!token || !looksLikeContractId(token)) {
+      return void await replyNotice(ctx, "Usage: /rhea-withdraw <token-contract>");
+    }
+    try {
+      const balances = await getRheaInternalBalances(wallet.accountId);
+      const balance = balances.find((item) => item.token === token);
+      if (!balance || BigInt(balance.amount) <= 0n) {
+        return void await replyNotice(ctx, "No recoverable RHEA balance was found for that token.");
+      }
+      const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+      await defaultStateStore().set(ctx.from.id, `rhea-recover:${id}`, { token, amount: balance.amount }, 5 * 60 * 1000);
+      await replyScreen(ctx, "withdraw",
+        "🛟 <b>Confirm RHEA recovery</b>\n\n" +
+        `Token: ${code(token)}\nAmount: ${code(balance.amount)} base units\n\nThis withdraws only the recorded internal RHEA balance to your wallet.`,
+        {
+          ...HTML,
+          reply_markup: new InlineKeyboard()
+            .text("✅ Recover", `rr:confirm:${id}`)
+            .text("❌ Cancel", `rr:cancel:${id}`)
+        }
+      );
+    } catch (error) {
+      console.error("RHEA recovery prepare error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't prepare RHEA recovery")}`);
+    }
+  });
+
+  pm.callbackQuery(/^rr:(confirm|cancel):([a-f0-9]{16})$/, async (ctx) => {
+    const id = ctx.match[2]!;
+    if (ctx.match[1] === "cancel") {
+      await defaultStateStore().delete(ctx.from.id, `rhea-recover:${id}`);
+      await ctx.answerCallbackQuery("Cancelled");
+      await ctx.editMessageText("❌ RHEA recovery cancelled.", HTML);
+      return;
+    }
+    await ctx.answerCallbackQuery("Recovering…");
+    try {
+      const pending = await defaultStateStore().take<{ token: string; amount: string }>(ctx.from.id, `rhea-recover:${id}`);
+      if (!pending) throw new Error("RHEA recovery confirmation expired");
+      const wallet = await walletService.getWallet(ctx.from.id);
+      if (!wallet) throw new Error("Wallet not found");
+      const current = (await getRheaInternalBalances(wallet.accountId)).find((item) => item.token === pending.token);
+      if (!current || BigInt(current.amount) < BigInt(pending.amount)) {
+        throw new Error("RHEA recovery balance changed; refresh and try again");
+      }
+      const signer = new NearAccountSigner(await walletService.getSigningAccount(ctx.from.id, wallet.accountId), {
+        allowedReceivers: ["aggregatedex.near"]
+      });
+      const sent = await signer.signAndSendTransactions([buildRheaWithdrawTransaction(pending.token)], {});
+      await signer.waitForTransactions(sent.txHashes, {});
+      const txHash = sent.txHashes.at(-1);
+      if (!txHash || signer.sent.some((item) => item.result !== "executed")) {
+        throw new Error("RHEA recovery transaction did not confirm");
+      }
+      await ctx.editMessageText(
+        `✅ <b>RHEA balance recovered</b>\nToken: ${code(pending.token)}${renderTxHashes([txHash])}`,
+        HTML
+      );
+    } catch (error) {
+      console.error("RHEA recovery execution error:", error);
+      await ctx.editMessageText(`❌ ${userMessage(error, "RHEA recovery could not be completed")}`, HTML);
+    }
+  });
 
   pm.command("withdraw", async (ctx) => {
     const parts = String(ctx.match ?? "").trim().split(/\s+/).filter(Boolean);

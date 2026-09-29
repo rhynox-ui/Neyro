@@ -107,11 +107,6 @@ export class RheaClient {
     try {
       return await this.client.quote(payload);
     } catch (error) {
-      if (error instanceof Error && /token .*not found on chain/i.test(error.message)) {
-        throw new UserFacingError(
-          "RHEA unified routing does not know this token yet; trying the RHEA DCL SmartRouter fallback."
-        );
-      }
       throw error;
     }
   }
@@ -128,23 +123,43 @@ export class RheaClient {
     url.searchParams.set("receiveUser", request.recipient);
     url.searchParams.set("skipUnwrapNativeToken", "false");
 
-    const response = await fetch(url, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(SMART_ROUTER_TIMEOUT_MS)
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(SMART_ROUTER_TIMEOUT_MS)
+      });
+    } catch (error) {
+      throw new UserFacingError(`RHEA SmartRouter request failed: ${cleanRheaText(error instanceof Error ? error.message : "network error")}`);
+    }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
-    if (!response.ok) throw new Error(`RHEA SmartRouter HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = rheaApiError(body);
+      throw new UserFacingError(`RHEA SmartRouter HTTP ${response.status}${detail ? `: ${cleanRheaText(detail)}` : ""}`);
+    }
+    if (body && typeof body.code === "number" && body.code !== 0) {
+      throw new UserFacingError(`RHEA SmartRouter rejected route (code ${body.code})${typeof body.msg === "string" ? `: ${cleanRheaText(body.msg)}` : ""}`);
+    }
     const data = body?.data && typeof body.data === "object" ? body.data as Record<string, unknown> : body;
+    if (data && typeof data.code === "number" && data.code !== 0) {
+      throw new UserFacingError(`RHEA SmartRouter rejected route (code ${data.code})${typeof data.msg === "string" ? `: ${cleanRheaText(data.msg)}` : ""}`);
+    }
     const amountIn = String(data?.amount_in ?? "");
     const amountOut = String(data?.amount_out ?? "");
     const minAmountOut = String(data?.min_amount_out ?? "");
     const msg = typeof data?.msg === "string" ? data.msg : "";
     const signature = typeof data?.signature === "string" ? data.signature : "";
     const tokens = Array.isArray(data?.tokens) ? data.tokens.filter((item): item is string => typeof item === "string").map(stripAssetPrefix) : [];
-    if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || !msg || !signature || tokens.length === 0) {
-      throw new Error("RHEA SmartRouter returned an incomplete route");
+    if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || BigInt(amountOut) <= 0n || BigInt(minAmountOut) <= 0n || BigInt(minAmountOut) > BigInt(amountOut) || !msg || !signature || tokens.length === 0) {
+      throw new UserFacingError("RHEA SmartRouter returned an incomplete route");
     }
-    if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new Error("RHEA SmartRouter changed the requested input amount");
+    if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new UserFacingError("RHEA SmartRouter changed the requested input amount");
+    const expectedInput = stripAssetPrefix(tokenIn);
+    const expectedOutput = stripAssetPrefix(tokenOut);
+    const routeTokens = new Set(tokens.map(stripAssetPrefix));
+    if (!routeTokens.has(expectedInput) || !routeTokens.has(expectedOutput)) {
+      throw new UserFacingError("RHEA SmartRouter returned a route that does not contain the requested tokens");
+    }
     return { kind: "rhea-smart-router", amountIn, amountOut, minAmountOut, msg, signature, tokens, receivedAt: Date.now(), expiresAt: Date.now() + SMART_ROUTER_TTL_MS };
   }
 
@@ -211,4 +226,22 @@ export function isNearNative(token: { isNative?: boolean; address: string; asset
   return [token.address, token.assetId, token.contractAddress]
     .map(stripAssetPrefix)
     .some((id) => id === "wrap.near" || id === "near");
+}
+
+
+function rheaApiError(body: Record<string, unknown> | null): string | undefined {
+  if (!body) return undefined;
+  for (const key of ["message", "msg", "error"]) {
+    const value = body[key];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 300);
+  }
+  return undefined;
+}
+
+export function isRheaUnifiedTokenNotFound(error: unknown): boolean {
+  return error instanceof Error && /token .*not found on chain/i.test(error.message);
+}
+
+function cleanRheaText(text: string): string {
+  return text.replace(/https?:\/\/\S+/g, "[link]").replace(/[\u0000-\u001f]+/g, " ").trim().slice(0, 160);
 }

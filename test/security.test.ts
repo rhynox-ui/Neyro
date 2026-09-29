@@ -4,7 +4,8 @@ import { randomBytes } from "node:crypto";
 import { decryptSecret, encryptSecret } from "../src/security/secrets.js";
 import {
   DEFAULT_RISK_POLICY,
-  assertSlippageAllowed
+  assertSlippageAllowed,
+  assertTradeShareAllowed
 } from "../src/security/risk.js";
 
 test("secret encryption round trips", () => {
@@ -53,4 +54,9 @@ test("legacy version 1 secrets still decrypt", () => {
 
   assert.equal(encrypted.version, 1);
   assert.equal(decryptSecret(encrypted, key), "private-key");
+});
+
+test("trade-size policy applies symmetrically", () => {
+  assert.doesNotThrow(() => assertTradeShareAllowed(25n, 100n, 2500));
+  assert.throws(() => assertTradeShareAllowed(26n, 100n, 2500), /maximum of 25%/);
 });

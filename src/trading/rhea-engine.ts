@@ -1,4 +1,4 @@
-import { RheaClient } from "../rhea/client.js";
+import { RheaClient, isRheaUnifiedTokenNotFound } from "../rhea/client.js";
 import type { TradeQuote, TradeRequest, TradingEngine } from "../domain/trading.js";
 import { createNeyroNearExecutor, type NearTransactionSigner } from "../near/rhea-executor.js";
 import { extractRheaRouteTokens, requireRheaTokenRegistration } from "../rhea/registration.js";
@@ -39,9 +39,9 @@ export class RheaTradingEngine implements TradingEngine {
         raw: quote
       };
     } catch (error) {
-      // Rhea's current unified API can lag behind newly-created RHEA DCL
-      // pools. The legacy SmartRouter is the documented on-chain route builder
-      // for aggregatedex.near and is used only after the unified quote misses.
+      // Only fall back for the documented token-discovery miss. Do not hide
+      // authentication, rate-limit, outage, or malformed-response errors.
+      if (!isRheaUnifiedTokenNotFound(error)) throw error;
       const direct = await this.rhea.quoteDirect(quoteRequest);
       return {
         tokenIn: request.tokenIn,
@@ -60,15 +60,19 @@ export class RheaTradingEngine implements TradingEngine {
     quote: TradeQuote,
     idempotencyKey?: string
   ): Promise<{ transactionHash: string }> {
-    if (quote.direct) {
-      if (Date.now() > quote.direct.expiresAt) {
-        throw new Error("RHEA SmartRouter quote expired; refresh the trade and try again");
-      }
-      const tokens = quote.direct.tokens.length
-        ? quote.direct.tokens
+    if (!this.signer) throw new Error("NEAR signer is required for RHEA execution");
+
+    // RHEA requires route revalidation immediately before execution.
+    const fresh = await this.quote(request);
+    if (BigInt(fresh.minAmountOut) < BigInt(quote.minAmountOut)) {
+      throw new Error("RHEA route moved against the approved minimum output; refresh the trade and confirm again");
+    }
+
+    if (fresh.direct) {
+      const tokens = fresh.direct.tokens.length
+        ? fresh.direct.tokens
         : [request.tokenIn.address, request.tokenOut.address];
       await requireRheaTokenRegistration(request.accountId, tokens);
-      if (!this.signer) throw new Error("NEAR signer is required for direct RHEA execution");
       const transactions = RheaClient.directTransactions({
         fromToken: request.tokenIn,
         toToken: request.tokenOut,
@@ -76,22 +80,22 @@ export class RheaTradingEngine implements TradingEngine {
         slippageBps: request.slippageBps,
         sender: request.accountId,
         recipient: request.accountId
-      }, quote.direct);
+      }, fresh.direct);
       const sent = await this.signer.signAndSendTransactions(transactions, {});
       const txHash = sent.txHashes[sent.txHashes.length - 1];
       if (!txHash) throw new Error("RHEA SmartRouter execution completed without a transaction hash");
       return { transactionHash: txHash };
     }
 
-    if (!quote.raw) throw new Error("Trade quote has no executable route");
+    if (!fresh.raw) throw new Error("Trade quote has no executable route");
     const tokens = extractRheaRouteTokens(
-      quote.raw,
+      fresh.raw,
       [request.tokenIn.address, request.tokenOut.address]
     );
 
     await requireRheaTokenRegistration(request.accountId, tokens);
 
-    const result = await this.rhea.swap(quote.raw, idempotencyKey);
+    const result = await this.rhea.swap(fresh.raw, idempotencyKey);
     const transactionHash =
       result.txHash ?? result.txHashes?.[result.txHashes.length - 1];
 

@@ -141,14 +141,14 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext):
   return new Response("ok");
 }
 
-/** GET /setup-webhook?secret=SETUP_SECRET points Telegram at this Worker. */
+/** GET /setup-webhook with X-Neyro-Setup-Secret points Telegram at this Worker. */
 async function handleSetup(request: Request): Promise<Response> {
   const { config, create } = await getApp();
-  const url = new URL(request.url);
-  if (!config.SETUP_SECRET || url.searchParams.get("secret") !== config.SETUP_SECRET) {
-    return new Response("Unauthorized. Set SETUP_SECRET and pass ?secret=<SETUP_SECRET>.", { status: 401 });
+  if (!config.SETUP_SECRET || request.headers.get("x-neyro-setup-secret") !== config.SETUP_SECRET) {
+    return new Response("Unauthorized. Provide the X-Neyro-Setup-Secret header.", { status: 401 });
   }
 
+  const url = new URL(request.url);
   const bot = await getBot();
   const webhookUrl = `${url.origin}/webhook`;
   await bot.api.setWebhook(webhookUrl, {
