@@ -180,7 +180,7 @@ export class RheaClient {
         { receiverId: "wrap.near", actions: [transfer] }
       ] as NearTransaction[];
     }
-    return [{ receiverId: stripAssetPrefix(request.fromToken.contractAddress || request.fromToken.address), actions: [transfer] }] as NearTransaction[];
+    return [{ receiverId: stripAssetPrefix(((request.fromToken as AssetRef & { contractAddress?: string | null }).contractAddress) || request.fromToken.address), actions: [transfer] }] as NearTransaction[];
   }
 }
 
