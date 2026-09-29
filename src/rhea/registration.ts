@@ -54,9 +54,9 @@ function parseRegistrationResult(value: unknown, tokens: readonly string[]): boo
 export async function checkRheaTokenRegistration(account: Account, tokens: readonly string[]): Promise<RheaRegistrationCheck> {
   const uniqueTokens = [...new Set(tokens.map((token) => token.trim()).filter(Boolean))];
   if (uniqueTokens.length === 0) throw new Error("RHEA quote did not contain any executable tokens");
-  const raw = await account.viewFunction({
+  const raw = await createNearConnection().provider.callFunction({
     contractId: RHEA_AGGREGATED_DEX,
-    methodName: "query_user_tokens_registered",
+    method: "query_user_tokens_registered",
     args: { user: account.accountId, tokens: uniqueTokens }
   });
   const states = parseRegistrationResult(raw, uniqueTokens);
