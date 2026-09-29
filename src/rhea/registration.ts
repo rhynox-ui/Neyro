@@ -12,6 +12,10 @@ export type RheaRegistrationCheck = {
   missing: string[];
 };
 
+export function isTokenStorageRegistered(value: unknown): boolean {
+  return Boolean(value && typeof value === "object");
+}
+
 export function parseRegistrationResult(value: unknown, tokens: readonly string[]): boolean[] {
   if (Array.isArray(value) && value.every((item) => typeof item === "boolean")) {
     if (value.length !== tokens.length) {
@@ -66,6 +70,7 @@ export async function requireRheaTokenRegistration(
   accountId: string,
   tokens: readonly string[]
 ): Promise<RheaRegistrationCheck> {
+
   const account = createNearConnection().account(accountId);
   const check = await checkRheaTokenRegistration(account, tokens);
 
@@ -75,6 +80,27 @@ export async function requireRheaTokenRegistration(
       check.missing.join(", ") +
       ". No trade transaction was submitted."
     );
+  }
+
+  for (const token of check.tokens) {
+    const [userStorage, aggregateStorage] = await Promise.all([
+      createNearConnection().provider.callFunction({
+        contractId: token,
+        method: "storage_balance_of",
+        args: { account_id: accountId }
+      }),
+      createNearConnection().provider.callFunction({
+        contractId: token,
+        method: "storage_balance_of",
+        args: { account_id: RHEA_AGGREGATED_DEX }
+      })
+    ]);
+
+    if (!isTokenStorageRegistered(userStorage) || !isTokenStorageRegistered(aggregateStorage)) {
+      throw new Error(
+        `RHEA token storage registration required for ${token}. No trade transaction was submitted.`
+      );
+    }
   }
 
   return check;
