@@ -1,4 +1,17 @@
 import { neon } from "@neondatabase/serverless";
+import type { TradeQuote, TradeRequest } from "../domain/trading.js";
+import type { FeePlan } from "./fee.js";
+
+/** Everything needed to execute a confirmed quote; stored as JSON. */
+export type PendingPayload = { request: TradeRequest; quote: TradeQuote; fee?: FeePlan };
+
+export type ClaimResult =
+  /** The trade moved from quoted to executing; only one caller can get this. */
+  | { kind: "claimed"; payload: PendingPayload }
+  /** Unknown, expired, cancelled, or already claimed. */
+  | { kind: "unavailable" }
+  /** This repository does not persist trades; the caller uses its own state. */
+  | { kind: "untracked" };
 
 export type TradeRecord = {
   userId: number;
@@ -11,21 +24,77 @@ export type TradeRecord = {
   slippageBps: number;
   router?: string;
   idempotencyKey: string;
-  status: "quoted" | "executing" | "submitted" | "failed" | "expired" | "cancelled";
+  status: TradeStatus;
   txHash?: string;
+  errorCode?: string;
+  expiresAt?: Date;
+  payload?: PendingPayload;
+  /** Protocol fee in base units of feeAsset. */
+  feeAmount?: string;
+  feeAsset?: string;
+};
+
+/**
+ * - submitted: every transaction executed but the fill could not be verified
+ * - filled: executed and the token balance moved as expected
+ * - reverted: executed on chain, but the swap failed or was refunded
+ * - partial: part of a multi-transaction batch executed, the rest was rejected
+ * - unknown: broadcast was attempted and the outcome is not yet known; never retry
+ * - failed: nothing reached the chain; safe to retry
+ */
+export type TradeStatus =
+  | "quoted" | "executing" | "submitted" | "filled" | "reverted"
+  | "partial" | "unknown" | "failed" | "expired" | "cancelled";
+
+export type TradeStatusUpdate = {
+  status: TradeStatus;
+  txHash?: string;
+  actualOut?: string;
   errorCode?: string;
 };
 
+export type TradeEvent = {
+  type: string;
+  txHash?: string;
+  details?: Record<string, unknown>;
+};
+
+/** A trade whose on-chain outcome still has to be established. */
+export type UnresolvedTrade = {
+  telegramUserId: number;
+  idempotencyKey: string;
+  accountId: string;
+  status: "unknown" | "executing";
+  updatedAt: Date;
+  /** Journaled before broadcast, in order. */
+  txHashes: string[];
+};
+
 export interface TradeRepository {
+  /** Trades left unknown, or executing for longer than `staleMs` (e.g. after a crash). */
+  listUnresolved(staleMs: number, limit: number): Promise<UnresolvedTrade[]>;
+  /**
+   * Moves an unresolved trade to its final status. Returns false if another
+   * worker already resolved it.
+   */
+  resolve(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<boolean>;
   create(record: TradeRecord): Promise<void>;
-  updateStatus(userId: number, idempotencyKey: string, status: TradeRecord["status"], txHash?: string, errorCode?: string): Promise<void>;
-  listInFlight(): Promise<TradeRecord[]>;
+  /** Atomically moves a live quote to executing and returns its payload. */
+  claim(userId: number, idempotencyKey: string): Promise<ClaimResult>;
+  /** Cancels a quote that has not been claimed yet. */
+  cancel(userId: number, idempotencyKey: string): Promise<void>;
+  updateStatus(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<void>;
+  recordEvent(userId: number, idempotencyKey: string, event: TradeEvent): Promise<void>;
 }
 
 export class NoopTradeRepository implements TradeRepository {
   async create(_record: TradeRecord): Promise<void> {}
-  async updateStatus(_userId: number, _idempotencyKey: string, _status: TradeRecord["status"], _txHash?: string, _errorCode?: string): Promise<void> {}
-  async listInFlight(): Promise<TradeRecord[]> { return []; }
+  async claim(_userId: number, _idempotencyKey: string): Promise<ClaimResult> { return { kind: "untracked" }; }
+  async cancel(_userId: number, _idempotencyKey: string): Promise<void> {}
+  async updateStatus(_userId: number, _idempotencyKey: string, _update: TradeStatusUpdate): Promise<void> {}
+  async recordEvent(_userId: number, _idempotencyKey: string, _event: TradeEvent): Promise<void> {}
+  async listUnresolved(_staleMs: number, _limit: number): Promise<UnresolvedTrade[]> { return []; }
+  async resolve(_userId: number, _idempotencyKey: string, _update: TradeStatusUpdate): Promise<boolean> { return false; }
 }
 
 export class PostgresTradeRepository implements TradeRepository {
@@ -46,60 +115,89 @@ export class PostgresTradeRepository implements TradeRepository {
 
     await this.sql`insert into trades (
       user_id,wallet_id,side,token_in,token_out,amount_in,expected_out,
-      slippage_bps,idempotency_key,router,tx_hash,status,error_code
+      slippage_bps,idempotency_key,router,tx_hash,status,error_code,
+      quote_expires_at,pending_payload,fee_amount,fee_asset
     ) values (
       ${userId},${walletId},${record.side},${record.tokenIn},${record.tokenOut},
       ${record.amountIn},${record.expectedOut},${record.slippageBps},
       ${record.idempotencyKey},${record.router ?? null},${record.txHash ?? null},
-      ${record.status},${record.errorCode ?? null}
+      ${record.status},${record.errorCode ?? null},
+      ${record.expiresAt?.toISOString() ?? null},
+      ${record.payload ? JSON.stringify(record.payload) : null}::jsonb,
+      ${record.feeAmount ?? null},${record.feeAsset ?? null}
     ) on conflict (user_id,idempotency_key) do nothing`;
   }
 
-  async updateStatus(userId:number,idempotencyKey:string,status:TradeRecord["status"],txHash?:string,errorCode?:string):Promise<void>{
-    await this.sql`update trades t set status=${status}, tx_hash=coalesce(${txHash ?? null},t.tx_hash),
-      error_code=${errorCode ?? null}, updated_at=now()
+  async claim(userId: number, idempotencyKey: string): Promise<ClaimResult> {
+    const rows = (await this.sql`update trades t set status='executing', updated_at=now()
+      from users u where t.user_id=u.id and u.telegram_user_id=${userId}
+      and t.idempotency_key=${idempotencyKey} and t.status='quoted'
+      and t.quote_expires_at > now() and t.pending_payload is not null
+      returning t.pending_payload`) as unknown as { pending_payload: PendingPayload }[];
+    const payload = rows[0]?.pending_payload;
+    return payload ? { kind: "claimed", payload } : { kind: "unavailable" };
+  }
+
+  async cancel(userId: number, idempotencyKey: string): Promise<void> {
+    await this.sql`update trades t set status='cancelled', pending_payload=null, updated_at=now()
+      from users u where t.user_id=u.id and u.telegram_user_id=${userId}
+      and t.idempotency_key=${idempotencyKey} and t.status='quoted'`;
+  }
+
+  async updateStatus(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<void> {
+    await this.sql`update trades t set status=${update.status},
+      tx_hash=coalesce(${update.txHash ?? null},t.tx_hash),
+      actual_out=coalesce(${update.actualOut ?? null},t.actual_out),
+      error_code=${update.errorCode ?? null},
+      pending_payload=case when ${update.status} in ('quoted','executing') then t.pending_payload else null end,
+      updated_at=now()
       from users u where t.user_id=u.id and u.telegram_user_id=${userId}
       and t.idempotency_key=${idempotencyKey}`;
   }
 
-  async listInFlight(): Promise<TradeRecord[]> {
-    const rows = await this.sql`
-      select
-        u.telegram_user_id as user_id,
-        w.near_account_id as account_id,
-        t.side,
-        t.token_in,
-        t.token_out,
-        t.amount_in,
-        t.expected_out,
-        t.slippage_bps,
-        t.router,
-        t.idempotency_key,
-        t.status,
-        t.tx_hash,
-        t.error_code
+  async recordEvent(userId: number, idempotencyKey: string, event: TradeEvent): Promise<void> {
+    const rows = (await this.sql`insert into trade_events (trade_id,event_type,tx_hash,details)
+      select t.id, ${event.type}, ${event.txHash ?? null}, ${JSON.stringify(event.details ?? {})}::jsonb
+      from trades t join users u on t.user_id=u.id
+      where u.telegram_user_id=${userId} and t.idempotency_key=${idempotencyKey}
+      returning id`) as unknown as { id: string }[];
+    if (rows.length === 0) throw new Error("Trade event could not be recorded");
+  }
+
+  async listUnresolved(staleMs: number, limit: number): Promise<UnresolvedTrade[]> {
+    const rows = (await this.sql`select u.telegram_user_id, t.idempotency_key, w.near_account_id,
+        t.status, t.updated_at,
+        coalesce(array_agg(e.tx_hash order by e.created_at) filter (where e.tx_hash is not null), '{}') as tx_hashes
       from trades t
       join users u on u.id=t.user_id
       join wallets w on w.id=t.wallet_id
-      where t.status in ('executing', 'submitted')
-      order by t.updated_at asc
-      limit 100
-    ` as unknown as Array<Record<string, unknown>>;
-
+      left join trade_events e on e.trade_id=t.id and e.event_type='tx_signed'
+      where t.status='unknown'
+        or (t.status='executing' and t.updated_at < now() - (${staleMs} * interval '1 millisecond'))
+      group by u.telegram_user_id, t.idempotency_key, w.near_account_id, t.status, t.updated_at
+      order by t.updated_at
+      limit ${limit}`) as unknown as {
+        telegram_user_id: string | number; idempotency_key: string; near_account_id: string;
+        status: "unknown" | "executing"; updated_at: string | Date; tx_hashes: string[];
+      }[];
     return rows.map((row) => ({
-      userId: Number(row.user_id),
-      accountId: String(row.account_id),
-      side: row.side as TradeRecord["side"],
-      tokenIn: String(row.token_in),
-      tokenOut: String(row.token_out),
-      amountIn: String(row.amount_in),
-      expectedOut: String(row.expected_out),
-      slippageBps: Number(row.slippage_bps),
-      router: row.router ? String(row.router) : undefined,
-      idempotencyKey: String(row.idempotency_key),
-      status: row.status as TradeRecord["status"],
-      txHash: row.tx_hash ? String(row.tx_hash) : undefined,
-      errorCode: row.error_code ? String(row.error_code) : undefined
+      telegramUserId: Number(row.telegram_user_id),
+      idempotencyKey: row.idempotency_key,
+      accountId: row.near_account_id,
+      status: row.status,
+      updatedAt: new Date(row.updated_at),
+      txHashes: row.tx_hashes
     }));
+  }
+
+  async resolve(userId: number, idempotencyKey: string, update: TradeStatusUpdate): Promise<boolean> {
+    const rows = (await this.sql`update trades t set status=${update.status},
+      tx_hash=coalesce(${update.txHash ?? null},t.tx_hash),
+      error_code=${update.errorCode ?? null},
+      pending_payload=null, updated_at=now()
+      from users u where t.user_id=u.id and u.telegram_user_id=${userId}
+      and t.idempotency_key=${idempotencyKey} and t.status in ('unknown','executing')
+      returning t.id`) as unknown as { id: string }[];
+    return rows.length > 0;
   }
 }

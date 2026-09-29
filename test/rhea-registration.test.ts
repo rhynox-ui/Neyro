@@ -1,26 +1,24 @@
+process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
+process.env.NEAR_NETWORK ??= "mainnet";
+process.env.NEAR_RPC_URL ??= "https://rpc.mainnet.fastnear.com";
+process.env.DATABASE_URL ??= "https://example.com/test-db";
+
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseRegistrationResult } from "../src/rhea/registration.js";
+
+const { parseRegistrationResult, isTokenStorageRegistered } =
+  await import("../src/rhea/registration.js");
 
 test("RHEA registration parser accepts boolean arrays", () => {
-  assert.deepEqual(
-    parseRegistrationResult([true, false], ["a.near", "b.near"]),
-    [true, false]
-  );
+  assert.deepEqual(parseRegistrationResult([true, false], ["a.near", "b.near"]), [true, false]);
 });
 
 test("RHEA registration parser accepts a scalar for one token", () => {
-  assert.deepEqual(
-    parseRegistrationResult(true, ["a.near"]),
-    [true]
-  );
+  assert.deepEqual(parseRegistrationResult(true, ["a.near"]), [true]);
 });
 
 test("RHEA registration parser accepts nested result arrays", () => {
-  assert.deepEqual(
-    parseRegistrationResult({ result: [false, true] }, ["a.near", "b.near"]),
-    [false, true]
-  );
+  assert.deepEqual(parseRegistrationResult({ result: [false, true] }, ["a.near", "b.near"]), [false, true]);
 });
 
 test("RHEA registration parser rejects mismatched lengths", () => {
@@ -44,10 +42,8 @@ test("RHEA registration parser rejects unknown payloads", () => {
   );
 });
 
-test("NEP-141 storage registration parser treats an object as registered", async () => {
-  const { isTokenStorageRegistered } = await import("../src/rhea/registration.js");
-  assert.equal(isTokenStorageRegistered({ total: "5000000000000000000000", available: "0" }), true);
+test("NEP-141 storage registration requires positive total", () => {
+  assert.equal(isTokenStorageRegistered({ total: "5000", available: "0" }), true);
   assert.equal(isTokenStorageRegistered({ total: "0", available: "0" }), false);
   assert.equal(isTokenStorageRegistered(null), false);
-  assert.equal(isTokenStorageRegistered(undefined), false);
 });

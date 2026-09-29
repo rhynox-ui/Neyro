@@ -1,33 +1,78 @@
 import type { Account } from "near-api-js";
+import { ActionExecutionError } from "near-api-js/rpc-errors";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 import type { NearTransactionSigner } from "../near/rhea-executor.js";
+import { parseWalletAction, toNearApiAction, type WalletAction } from "../near/actions.js";
+import {
+  findExecutionFailure,
+  isDefinitiveRejection,
+  lookupTransaction,
+  transactionHash
+} from "../near/execution.js";
 
-type FinalOutcome = {
-  transaction?: { hash?: string };
-  status?: unknown;
+export type SentTransactionResult = "executed" | "reverted" | "rejected" | "unknown";
+
+export type SentTransaction = {
+  txHash: string;
+  receiverId: string;
+  result: SentTransactionResult;
+  failure?: string;
 };
 
-type CachedOutcome = {
-  status: "confirmed" | "failed";
-  raw: FinalOutcome;
+export type PlannedTransaction = {
+  receiverId: string;
+  actions: WalletAction[];
+};
+
+export type SignerJournal = {
+  transform?(transactions: PlannedTransaction[]): PlannedTransaction[];
+  beforeBroadcast?(txHash: string, receiverId: string): Promise<void>;
+  allowedReceivers?: readonly string[];
 };
 
 export const RHEA_AGGREGATED_DEX = "aggregatedex.near";
+
+export function classifyFinalExecutionStatus(
+  status: unknown
+): "confirmed" | "failed" {
+  if (!status || typeof status !== "object") {
+    throw new Error("NEAR RPC returned an unknown final execution status");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(status, "Failure")) {
+    return "failed";
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(status, "SuccessValue") ||
+    Object.prototype.hasOwnProperty.call(status, "SuccessReceiptId")
+  ) {
+    return "confirmed";
+  }
+
+  throw new Error("NEAR RPC returned an unknown final execution status");
+}
 
 export function assertAllowedNearReceiver(
   receiverId: string,
   allowedReceivers: readonly string[]
 ): void {
-  const allowed = new Set(
-    [RHEA_AGGREGATED_DEX, ...allowedReceivers].map((value) =>
-      value.trim().toLowerCase()
-    )
-  );
+  const normalize = (value: string) =>
+    value.trim().toLowerCase().replace(/^nep141:/, "");
 
-  if (!allowed.has(receiverId.trim().toLowerCase())) {
-    throw new Error(`NEAR execution blocked: unexpected contract ${receiverId}`);
+  const allowed = new Set([
+    normalize(RHEA_AGGREGATED_DEX),
+    ...allowedReceivers.map(normalize)
+  ]);
+
+  if (!allowed.has(normalize(receiverId))) {
+    throw new Error(
+      `NEAR execution blocked: unexpected contract ${receiverId}`
+    );
   }
 }
+
+const WAIT_UNTIL = "EXECUTED_OPTIMISTIC";
 
 function isAbort(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -35,111 +80,159 @@ function isAbort(signal?: AbortSignal): void {
   }
 }
 
-/**
- * Classify a NEAR final execution status.
- *
- * NEAR final outcomes must contain either a SuccessValue/SuccessReceiptId
- * status or a Failure status. Anything else is treated as unsafe/unknown and
- * rejected rather than being reported as confirmed.
- */
-export function classifyFinalExecutionStatus(
-  status: unknown
-): "confirmed" | "failed" {
-  if (status && typeof status === "object") {
-    if ("Failure" in status) return "failed";
-    if ("SuccessValue" in status || "SuccessReceiptId" in status) {
-      return "confirmed";
-    }
+function executionStatusOf(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(record, "status")) return record.status;
+  if (Object.prototype.hasOwnProperty.call(record, "outcome")) {
+    return executionStatusOf(record.outcome);
   }
-
-  throw new Error("NEAR RPC returned an unknown final execution status");
+  return value;
 }
 
-/**
- * Adapter around a near-api-js Account.
- *
- * The Account owns the signer. Callers only see transaction hashes and
- * confirmation state; private keys never cross this boundary.
- */
 export class NearAccountSigner implements NearTransactionSigner {
-  private readonly outcomes = new Map<string, CachedOutcome>();
+  private readonly sentTransactions: SentTransaction[] = [];
 
   constructor(
     private readonly account: Account,
-    private readonly allowedReceivers: readonly string[] = []
+    private readonly journal: SignerJournal = {}
   ) {}
 
   getAccountId(): string {
     return this.account.accountId;
   }
 
+  get sent(): readonly SentTransaction[] {
+    return this.sentTransactions;
+  }
+
   async signAndSendTransactions(
     transactions: NearTransaction[],
     options: { signal?: AbortSignal }
   ): Promise<{ txHashes: string[]; raw?: unknown }> {
-    const txHashes: string[] = [];
-    const raw: FinalOutcome[] = [];
+    const raw: unknown[] = [];
 
-    for (const transaction of transactions) {
+    let planned: PlannedTransaction[] = transactions.map((transaction) => ({
+      receiverId: transaction.receiverId,
+      actions: transaction.actions.map(parseWalletAction)
+    }));
+
+    if (this.journal.transform) {
+      planned = this.journal.transform(planned);
+    }
+
+    for (const transaction of planned) {
       isAbort(options.signal);
 
-      assertAllowedNearReceiver(transaction.receiverId, this.allowedReceivers);
-
-      const outcome = await this.account.signAndSendTransaction({
-        receiverId: transaction.receiverId,
-        actions: transaction.actions as never
-      }) as FinalOutcome;
-
-      const txHash = outcome.transaction?.hash;
-      if (!txHash) {
-        throw new Error("NEAR RPC returned no transaction hash");
+      if (this.journal.allowedReceivers) {
+        assertAllowedNearReceiver(
+          transaction.receiverId,
+          this.journal.allowedReceivers
+        );
       }
 
-      const status = classifyFinalExecutionStatus(outcome.status);
-      this.outcomes.set(txHash, { status, raw: outcome });
+      const signed = await this.account.createSignedTransaction({
+        receiverId: transaction.receiverId,
+        actions: transaction.actions.map(toNearApiAction)
+      });
 
-      txHashes.push(txHash);
+      const txHash = transactionHash(signed);
+      await this.journal.beforeBroadcast?.(txHash, transaction.receiverId);
+
+      const record: SentTransaction = {
+        txHash,
+        receiverId: transaction.receiverId,
+        result: "unknown"
+      };
+
+      this.sentTransactions.push(record);
+
+      let outcome: unknown;
+
+      try {
+        outcome = await this.account.provider.sendTransactionUntil(
+          signed,
+          WAIT_UNTIL
+        );
+      } catch (error) {
+        if (error instanceof ActionExecutionError) {
+          record.result = "reverted";
+          record.failure = error.message.slice(0, 200);
+          break;
+        }
+
+        if (isDefinitiveRejection(error)) {
+          record.result = "rejected";
+        }
+
+        throw error;
+      }
+
       raw.push(outcome);
 
-      if (status === "failed") {
-        throw new Error(`NEAR transaction ${txHash} failed during final execution`);
+      const failure = findExecutionFailure(outcome);
+      if (failure) {
+        record.result = "reverted";
+        record.failure = failure;
+        break;
+      }
+
+      try {
+        classifyFinalExecutionStatus(executionStatusOf(outcome));
+        record.result = "executed";
+      } catch (error) {
+        record.result = "unknown";
+        record.failure =
+          error instanceof Error
+            ? error.message
+            : "unknown NEAR execution status";
+        break;
       }
     }
 
-    return { txHashes, raw };
+    return {
+      txHashes: this.sentTransactions.map((item) => item.txHash),
+      raw
+    };
   }
 
   async waitForTransactions(
     txHashes: string[],
-    options: { signal?: AbortSignal }
+    _options: { signal?: AbortSignal }
   ): Promise<{ status: "confirmed" | "failed"; raw?: unknown }> {
-    if (txHashes.length === 0) {
-      return { status: "failed" };
-    }
+    if (txHashes.length === 0) return { status: "failed" };
 
-    const raw: FinalOutcome[] = [];
+    const records = txHashes.map((hash) =>
+      this.sentTransactions.find((item) => item.txHash === hash)
+    );
 
-    for (const txHash of txHashes) {
-      isAbort(options.signal);
+    const confirmed = records.every((item) => item?.result === "executed");
 
-      const cached = this.outcomes.get(txHash);
-      if (!cached) {
-        // We deliberately fail closed here. A transaction that was created by
-        // another process or before this signer instance started must be
-        // reconciled against NEAR RPC by the persistent execution/recovery
-        // layer rather than being assumed successful.
-        throw new Error(
-          `NEAR transaction ${txHash} has no verified final outcome in this signer`
+    return {
+      status: confirmed ? "confirmed" : "failed",
+      raw: records
+    };
+  }
+
+  async reconcile(): Promise<void> {
+    for (const record of this.sentTransactions) {
+      if (record.result !== "unknown") continue;
+
+      try {
+        const lookup = await lookupTransaction(
+          this.account.provider,
+          record.txHash,
+          this.account.accountId
         );
-      }
 
-      raw.push(cached.raw);
+        record.result = lookup.result;
 
-      if (cached.status === "failed") {
-        return { status: "failed", raw };
+        if (lookup.failure) {
+          record.failure = lookup.failure;
+        }
+      } catch {
+        console.warn("NEAR transaction reconciliation failed");
       }
     }
-
-    return { status: "confirmed", raw };
   }
 }

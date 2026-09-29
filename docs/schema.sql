@@ -6,6 +6,10 @@ create table if not exists users (
   created_at timestamptz not null default now()
 );
 
+-- Default slippage (percent) per side; null means the bot default (5%).
+alter table users add column if not exists buy_slippage_pct numeric;
+alter table users add column if not exists sell_slippage_pct numeric;
+
 create table if not exists wallets (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,
@@ -14,10 +18,17 @@ create table if not exists wallets (
   created_at timestamptz not null default now()
 );
 
+-- Users can hold several wallets (up to 5); users.active_wallet_id picks the
+-- one used for trading. The earlier one-wallet-per-user index is removed.
+drop index if exists wallets_user_id_key;
+create index if not exists wallets_user_idx on wallets(user_id, created_at);
+alter table users add column if not exists active_wallet_id uuid references wallets(id) on delete set null;
+
 -- Encrypted key material only. The plaintext secret must never be stored.
 -- Encryption keys belong in a deployment secret manager, not PostgreSQL.
 create table if not exists wallet_secrets (
   wallet_id uuid primary key references wallets(id) on delete cascade,
+  -- 1 = legacy AES-GCM without AAD; 2 = AAD bound to the wallet account id.
   cipher_version integer not null default 1,
   iv_base64 text not null,
   auth_tag_base64 text not null,
@@ -59,6 +70,16 @@ create table if not exists trades (
   unique(user_id, idempotency_key)
 );
 
+-- Quote + request JSON needed to execute a confirmation; cleared once the
+-- trade leaves quoted/executing. Lets confirmations survive restarts and
+-- makes the quoted → executing claim atomic across replicas.
+alter table trades add column if not exists pending_payload jsonb;
+
+-- Protocol fee charged on the trade, in base units of fee_asset (wrap.near
+-- on buys, the sold token on sells).
+alter table trades add column if not exists fee_amount numeric;
+alter table trades add column if not exists fee_asset text;
+
 create index if not exists trades_wallet_status_idx
   on trades(wallet_id, status, created_at desc);
 
@@ -98,3 +119,15 @@ create table if not exists trade_events (
 
 create index if not exists trade_events_trade_idx
   on trade_events(trade_id, created_at desc);
+
+-- Short-lived per-user bot state (open token panel, pending withdrawal).
+-- Needed on Cloudflare Workers, where updates run in different isolates.
+create table if not exists bot_state (
+  telegram_user_id bigint not null,
+  key text not null,
+  value jsonb not null,
+  expires_at timestamptz not null,
+  primary key (telegram_user_id, key)
+);
+
+create index if not exists bot_state_expires_idx on bot_state(expires_at);

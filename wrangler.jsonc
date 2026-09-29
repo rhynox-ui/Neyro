@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "neyro",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  // node:crypto (wallet key encryption), Buffer, and process.env populated
+  // from the Worker's variables and secrets.
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
+  "workers_dev": true,
+  // Keep variables and secrets set in the dashboard across deploys.
+  "keep_vars": true,
+  // Settle trades whose outcome was unknown (timeouts, cut-off invocations).
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": { "enabled": true },
+  // Mainnet is fixed in the deployed config so the Worker can never start on
+  // testnet by accident. Secrets (bot token, master key, database URL) are
+  // set in the dashboard, not here.
+  "vars": {
+    "NODE_ENV": "production",
+    "NEAR_NETWORK": "mainnet",
+    "NEAR_RPC_URL": "https://rpc.mainnet.fastnear.com",
+    "NEAR_RPC_FALLBACK_URL": "https://near.drpc.org",
+    "TREASURY_ACCOUNT_ID": "widekingdom6862.near",
+    // Serves token icons at /icon/<token> for Telegram link previews.
+    "PUBLIC_BASE_URL": "https://neyro.aliyumansurkwalli92-52b.workers.dev"
+  }
+
+  // Optional, recommended for production: process updates from a Queue so
+  // long trades are never cut off. Create it first with
+  //   npx wrangler queues create neyro-telegram-updates
+  // then uncomment:
+  // ,"queues": {
+  //   "producers": [{ "binding": "NEYRO_TELEGRAM_UPDATES", "queue": "neyro-telegram-updates" }],
+  //   "consumers": [{ "queue": "neyro-telegram-updates", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 0 }]
+  // }
+}

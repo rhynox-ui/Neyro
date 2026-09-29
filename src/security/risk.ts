@@ -1,11 +1,12 @@
+import { UserFacingError } from "../errors.js";
+
 export type RiskPolicy = {
-  maxTradeBpsOfBalance: number;
   maxSlippageBps: number;
 };
 
 export const DEFAULT_RISK_POLICY: RiskPolicy = {
-  maxTradeBpsOfBalance: 2_500,
-  maxSlippageBps: 500
+  // 15% covers thin meme pools; the token panel offers 5/10/15% presets.
+  maxSlippageBps: 1_500
 };
 
 export function assertSlippageAllowed(
@@ -13,41 +14,12 @@ export function assertSlippageAllowed(
   policy = DEFAULT_RISK_POLICY
 ): void {
   if (!Number.isInteger(slippageBps) || slippageBps < 0) {
-    throw new Error("Slippage must be a non-negative integer in basis points");
+    throw new UserFacingError("Slippage must be a non-negative integer in basis points");
   }
 
   if (slippageBps > policy.maxSlippageBps) {
-    throw new Error(
+    throw new UserFacingError(
       `Slippage exceeds Neyro's maximum of ${policy.maxSlippageBps / 100}%`
     );
   }
-}
-
-export function assertTradeShareAllowed(
-  amountBpsOfBalance: number,
-  policy = DEFAULT_RISK_POLICY
-): void {
-  if (!Number.isFinite(amountBpsOfBalance) || amountBpsOfBalance < 0) {
-    throw new Error("Invalid trade balance share");
-  }
-
-  if (amountBpsOfBalance > policy.maxTradeBpsOfBalance) {
-    throw new Error("Trade exceeds the configured wallet risk limit");
-  }
-}
-
-
-export function getSpendableBalance(
-  balanceYocto: bigint,
-  reserveYocto: bigint
-): bigint {
-  if (balanceYocto < 0n || reserveYocto < 0n) {
-    throw new Error("NEAR balance and reserve must be non-negative");
-  }
-
-  if (balanceYocto <= reserveYocto) {
-    throw new Error("Insufficient NEAR balance after the safety reserve");
-  }
-
-  return balanceYocto - reserveYocto;
 }

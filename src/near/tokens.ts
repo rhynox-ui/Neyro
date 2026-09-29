@@ -1,10 +1,8 @@
 export const NATIVE_NEAR = "near";
 
-export type TokenMetadata = {
-  contractId: string;
-  symbol: string;
-  decimals: number;
-};
+// NEAR account id rules: 2-64 chars, lowercase alphanumeric parts separated
+// by "." with single "-" or "_" inside parts. Implicit accounts are 64 hex.
+const ACCOUNT_ID = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
 
 export function normalizeTokenId(value: string): string {
   const token = value.trim().toLowerCase();
@@ -13,12 +11,11 @@ export function normalizeTokenId(value: string): string {
   return token;
 }
 
-export function assertValidTokenId(value: string): string {
-  const token = normalizeTokenId(value);
-  if (token === NATIVE_NEAR) return token;
-  if (token.length > 64) throw new Error("Token identifier is too long");
-  if (!/^[a-z0-9._-]+$/.test(token)) {
-    throw new Error("Invalid NEAR token identifier");
-  }
-  return token;
+export function isValidAccountId(value: string): boolean {
+  return ACCOUNT_ID.test(value);
+}
+
+/** True for input that names a contract rather than a ticker symbol. */
+export function looksLikeContractId(value: string): boolean {
+  return isValidAccountId(value) && (value.includes(".") || /^[0-9a-f]{64}$/.test(value));
 }
