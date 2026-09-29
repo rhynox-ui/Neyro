@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { computeFee, feeActions, type FeePlan } from "../src/trading/fee.js";
 import { assessFill } from "../src/trading/outcome.js";
-import { functionCall } from "../src/near/actions.js";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
 const { feeLabel } = await import("../src/bot/panel.js");
@@ -27,17 +26,16 @@ test("no USD price means the cap can't be enforced, so no fee is planned", () =>
   assert.deepEqual(computeFee(100n * NEAR, 24, null, 0, 60), { fee: 0n, capped: false });
 });
 
-const buyPlan: FeePlan = { side: "buy", treasury: "fees.neyro.near", contractId: "wrap.near", amount: "1000", capped: false };
-test("fee actions: buy wraps then transfers to the treasury; sell registers it when needed", () => {
-  const buy = feeActions(buyPlan).map((a) => a.type === "FunctionCall" ? a.params.methodName : a.type);
-  assert.deepEqual(buy, ["near_deposit", "ft_transfer"]);
-  const transfer = feeActions(buyPlan)[1]!;
-  assert.ok(transfer.type === "FunctionCall");
-  assert.deepEqual(transfer.params.args, { receiver_id: "fees.neyro.near", amount: "1000", memo: "neyro fee" });
-  assert.equal(transfer.params.deposit, "1");
+const buyPlan: FeePlan = { side: "buy", treasury: "fees.neyro.near", contractId: "near", amount: "1000", capped: false };
+test("protocol fees are always native NEAR transfers", () => {
+  const buy = feeActions(buyPlan)[0]!;
+  assert.equal(buy.type, "Transfer");
+  if (buy.type === "Transfer") assert.equal(buy.params.deposit, "1000");
 
-  const sell: FeePlan = { side: "sell", treasury: "fees.neyro.near", contractId: "meme.nearlytrade.near", amount: "7", registerTreasury: "1250000000000000000000", capped: true };
-  assert.deepEqual(feeActions(sell).map((a) => a.type === "FunctionCall" ? a.params.methodName : a.type), ["storage_deposit", "ft_transfer"]);
+  const sell: FeePlan = { side: "sell", treasury: "fees.neyro.near", contractId: "near", amount: "7", capped: true };
+  const transfer = feeActions(sell)[0]!;
+  assert.equal(transfer.type, "Transfer");
+  if (transfer.type === "Transfer") assert.equal(transfer.params.deposit, "7");
 });
 
 test("a refunded swap is not a fill (the fee is only charged after a fill)", () => {
