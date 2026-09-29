@@ -60,15 +60,19 @@ export class RheaTradingEngine implements TradingEngine {
     quote: TradeQuote,
     idempotencyKey?: string
   ): Promise<{ transactionHash: string }> {
-    if (quote.direct) {
-      if (Date.now() > quote.direct.expiresAt) {
-        throw new Error("RHEA SmartRouter quote expired; refresh the trade and try again");
-      }
-      const tokens = quote.direct.tokens.length
-        ? quote.direct.tokens
+    if (!this.signer) throw new Error("NEAR signer is required for RHEA execution");
+
+    // RHEA requires route revalidation immediately before execution.
+    const fresh = await this.quote(request);
+    if (BigInt(fresh.minAmountOut) < BigInt(quote.minAmountOut)) {
+      throw new Error("RHEA route moved against the approved minimum output; refresh the trade and confirm again");
+    }
+
+    if (fresh.direct) {
+      const tokens = fresh.direct.tokens.length
+        ? fresh.direct.tokens
         : [request.tokenIn.address, request.tokenOut.address];
       await requireRheaTokenRegistration(request.accountId, tokens);
-      if (!this.signer) throw new Error("NEAR signer is required for direct RHEA execution");
       const transactions = RheaClient.directTransactions({
         fromToken: request.tokenIn,
         toToken: request.tokenOut,
@@ -76,22 +80,22 @@ export class RheaTradingEngine implements TradingEngine {
         slippageBps: request.slippageBps,
         sender: request.accountId,
         recipient: request.accountId
-      }, quote.direct);
+      }, fresh.direct);
       const sent = await this.signer.signAndSendTransactions(transactions, {});
       const txHash = sent.txHashes[sent.txHashes.length - 1];
       if (!txHash) throw new Error("RHEA SmartRouter execution completed without a transaction hash");
       return { transactionHash: txHash };
     }
 
-    if (!quote.raw) throw new Error("Trade quote has no executable route");
+    if (!fresh.raw) throw new Error("Trade quote has no executable route");
     const tokens = extractRheaRouteTokens(
-      quote.raw,
+      fresh.raw,
       [request.tokenIn.address, request.tokenOut.address]
     );
 
     await requireRheaTokenRegistration(request.accountId, tokens);
 
-    const result = await this.rhea.swap(quote.raw, idempotencyKey);
+    const result = await this.rhea.swap(fresh.raw, idempotencyKey);
     const transactionHash =
       result.txHash ?? result.txHashes?.[result.txHashes.length - 1];
 
