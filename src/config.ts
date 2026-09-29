@@ -51,6 +51,20 @@ const schema = z.object({
       message: "DATABASE_URL is required in production; persistent storage is mandatory for production trading"
     });
   }
+  if (env.NODE_ENV === "production" && !env.NEYRO_MASTER_KEY) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["NEYRO_MASTER_KEY"],
+      message: "NEYRO_MASTER_KEY is required in production"
+    });
+  }
+  if (env.NODE_ENV === "production" && !env.TELEGRAM_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["TELEGRAM_WEBHOOK_SECRET"],
+      message: "TELEGRAM_WEBHOOK_SECRET is required in production"
+    });
+  }
 });
 
 const env = Object.fromEntries(
