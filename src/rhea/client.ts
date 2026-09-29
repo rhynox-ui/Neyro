@@ -150,7 +150,7 @@ export class RheaClient {
     const msg = typeof data?.msg === "string" ? data.msg : "";
     const signature = typeof data?.signature === "string" ? data.signature : "";
     const tokens = Array.isArray(data?.tokens) ? data.tokens.filter((item): item is string => typeof item === "string").map(stripAssetPrefix) : [];
-    if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || !msg || !signature || tokens.length === 0) {
+    if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || BigInt(amountOut) <= 0n || BigInt(minAmountOut) <= 0n || BigInt(minAmountOut) > BigInt(amountOut) || !msg || !signature || tokens.length === 0) {
       throw new UserFacingError("RHEA SmartRouter returned an incomplete route");
     }
     if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new UserFacingError("RHEA SmartRouter changed the requested input amount");
