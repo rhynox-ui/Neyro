@@ -43,11 +43,11 @@ const schema = z.object({
     });
   }
 
-  if (!env.DATABASE_URL) {
+  if (env.NODE_ENV === "production" && !env.DATABASE_URL) {
     ctx.addIssue({
       code: "custom",
       path: ["DATABASE_URL"],
-      message: "DATABASE_URL is required; persistent storage is mandatory for Neyro trading"
+      message: "DATABASE_URL is required in production; persistent storage is mandatory for production trading"
     });
   }
 });
