@@ -107,11 +107,6 @@ export class RheaClient {
     try {
       return await this.client.quote(payload);
     } catch (error) {
-      if (error instanceof Error && /token .*not found on chain/i.test(error.message)) {
-        throw new UserFacingError(
-          "RHEA unified routing does not know this token yet; trying the RHEA DCL SmartRouter fallback."
-        );
-      }
       throw error;
     }
   }
@@ -128,13 +123,27 @@ export class RheaClient {
     url.searchParams.set("receiveUser", request.recipient);
     url.searchParams.set("skipUnwrapNativeToken", "false");
 
-    const response = await fetch(url, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(SMART_ROUTER_TIMEOUT_MS)
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(SMART_ROUTER_TIMEOUT_MS)
+      });
+    } catch (error) {
+      throw new Error(`RHEA SmartRouter request failed: ${error instanceof Error ? error.message : "network error"}`);
+    }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
-    if (!response.ok) throw new Error(`RHEA SmartRouter HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = rheaApiError(body);
+      throw new Error(`RHEA SmartRouter HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+    }
+    if (body && typeof body.code === "number" && body.code !== 0) {
+      throw new Error(`RHEA SmartRouter rejected route (code ${body.code})${typeof body.msg === "string" ? `: ${body.msg}` : ""}`);
+    }
     const data = body?.data && typeof body.data === "object" ? body.data as Record<string, unknown> : body;
+    if (data && typeof data.code === "number" && data.code !== 0) {
+      throw new Error(`RHEA SmartRouter rejected route (code ${data.code})${typeof data.msg === "string" ? `: ${data.msg}` : ""}`);
+    }
     const amountIn = String(data?.amount_in ?? "");
     const amountOut = String(data?.amount_out ?? "");
     const minAmountOut = String(data?.min_amount_out ?? "");
@@ -211,4 +220,18 @@ export function isNearNative(token: { isNative?: boolean; address: string; asset
   return [token.address, token.assetId, token.contractAddress]
     .map(stripAssetPrefix)
     .some((id) => id === "wrap.near" || id === "near");
+}
+
+
+function rheaApiError(body: Record<string, unknown> | null): string | undefined {
+  if (!body) return undefined;
+  for (const key of ["message", "msg", "error"]) {
+    const value = body[key];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 300);
+  }
+  return undefined;
+}
+
+export function isRheaUnifiedTokenNotFound(error: unknown): boolean {
+  return error instanceof Error && /token .*not found on chain/i.test(error.message);
 }
