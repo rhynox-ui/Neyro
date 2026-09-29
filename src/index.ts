@@ -1,11 +1,13 @@
 import { Bot } from "grammy";
 import { config } from "./config.js";
 import { createNearConnection } from "./near/client.js";
-import { registerBotHandlers } from "./bot/register.js";
+import { registerBotHandlers, reconcileTradingState } from "./bot/register.js";
 
 const bot = new Bot(config.TELEGRAM_BOT_TOKEN);
 
 registerBotHandlers(bot);
+
+await reconcileTradingState();
 
 bot.command("health", async (ctx) => {
   const near = createNearConnection();
