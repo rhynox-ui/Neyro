@@ -69,7 +69,7 @@ export class RheaTradingEngine implements TradingEngine {
     const balance = await getNearBalance(accountId);
     const required = plan.requiredDeposit;
     const spendableAfterRegistration = balance.available - required;
-    if (spendableAfterRegistration < config.NEAR_SPENDABLE_RESERVE_YOCTO) {
+    if (spendableAfterRegistration < BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO)) {
       throw new UserFacingError(
         "RHEA token registration needs " + plan.requiredDeposit.toString() +
         " yoctoNEAR, but that would breach the " + config.NEAR_SPENDABLE_RESERVE_YOCTO.toString() +
