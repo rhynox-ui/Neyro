@@ -19,7 +19,6 @@ import { assessFill, classifyBatch, estimateValueLoss, quoteDeadline } from "./o
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, feeActions, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
-import { storageRegistrationCost } from "../near/ft.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
 import { nearUsdFromDcl } from "../market/dcl.js";
 import { fetchLaunchByToken, isNearlyToken, nearlyPriceUsd } from "../discovery/nearly.js";
@@ -156,7 +155,20 @@ export class TradingService {
     }
 
     const fee = await this.planFee(side, BigInt(total), tokenIn);
-    const amountIn = (BigInt(total) - BigInt(fee?.amount ?? "0")).toString();
+
+    // Buy fees are carved out of the NEAR amount being spent. Sell fees are
+    // always native NEAR and therefore must not reduce the token amount sold.
+    if (side === "sell" && fee) {
+      const nativeAvailable = tradableNear(await getNearBalance(wallet.accountId));
+      if (BigInt(fee.amount) > nativeAvailable) {
+        throw new UserFacingError(
+          `Not enough native NEAR to pay the protocol fee: ${formatUnits(fee.amount, 24)} NEAR required, ${formatUnits(nativeAvailable.toString(), 24)} NEAR available after the Neyro reserve`
+        );
+      }
+    }
+    const amountIn = (side === "buy"
+      ? BigInt(total) - BigInt(fee?.amount ?? "0")
+      : BigInt(total)).toString();
 
     const request: TradeRequest = {
       accountId: wallet.accountId,
@@ -203,35 +215,59 @@ export class TradingService {
   }
 
   /**
-   * FEE_BPS of the amount spent, capped at PROTOCOL_FEE_CAP_USD, paid in the
-   * asset being spent: NEAR (as wNEAR) on buys, the token on sells.
+   * FEE_BPS of the trade value, capped at PROTOCOL_FEE_CAP_USD, is always
+   * collected in native NEAR. On buys the input is already native NEAR, so
+   * the computed fee is directly in yoctoNEAR. On sells the token fee is
+   * valued in USD and converted to native NEAR, leaving the full token amount
+   * available to sell.
    */
   private async planFee(side: "buy" | "sell", total: bigint, tokenIn: TradeRequest["tokenIn"]): Promise<FeePlan | undefined> {
     const treasury = config.TREASURY_ACCOUNT_ID;
     if (!treasury || FEE_BPS === 0) return undefined;
 
-    const contractId = side === "buy" ? WRAPPED_NEAR : contractOf(tokenIn);
-    const decimals = tokenIn.decimals ?? 0;
-    const price = await this.priceUsd(tokenIn);
-    const computed = computeFee(total, decimals, price, FEE_BPS, config.PROTOCOL_FEE_CAP_USD);
+    const tokenPrice = await this.priceUsd(tokenIn);
+    const computed = computeFee(
+      total,
+      tokenIn.decimals ?? 0,
+      tokenPrice,
+      FEE_BPS,
+      config.PROTOCOL_FEE_CAP_USD
+    );
     if (!computed) {
-      // Without a USD price the cap can't be enforced; don't overcharge.
-      console.warn("No USD price for fee cap; trade proceeds without a fee", { contractId });
+      console.warn("No USD price for fee cap; trade proceeds without a fee", { asset: tokenIn.address });
       return undefined;
     }
     if (computed.fee === 0n) return undefined;
 
-    const registration = await storageRegistrationCost(contractId, treasury);
+    if (side === "buy") {
+      return {
+        side,
+        treasury,
+        contractId: "near",
+        amount: computed.fee.toString(),
+        capped: computed.capped
+      };
+    }
+
+    const nearPrice = await this.nearUsdPrice();
+    if (nearPrice === null || !Number.isFinite(nearPrice) || nearPrice <= 0) {
+      console.warn("No NEAR/USD price for native fee conversion; trade proceeds without a fee");
+      return undefined;
+    }
+
+    const tokenUnits = Number(computed.fee) / 10 ** (tokenIn.decimals ?? 0);
+    const feeUsd = tokenUnits * (tokenPrice ?? 0);
+    const nativeUnits = Math.ceil((feeUsd / nearPrice) * 1e24);
+    if (!Number.isFinite(nativeUnits) || nativeUnits <= 0) return undefined;
+
     return {
       side,
       treasury,
-      contractId,
-      amount: computed.fee.toString(),
-      ...(registration > 0n ? { registerTreasury: registration.toString() } : {}),
+      contractId: "near",
+      amount: BigInt(nativeUnits).toString(),
       capped: computed.capped
     };
   }
-
   /** USD per NEAR, from RHEA's token list. */
   async nearUsdPrice(): Promise<number | null> {
     const tokens = await this.rhea.getNearTokens().catch((error) => {
@@ -445,9 +481,7 @@ export class TradingService {
   }
 }
 
-/** "0.01 NEAR" or "1,234.5 RUST" for the receipt. */
-function feeDisplay(request: TradeRequest, fee: FeePlan): string {
-  if (fee.side === "buy") return `${formatUnits(fee.amount, 24)} NEAR`;
-  const token = request.tokenIn as { decimals?: number; symbol?: string };
-  return `${formatUnits(fee.amount, token.decimals ?? 0)} ${token.symbol ?? fee.contractId}`;
+/** Protocol fees are always displayed and charged in native NEAR. */
+function feeDisplay(_request: TradeRequest, fee: FeePlan): string {
+  return formatUnits(fee.amount, 24) + " NEAR";
 }
