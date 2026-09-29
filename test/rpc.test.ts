@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
+process.env.TELEGRAM_BOT_TOKEN = "test-token";
+process.env.NODE_ENV = "test";
+process.env.DATABASE_URL = "https://example.com/test-db";
 process.env.NEAR_RPC_URL = "https://rpc.primary.example";
 process.env.NEAR_RPC_FALLBACK_URL = "https://rpc.fallback.example";
 
