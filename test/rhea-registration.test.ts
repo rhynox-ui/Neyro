@@ -1,3 +1,8 @@
+process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
+process.env.NEAR_NETWORK ??= "mainnet";
+process.env.NEAR_RPC_URL ??= "https://rpc.mainnet.fastnear.com";
+process.env.DATABASE_URL ??= "https://example.com/test-db";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
