@@ -186,7 +186,7 @@ async function handleIcon(pathname: string): Promise<Response> {
 async function handleDebugPrice(request: Request): Promise<Response> {
   const app = await getApp();
   const url = new URL(request.url);
-  if (!app.config.SETUP_SECRET || url.searchParams.get("secret") !== app.config.SETUP_SECRET) {
+  if (!app.config.SETUP_SECRET || request.headers.get("x-neyro-setup-secret") !== app.config.SETUP_SECRET) {
     return new Response("Unauthorized", { status: 401 });
   }
   const token = (url.searchParams.get("token") ?? "").trim().toLowerCase();
