@@ -494,7 +494,7 @@ export function registerBotHandlers(bot: Bot) {
 
   pm.command("portfolio", showPortfolio);
 
-  pm.command("withdraw", async (ctx) => {
+  pm.command("rhea-register", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
     const query = String(ctx.match ?? "").trim();
@@ -565,7 +565,7 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  pm.command("withdraw", async (ctx) => {
+  pm.command("rhea-recovery", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
     try {
