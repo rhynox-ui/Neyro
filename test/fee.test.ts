@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeFee, feeActions, type FeePlan } from "../src/trading/fee.js";
+import { computeFee, feeActions, feeReceiver, type FeePlan } from "../src/trading/fee.js";
 import { assessFill } from "../src/trading/outcome.js";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
@@ -33,6 +33,7 @@ test("protocol fees are always native NEAR transfers", () => {
   if (buy.type === "Transfer") assert.equal(buy.params.deposit, "1000");
 
   const sell: FeePlan = { side: "sell", treasury: "fees.neyro.near", contractId: "near", amount: "7", capped: true };
+  assert.equal(feeReceiver(sell), "fees.neyro.near");
   const transfer = feeActions(sell)[0]!;
   assert.equal(transfer.type, "Transfer");
   if (transfer.type === "Transfer") assert.equal(transfer.params.deposit, "7");
