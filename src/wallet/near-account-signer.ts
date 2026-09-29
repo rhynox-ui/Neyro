@@ -124,6 +124,7 @@ export class NearAccountSigner implements NearTransactionSigner {
     applyTransform: boolean
   ): Promise<{ txHashes: string[]; raw?: unknown }> {
     const raw: unknown[] = [];
+    const txHashes: string[] = [];
     let planned: PlannedTransaction[] = transactions.map((transaction) => ({
       receiverId: transaction.receiverId,
       actions: transaction.actions.map(parseWalletAction)
@@ -152,6 +153,7 @@ export class NearAccountSigner implements NearTransactionSigner {
         result: "unknown"
       };
       this.sentTransactions.push(record);
+      txHashes.push(txHash);
 
       let outcome: unknown;
       try {
@@ -185,7 +187,7 @@ export class NearAccountSigner implements NearTransactionSigner {
     }
 
     return {
-      txHashes: this.sentTransactions.map((item) => item.txHash),
+      txHashes,
       raw
     };
   }
