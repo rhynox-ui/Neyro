@@ -76,7 +76,20 @@ export class RheaClient {
       crossChainTimeoutMs: 3000
     };
 
-    return this.client.quote(payload);
+    try {
+      return await this.client.quote(payload);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /token .*not found on chain/i.test(error.message)
+      ) {
+        throw new Error(
+          `RHEA currently cannot quote ${request.toToken.address} on NEAR. ` +
+          "The token may be visible in RHEA discovery but not yet indexed for routing. No transaction was submitted."
+        );
+      }
+      throw error;
+    }
   }
 
   async swap(quote: Quote, idempotencyKey?: string) {
