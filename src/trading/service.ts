@@ -24,6 +24,7 @@ import { nearUsdFromDcl } from "../market/dcl.js";
 import { fetchLaunchByToken, isNearlyToken, nearlyPriceUsd } from "../discovery/nearly.js";
 import { UserFacingError, userMessage } from "../errors.js";
 
+const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
 const DEX_CONTRACTS = [
   ...DEFAULT_DEX_CONTRACTS,
