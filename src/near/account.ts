@@ -30,18 +30,19 @@ export async function getFtBalance(
   tokenContract: string
 ): Promise<bigint> {
   return withRpcFallback(async (provider) => {
-    const result = await provider.query({
-      request_type: "call_function",
-      account_id: tokenContract,
-      method_name: "ft_balance_of",
-      args_base64: Buffer.from(
-        JSON.stringify({ account_id: accountId }),
-        "utf8"
-      ).toString("base64"),
-      finality: "final"
+    const result = await provider.callFunction({
+      contractId: tokenContract,
+      methodName: "ft_balance_of",
+      args: { account_id: accountId }
     });
 
-    const raw = new TextDecoder().decode(Uint8Array.from(result.result));
+    const raw = typeof result === "string"
+      ? result
+      : result && typeof result === "object" && "result" in result
+        ? new TextDecoder().decode((result as { result: Uint8Array }).result)
+        : (() => {
+            throw new Error("Unexpected ft_balance_of RPC response");
+          })();
     const parsed: unknown = JSON.parse(raw);
 
     if (typeof parsed !== "string" || !/^\d+$/.test(parsed)) {
