@@ -266,11 +266,13 @@ function extractSmartRouterPayload(body: Record<string, unknown> | null): Record
   for (const candidate of candidates) {
     if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
       const record = candidate as Record<string, unknown>;
+      if ("code" in record && typeof record.code === "number" && record.code !== 0) return record;
       if ("amount_in" in record || "amountIn" in record || "amount_out" in record || "amountOut" in record) return record;
       for (const key of ["data", "result", "route"]) {
         const nested = record[key];
         if (nested && typeof nested === "object" && !Array.isArray(nested)) {
           const nestedRecord = nested as Record<string, unknown>;
+          if ("code" in nestedRecord && typeof nestedRecord.code === "number" && nestedRecord.code !== 0) return nestedRecord;
           if ("amount_in" in nestedRecord || "amountIn" in nestedRecord || "amount_out" in nestedRecord || "amountOut" in nestedRecord) return nestedRecord;
         }
       }
