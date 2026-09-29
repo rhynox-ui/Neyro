@@ -9,6 +9,8 @@ import { config } from "../config.js";
 import { UserFacingError } from "../errors.js";
 import { ftMetadata } from "../near/ft.js";
 import { looksLikeContractId } from "../near/tokens.js";
+import type { DirectRheaNearQuote } from "../domain/trading.js";
+import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 
 /** A NEAR token Neyro can quote. `listed` is false for tokens only verified on chain. */
 export type NearToken = AssetRef & {
@@ -18,6 +20,10 @@ export type NearToken = AssetRef & {
   contractAddress: string | null;
   listed: boolean;
 };
+
+const SMART_ROUTER_URL = "https://smartx.rhea.finance/swapMultiDexPath";
+const SMART_ROUTER_TIMEOUT_MS = 10_000;
+const SMART_ROUTER_TTL_MS = 45_000;
 
 export type RheaQuoteRequest = {
   fromToken: AssetRef;
@@ -102,12 +108,54 @@ export class RheaClient {
       return await this.client.quote(payload);
     } catch (error) {
       if (error instanceof Error && /token .*not found on chain/i.test(error.message)) {
-        throw new UserFacingError(
-          "RHEA cannot quote this token on NEAR right now. It may be visible in token discovery but is not yet indexed for routing. No transaction was submitted."
-        );
+        const direct = await this.smartRouterQuote(request).catch((fallbackError) => {
+          throw new UserFacingError(
+            "RHEA cannot route this token on NEAR right now. The token may have a live DCL pool, but RHEA's unified router has not indexed it yet. No transaction was submitted."
+          );
+        });
+        // Keep the public return type compatible with callers that only need
+        // the normalized quote fields. The direct quote is consumed through
+        // quoteDirect() by RheaTradingEngine when the unified API misses.
+        return direct as unknown as Quote;
       }
       throw error;
     }
+  }
+
+  async smartRouterQuote(request: RheaQuoteRequest): Promise<DirectRheaNearQuote> {
+    const tokenIn = toApiAsset(request.fromToken).address;
+    const tokenOut = toApiAsset(request.toToken).address;
+    const url = new URL(SMART_ROUTER_URL);
+    url.searchParams.set("amountIn", request.amountIn);
+    url.searchParams.set("tokenIn", tokenIn);
+    url.searchParams.set("tokenOut", tokenOut);
+    url.searchParams.set("slippage", String(request.slippageBps / 10_000));
+    url.searchParams.set("user", request.sender);
+    url.searchParams.set("receiveUser", request.recipient);
+    url.searchParams.set("skipUnwrapNativeToken", "false");
+
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(SMART_ROUTER_TIMEOUT_MS)
+    });
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    if (!response.ok) throw new Error(`RHEA SmartRouter HTTP ${response.status}`);
+    const data = body?.data && typeof body.data === "object" ? body.data as Record<string, unknown> : body;
+    const amountIn = String(data?.amount_in ?? "");
+    const amountOut = String(data?.amount_out ?? "");
+    const minAmountOut = String(data?.min_amount_out ?? "");
+    const msg = typeof data?.msg === "string" ? data.msg : "";
+    const signature = typeof data?.signature === "string" ? data.signature : "";
+    const tokens = Array.isArray(data?.tokens) ? data.tokens.filter((item): item is string => typeof item === "string").map(stripAssetPrefix) : [];
+    if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || !msg || !signature || tokens.length === 0) {
+      throw new Error("RHEA SmartRouter returned an incomplete route");
+    }
+    if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new Error("RHEA SmartRouter changed the requested input amount");
+    return { kind: "rhea-smart-router", amountIn, amountOut, minAmountOut, msg, signature, tokens, receivedAt: Date.now(), expiresAt: Date.now() + SMART_ROUTER_TTL_MS };
+  }
+
+  async quoteDirect(request: RheaQuoteRequest): Promise<DirectRheaNearQuote> {
+    return this.smartRouterQuote(request);
   }
 
   async swap(quote: Quote, idempotencyKey?: string) {
@@ -116,6 +164,29 @@ export class RheaClient {
       waitFor: "source-confirmed",
       ...(idempotencyKey ? { idempotencyKey } : {})
     });
+  }
+
+  static directTransactions(request: RheaQuoteRequest, quote: DirectRheaNearQuote): NearTransaction[] {
+    const msg = JSON.stringify({ msg: quote.msg, signature: quote.signature });
+    const transfer = {
+      type: "FunctionCall" as const,
+      params: {
+        methodName: "ft_transfer_call",
+        args: { receiver_id: "aggregatedex.near", amount: quote.amountIn, msg },
+        gas: "300000000000000",
+        deposit: "1"
+      }
+    };
+    if (isNearNative(request.fromToken)) {
+      return [
+        {
+          receiverId: "wrap.near",
+          actions: [{ type: "FunctionCall", params: { methodName: "near_deposit", args: {}, gas: "300000000000000", deposit: quote.amountIn } }]
+        },
+        { receiverId: "wrap.near", actions: [transfer] }
+      ] as NearTransaction[];
+    }
+    return [{ receiverId: stripAssetPrefix(request.fromToken.contractAddress || request.fromToken.address), actions: [transfer] }] as NearTransaction[];
   }
 }
 
