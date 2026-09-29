@@ -44,7 +44,7 @@ export async function getFtBalance(
     const raw = new TextDecoder().decode(Uint8Array.from(result.result));
     const parsed: unknown = JSON.parse(raw);
 
-    if (typeof parsed !== "string" || !/^\\d+$/.test(parsed)) {
+    if (typeof parsed !== "string" || !/^\d+$/.test(parsed)) {
       throw new Error("NEAR FT balance response was invalid");
     }
 
