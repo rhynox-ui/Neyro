@@ -15,7 +15,7 @@ import {
   type TradeRepository,
   type TradeStatus
 } from "./repository.js";
-import { assessFill, classifyBatch, estimateValueLoss, quoteDeadline } from "./outcome.js";
+import { assessFill, classifyBatch, estimateValueLoss, friendlyExecutionFailure, quoteDeadline } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, feeActions, feeReceiver, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
@@ -409,7 +409,7 @@ export class TradingService {
       return {
         status: batch,
         txHashes,
-        reason: chainFailure ?? userMessage(sdkError, "Execution error")
+        reason: friendlyExecutionFailure(chainFailure, request.slippageBps) ?? userMessage(sdkError, "Execution error")
       };
     }
 
