@@ -1,6 +1,7 @@
 import { RheaClient } from "../rhea/client.js";
 import type { TradeQuote, TradeRequest, TradingEngine } from "../domain/trading.js";
 import { createNeyroNearExecutor, type NearTransactionSigner } from "../near/rhea-executor.js";
+import { extractRheaRouteTokens, requireRheaTokenRegistration } from "../rhea/registration.js";
 
 export class RheaTradingEngine implements TradingEngine {
   private readonly rhea: RheaClient;
@@ -37,12 +38,20 @@ export class RheaTradingEngine implements TradingEngine {
   }
 
   async execute(
-    _request: TradeRequest,
+    request: TradeRequest,
     quote: TradeQuote,
     idempotencyKey?: string
   ): Promise<{ transactionHash: string }> {
+    const tokens = extractRheaRouteTokens(
+      quote.raw,
+      [request.tokenIn.address, request.tokenOut.address]
+    );
+
+    await requireRheaTokenRegistration(request.accountId, tokens);
+
     const result = await this.rhea.swap(quote.raw, idempotencyKey);
-    const transactionHash = result.txHash ?? result.txHashes?.[result.txHashes.length - 1];
+    const transactionHash =
+      result.txHash ?? result.txHashes?.[result.txHashes.length - 1];
 
     if (!transactionHash) {
       throw new Error("RHEA execution completed without a transaction hash");
