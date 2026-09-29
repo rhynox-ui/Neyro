@@ -24,6 +24,7 @@ import { ageLabel, createTokenPanel, feeLabel, SLIPPAGE_PRESETS } from "./panel.
 import { SettingsService, type SlippagePrefs } from "../settings/service.js";
 import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discovery/nearly.js";
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
+import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
 
 const walletService = new WalletService();
@@ -492,6 +493,77 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.command("portfolio", showPortfolio);
+
+  pm.command("rhea-register", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    const query = String(ctx.match ?? "").trim();
+    if (!query) return void await replyNotice(ctx, "Usage: /rhea-register <token-contract>");
+    try {
+      const token = await tradingService.resolveToken(query);
+      if (token.address === WRAPPED_NEAR) {
+        throw new Error("Choose a token other than wrap.near");
+      }
+      const plan = await buildRheaRegistrationPlan(wallet.accountId, [WRAPPED_NEAR, token.address]);
+      if (plan.transactions.length === 0) {
+        return void await replyNotice(ctx, "✅ RHEA registration is already complete for this token.");
+      }
+      const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+      await defaultStateStore().set(ctx.from.id, `rhea-register:${id}`, {
+        tokens: plan.tokens,
+        requiredDeposit: plan.requiredDeposit.toString()
+      }, 5 * 60 * 1000);
+      await replyScreen(ctx, "rhea-register",
+        "🧾 <b>RHEA registration required</b>\n\n" +
+        `Tokens: ${plan.tokens.map((item) => code(item)).join(", ")}\nRegistration deposit: ${formatNear(plan.requiredDeposit)} NEAR\n\nThis only pays storage deposits; it does not trade.`,
+        {
+          ...HTML,
+          reply_markup: new InlineKeyboard()
+            .text("✅ Register", `rg:confirm:${id}`)
+            .text("❌ Cancel", `rg:cancel:${id}`)
+        }
+      );
+    } catch (error) {
+      console.error("RHEA registration prepare error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't prepare RHEA registration")}`);
+    }
+  });
+
+  pm.callbackQuery(/^rg:(confirm|cancel):([a-f0-9]{16})$/, async (ctx) => {
+    const id = ctx.match[2]!;
+    if (ctx.match[1] === "cancel") {
+      await defaultStateStore().delete(ctx.from.id, `rhea-register:${id}`);
+      await ctx.answerCallbackQuery("Cancelled");
+      await ctx.editMessageText("❌ RHEA registration cancelled.", HTML);
+      return;
+    }
+    await ctx.answerCallbackQuery("Registering…");
+    try {
+      const pending = await defaultStateStore().take<{ tokens: string[]; requiredDeposit: string }>(ctx.from.id, `rhea-register:${id}`);
+      if (!pending) throw new Error("RHEA registration confirmation expired");
+      const wallet = await walletService.getWallet(ctx.from.id);
+      if (!wallet) throw new Error("Wallet not found");
+      const plan = await buildRheaRegistrationPlan(wallet.accountId, pending.tokens);
+      if (plan.transactions.length === 0) {
+        return void await ctx.editMessageText("✅ RHEA registration is already complete.", HTML);
+      }
+      const signer = new NearAccountSigner(await walletService.getSigningAccount(ctx.from.id, wallet.accountId), {
+        allowedReceivers: [...plan.tokens, "aggregatedex.near"]
+      });
+      const sent = await signer.signAndSendTransactions(plan.transactions, {});
+      await signer.reconcile();
+      if (sent.txHashes.length === 0 || signer.sent.some((item) => item.result !== "executed")) {
+        throw new Error("RHEA registration did not fully confirm");
+      }
+      await ctx.editMessageText(
+        `✅ <b>RHEA registration complete</b>${renderTxHashes(sent.txHashes)}`,
+        HTML
+      );
+    } catch (error) {
+      console.error("RHEA registration execution error:", error);
+      await ctx.editMessageText(`❌ ${userMessage(error, "RHEA registration could not be completed")}`, HTML);
+    }
+  });
 
   pm.command("rhea-recovery", async (ctx) => {
     const wallet = await requireWallet(ctx);
