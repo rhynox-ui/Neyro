@@ -1,4 +1,4 @@
-process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
+process.env.TELEGRAM_BOT_TOKEN = "test-token";
 process.env.NODE_ENV = "test";
 process.env.NEAR_NETWORK = "mainnet";
 process.env.NEAR_RPC_URL = "https://rpc.mainnet.fastnear.com";
@@ -19,14 +19,18 @@ const request: RheaQuoteRequest = {
 
 test("direct RHEA SmartRouter quote normalizes the documented response", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    amount_in: request.amountIn,
-    amount_out: "123456789",
-    min_amount_out: "122000000",
-    msg: "route-message",
-    signature: "route-signature",
-    tokens: ["wrap.near", "shore-4lzt.launch.shoremarkets.near"]
-  }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      amount_in: request.amountIn,
+      amount_out: "123456789",
+      min_amount_out: "122000000",
+      msg: "route-message",
+      signature: "route-signature",
+      tokens: ["wrap.near", "shore-4lzt.launch.shoremarkets.near"]
+    })
+  })) as typeof fetch;
   try {
     const quote = await new RheaClient().quoteDirect(request);
     assert.equal(quote.kind, "rhea-smart-router");
