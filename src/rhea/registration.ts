@@ -1,5 +1,5 @@
 import type { Account } from "near-api-js";
-import { getNearAccount } from "../near/account.js";
+import { createNearConnection } from "../near/client.js";
 
 export const RHEA_AGGREGATED_DEX = "aggregatedex.near";
 
@@ -66,7 +66,8 @@ export async function checkRheaTokenRegistration(account: Account, tokens: reado
 }
 
 export async function requireRheaTokenRegistration(accountId: string, tokens: readonly string[]): Promise<RheaRegistrationCheck> {
-  const check = await checkRheaTokenRegistration(getNearAccount(accountId), tokens);
+  const account = createNearConnection().account(accountId);
+  const check = await checkRheaTokenRegistration(account, tokens);
   if (check.missing.length > 0) {
     throw new Error("RHEA token registration required before execution: " + check.missing.join(", ") + ". No trade transaction was submitted.");
   }
