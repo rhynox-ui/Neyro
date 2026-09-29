@@ -40,7 +40,10 @@ export class RheaTradingEngine implements TradingEngine {
     _request: TradeRequest,
     quote: TradeQuote
   ): Promise<{ transactionHash: string }> {
-    const result = await this.rhea.swap(quote.raw);
+    const result = await this.rhea.swap(
+      quote.raw,
+      request.idempotencyKey
+    );
     const transactionHash = result.txHash ?? result.txHashes?.[result.txHashes.length - 1];
 
     if (!transactionHash) {
