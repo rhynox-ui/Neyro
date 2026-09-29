@@ -1,7 +1,10 @@
 import { RheaClient, isRheaUnifiedTokenNotFound } from "../rhea/client.js";
 import type { TradeQuote, TradeRequest, TradingEngine } from "../domain/trading.js";
 import { createNeyroNearExecutor, type NearTransactionSigner } from "../near/rhea-executor.js";
-import { extractRheaRouteTokens, requireRheaTokenRegistration } from "../rhea/registration.js";
+import { buildRheaRegistrationPlan, extractRheaRouteTokens, requireRheaTokenRegistration } from "../rhea/registration.js";
+import { getNearBalance } from "../near/account.js";
+import { config } from "../config.js";
+import { UserFacingError } from "../errors.js";
 
 export class RheaTradingEngine implements TradingEngine {
   private readonly rhea: RheaClient;
@@ -55,6 +58,42 @@ export class RheaTradingEngine implements TradingEngine {
     }
   }
 
+  private async ensureRheaRegistration(accountId: string, tokens: readonly string[]): Promise<void> {
+    const uniqueTokens = [...new Set(tokens.map((token) => token.trim().toLowerCase().replace(/^nep141:/, "")).filter(Boolean))];
+    this.signer?.addAllowedReceivers?.(uniqueTokens);
+    this.signer?.addAllowedReceivers?.(["aggregatedex.near"]);
+
+    const plan = await buildRheaRegistrationPlan(accountId, uniqueTokens);
+    if (plan.transactions.length === 0) return;
+
+    const balance = await getNearBalance(accountId);
+    const required = plan.requiredDeposit;
+    const spendableAfterRegistration = balance.available - required;
+    if (spendableAfterRegistration < BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO)) {
+      throw new UserFacingError(
+        "RHEA token registration needs " + plan.requiredDeposit.toString() +
+        " yoctoNEAR, but that would breach the " + config.NEAR_SPENDABLE_RESERVE_YOCTO.toString() +
+        " yoctoNEAR safety reserve. Deposit more NEAR and retry."
+      );
+    }
+
+    if (!this.signer?.signAndSendRegistrationTransactions) {
+      throw new Error("RHEA registration-capable signer is required");
+    }
+
+    const sent = await this.signer.signAndSendRegistrationTransactions(plan.transactions, {});
+    if (sent.txHashes.length === 0) {
+      throw new UserFacingError("RHEA registration produced no transaction; trade was not submitted.");
+    }
+
+    const confirmation = await this.signer.waitForTransactions(sent.txHashes, {});
+    if (confirmation.status !== "confirmed") {
+      throw new UserFacingError("RHEA token registration did not confirm; trade was not submitted. Retry after checking your wallet.");
+    }
+
+    await requireRheaTokenRegistration(accountId, uniqueTokens);
+  }
+
   async execute(
     request: TradeRequest,
     quote: TradeQuote,
@@ -72,7 +111,7 @@ export class RheaTradingEngine implements TradingEngine {
       const tokens = fresh.direct.tokens.length
         ? fresh.direct.tokens
         : [request.tokenIn.address, request.tokenOut.address];
-      await requireRheaTokenRegistration(request.accountId, tokens);
+      await this.ensureRheaRegistration(request.accountId, tokens);
       const transactions = RheaClient.directTransactions({
         fromToken: request.tokenIn,
         toToken: request.tokenOut,
@@ -93,7 +132,7 @@ export class RheaTradingEngine implements TradingEngine {
       [request.tokenIn.address, request.tokenOut.address]
     );
 
-    await requireRheaTokenRegistration(request.accountId, tokens);
+    await this.ensureRheaRegistration(request.accountId, tokens);
 
     const result = await this.rhea.swap(fresh.raw, idempotencyKey);
     const transactionHash =
