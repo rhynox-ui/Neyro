@@ -57,12 +57,15 @@ export function assertAllowedNearReceiver(
   receiverId: string,
   allowedReceivers: readonly string[]
 ): void {
+  const normalize = (value: string) =>
+    value.trim().toLowerCase().replace(/^nep141:/, "");
+
   const allowed = new Set([
-    RHEA_AGGREGATED_DEX,
-    ...allowedReceivers
+    normalize(RHEA_AGGREGATED_DEX),
+    ...allowedReceivers.map(normalize)
   ]);
 
-  if (!allowed.has(receiverId)) {
+  if (!allowed.has(normalize(receiverId))) {
     throw new Error(
       `NEAR execution blocked: unexpected contract ${receiverId}`
     );
