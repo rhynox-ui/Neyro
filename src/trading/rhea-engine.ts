@@ -2,7 +2,6 @@ import { RheaClient } from "../rhea/client.js";
 import type { TradeQuote, TradeRequest, TradingEngine } from "../domain/trading.js";
 import { createNeyroNearExecutor, type NearTransactionSigner } from "../near/rhea-executor.js";
 import { extractRheaRouteTokens, requireRheaTokenRegistration } from "../rhea/registration.js";
-import type { DirectRheaNearQuote } from "../domain/trading.js";
 
 export class RheaTradingEngine implements TradingEngine {
   private readonly rhea: RheaClient;
