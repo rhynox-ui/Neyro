@@ -199,7 +199,7 @@ export class TradingService {
       BigInt(quote.expectedOut), tokenOut.decimals ?? 0, priceOut
     );
 
-    return { id, request, quote, expiresAt, unlisted: !token.listed, fee, total, valueLoss };
+    return { id, request, quote, expiresAt, unlisted: !token.listed, fee, total: total.toString(), valueLoss };
   }
 
   /**
