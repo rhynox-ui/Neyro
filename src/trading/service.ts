@@ -150,7 +150,11 @@ export class TradingService {
       if (amount > balance) {
         throw new UserFacingError(`Not enough ${tokenIn.symbol}: you hold ${formatUnits(balance.toString(), tokenIn.decimals)}`);
       }
+      // A user can explicitly sell their entire token balance in one trade.
+      // The normal 25% position-size cap still applies to partial sells.
+      if (amount !== balance) {
       assertTradeShareAllowed(amount, balance, config.MAX_TRADE_BPS_OF_BALANCE);
+      }
     }
 
     const fee = await this.planFee(side, BigInt(total), tokenIn);
