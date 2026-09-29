@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyFinalExecutionStatus } from "../src/wallet/near-account-signer.js";
+import { classifyFinalExecutionStatus, assertAllowedNearReceiver } from "../src/wallet/near-account-signer.js";
 
 test("NEAR success final statuses are confirmed", () => {
   assert.equal(
