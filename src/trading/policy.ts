@@ -91,9 +91,11 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
           break;
         }
         default: {
-          // Direct DEX calls (e.g. registering tokens) may not carry NEAR.
-          if (!dexes.has(receiver)) block(`unexpected call ${methodName} on ${receiver}`);
-          if (attached > 1n) block(`${methodName} on ${receiver} carries a deposit`);
+          // The swap path only needs the explicit actions handled above.
+          // Never sign an arbitrary method supplied by the remote route builder,
+          // even on an allowlisted DEX: a compromised router response must not
+          // gain access to unrelated DEX capabilities.
+          block(`unexpected call ${methodName} on ${receiver}`);
         }
       }
     }
