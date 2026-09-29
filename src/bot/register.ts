@@ -602,7 +602,7 @@ export function registerBotHandlers(bot: Bot) {
       }
       const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
       await defaultStateStore().set(ctx.from.id, `rhea-recover:${id}`, { token, amount: balance.amount }, 5 * 60 * 1000);
-      await replyScreen(ctx, "rhea-recovery",
+      await replyScreen(ctx, "withdraw",
         "🛟 <b>Confirm RHEA recovery</b>\n\n" +
         `Token: ${code(token)}\nAmount: ${code(balance.amount)} base units\n\nThis withdraws only the recorded internal RHEA balance to your wallet.`,
         {
