@@ -43,27 +43,6 @@ export function quoteDeadline(
   return Math.min(ms, fallback);
 }
 
-/**
- * Share of the trade's USD value lost between what goes in and what the
- * quote says comes out: pool fees (up to 19.99% on a permissionless RHEA
- * Classic pool) plus price impact. Null when either side has no USD price.
- * Negative values (a quote better than the reference price) are clamped to 0.
- */
-export function estimateValueLoss(
-  amountIn: bigint,
-  decimalsIn: number,
-  priceIn: number | null,
-  amountOut: bigint,
-  decimalsOut: number,
-  priceOut: number | null
-): number | null {
-  if (!priceIn || !priceOut || amountIn <= 0n) return null;
-  const valueIn = (Number(amountIn) / 10 ** decimalsIn) * priceIn;
-  const valueOut = (Number(amountOut) / 10 ** decimalsOut) * priceOut;
-  if (!(valueIn > 0) || !Number.isFinite(valueOut)) return null;
-  return Math.max(0, 1 - valueOut / valueIn);
-}
-
 /** Normalize a router/API price-impact field into a decimal fraction.
  * Accepts 0.087, 8.7, or "8.7%".
  */
