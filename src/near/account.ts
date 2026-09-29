@@ -2,12 +2,13 @@ import type { Account } from "near-api-js";
 import { AccountDoesNotExistError } from "near-api-js/rpc-errors";
 import { createNearConnection } from "./client.js";
 import { withRpcFallback } from "./rpc.js";
+import { config } from "../config.js";
 
 /** Storage staking cost: 1 NEAR per 100 kB = 10^19 yoctoNEAR per byte. */
 const STORAGE_PRICE_PER_BYTE = 10n ** 19n;
 
 /** Kept back from trades to pay gas and FT storage registration. */
-export const GAS_RESERVE_YOCTO = 5n * 10n ** 22n; // 0.05 NEAR
+export const GAS_RESERVE_YOCTO = BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO);
 
 export type NearBalance = {
   /** false for an implicit account that has never been funded. */
