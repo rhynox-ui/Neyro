@@ -12,6 +12,23 @@ type CachedOutcome = {
   raw: FinalOutcome;
 };
 
+export const RHEA_AGGREGATED_DEX = "aggregatedex.near";
+
+export function assertAllowedNearReceiver(
+  receiverId: string,
+  allowedReceivers: readonly string[]
+): void {
+  const allowed = new Set(
+    [RHEA_AGGREGATED_DEX, ...allowedReceivers].map((value) =>
+      value.trim().toLowerCase()
+    )
+  );
+
+  if (!allowed.has(receiverId.trim().toLowerCase())) {
+    throw new Error(`NEAR execution blocked: unexpected contract ${receiverId}`);
+  }
+}
+
 function isAbort(signal?: AbortSignal): void {
   if (signal?.aborted) {
     throw new Error("NEAR transaction signing was cancelled");
@@ -47,7 +64,10 @@ export function classifyFinalExecutionStatus(
 export class NearAccountSigner implements NearTransactionSigner {
   private readonly outcomes = new Map<string, CachedOutcome>();
 
-  constructor(private readonly account: Account) {}
+  constructor(
+    private readonly account: Account,
+    private readonly allowedReceivers: readonly string[] = []
+  ) {}
 
   getAccountId(): string {
     return this.account.accountId;
@@ -62,6 +82,8 @@ export class NearAccountSigner implements NearTransactionSigner {
 
     for (const transaction of transactions) {
       isAbort(options.signal);
+
+      assertAllowedNearReceiver(transaction.receiverId, this.allowedReceivers);
 
       const outcome = await this.account.signAndSendTransaction({
         receiverId: transaction.receiverId,
