@@ -1,21 +1,21 @@
 import { functionCall, type WalletAction } from "../near/actions.js";
 
 const STORAGE_DEPOSIT_GAS = 10_000_000_000_000n;
-const NEAR_DEPOSIT_GAS = 10_000_000_000_000n;
 const FT_TRANSFER_GAS = 15_000_000_000_000n;
 export const WRAPPED_NEAR = "wrap.near";
+export const NATIVE_NEAR = "near";
 
 /**
  * How the protocol fee is collected for one trade. Serializable: it is
  * stored with the pending quote.
  *
- * - buy: `amount` yoctoNEAR is wrapped and sent to the treasury as wNEAR
- * - sell: `amount` of the token being sold is sent to the treasury
+ * - buy: `amount` yoctoNEAR is sent to the treasury as native NEAR
+ * - sell: `amount` yoctoNEAR of native NEAR is sent to the treasury
  */
 export type FeePlan = {
   side: "buy" | "sell";
   treasury: string;
-  /** FT contract the fee is paid in: wrap.near for buys, the token for sells. */
+  /** Native NEAR is always used for protocol fees. */
   contractId: string;
   amount: string;
   /** yoctoNEAR storage deposit to register the treasury on contractId, if needed. */
@@ -51,7 +51,9 @@ export function feeActions(plan: FeePlan): WalletAction[] {
     ...(plan.registerTreasury
       ? [functionCall("storage_deposit", { account_id: plan.treasury, registration_only: true }, STORAGE_DEPOSIT_GAS, BigInt(plan.registerTreasury))]
       : []),
-    ...(plan.side === "buy" ? [functionCall("near_deposit", {}, NEAR_DEPOSIT_GAS, amount)] : []),
-    functionCall("ft_transfer", { receiver_id: plan.treasury, amount: plan.amount, memo: "neyro fee" }, FT_TRANSFER_GAS, 1n)
+    {
+      type: "Transfer" as const,
+      params: { deposit: amount.toString() }
+    }
   ];
 }
