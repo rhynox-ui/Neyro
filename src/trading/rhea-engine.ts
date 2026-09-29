@@ -1,4 +1,4 @@
-import { RheaClient } from "../rhea/client.js";
+import { RheaClient, isRheaUnifiedTokenNotFound } from "../rhea/client.js";
 import type { TradeQuote, TradeRequest, TradingEngine } from "../domain/trading.js";
 import { createNeyroNearExecutor, type NearTransactionSigner } from "../near/rhea-executor.js";
 import { extractRheaRouteTokens, requireRheaTokenRegistration } from "../rhea/registration.js";
@@ -39,9 +39,9 @@ export class RheaTradingEngine implements TradingEngine {
         raw: quote
       };
     } catch (error) {
-      // Rhea's current unified API can lag behind newly-created RHEA DCL
-      // pools. The legacy SmartRouter is the documented on-chain route builder
-      // for aggregatedex.near and is used only after the unified quote misses.
+      // Only fall back for the documented token-discovery miss. Do not hide
+      // authentication, rate-limit, outage, or malformed-response errors.
+      if (!isRheaUnifiedTokenNotFound(error)) throw error;
       const direct = await this.rhea.quoteDirect(quoteRequest);
       return {
         tokenIn: request.tokenIn,
