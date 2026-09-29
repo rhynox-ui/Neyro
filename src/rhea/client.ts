@@ -154,6 +154,12 @@ export class RheaClient {
       throw new UserFacingError("RHEA SmartRouter returned an incomplete route");
     }
     if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new UserFacingError("RHEA SmartRouter changed the requested input amount");
+    const expectedInput = stripAssetPrefix(tokenIn);
+    const expectedOutput = stripAssetPrefix(tokenOut);
+    const routeTokens = new Set(tokens.map(stripAssetPrefix));
+    if (!routeTokens.has(expectedInput) || !routeTokens.has(expectedOutput)) {
+      throw new UserFacingError("RHEA SmartRouter returned a route that does not contain the requested tokens");
+    }
     return { kind: "rhea-smart-router", amountIn, amountOut, minAmountOut, msg, signature, tokens, receivedAt: Date.now(), expiresAt: Date.now() + SMART_ROUTER_TTL_MS };
   }
 
