@@ -10,6 +10,10 @@ const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
 const portfolioService = new PortfolioService();
 
+export async function reconcileTradingState(): Promise<void> {
+  await tradingService.reconcileInFlight();
+}
+
 export function registerBotHandlers(bot: Bot) {
   bot.command("start", async (ctx) => {
     await ctx.reply("⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
