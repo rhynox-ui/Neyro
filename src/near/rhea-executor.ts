@@ -10,7 +10,12 @@ import type {
 
 export interface NearTransactionSigner {
   getAccountId(): string;
+  addAllowedReceivers?(receivers: readonly string[]): void;
   signAndSendTransactions(
+    transactions: NearTransaction[],
+    options: { signal?: AbortSignal }
+  ): Promise<{ txHashes: string[]; raw?: unknown }>;
+  signAndSendRegistrationTransactions?(
     transactions: NearTransaction[],
     options: { signal?: AbortSignal }
   ): Promise<{ txHashes: string[]; raw?: unknown }>;
@@ -20,10 +25,6 @@ export interface NearTransactionSigner {
   ): Promise<{ status: "confirmed" | "failed"; raw?: unknown }>;
 }
 
-/**
- * RHEA execution adapter. The signer implementation is deliberately injected
- * so Telegram handlers never receive or manipulate private keys.
- */
 export function createNeyroNearExecutor(
   signer: NearTransactionSigner
 ): ChainExecutor {
