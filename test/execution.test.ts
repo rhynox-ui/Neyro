@@ -124,6 +124,19 @@ test("signer refuses non-swap actions before signing anything", async () => {
   assert.equal(classifyBatch(signer.sent), "failed");
 });
 
+test("slippage failures are converted to actionable user text", async () => {
+  const { friendlyExecutionFailure } = await import("../src/trading/outcome.js");
+  assert.match(
+    friendlyExecutionFailure('{"ExecutionError":"E204: slippage error"}', 100) ?? "",
+    /Price moved beyond your 1% slippage tolerance/
+  );
+  assert.match(
+    friendlyExecutionFailure('E204: slippage error', 150) ?? "",
+    /1.50% slippage tolerance/
+  );
+  assert.equal(friendlyExecutionFailure("some other chain failure", 100), "some other chain failure");
+});
+
 test("value loss flags high-fee pools and price impact", async () => {
   const { estimateValueLoss, valueLossWarning } = await import("../src/trading/outcome.js");
   const NEAR = 10n ** 24n;
