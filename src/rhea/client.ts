@@ -130,19 +130,19 @@ export class RheaClient {
         signal: AbortSignal.timeout(SMART_ROUTER_TIMEOUT_MS)
       });
     } catch (error) {
-      throw new Error(`RHEA SmartRouter request failed: ${error instanceof Error ? error.message : "network error"}`);
+      throw new UserFacingError(`RHEA SmartRouter request failed: ${cleanRheaText(error instanceof Error ? error.message : "network error")}`);
     }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
     if (!response.ok) {
       const detail = rheaApiError(body);
-      throw new Error(`RHEA SmartRouter HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
+      throw new UserFacingError(`RHEA SmartRouter HTTP ${response.status}${detail ? `: ${cleanRheaText(detail)}` : ""}`);
     }
     if (body && typeof body.code === "number" && body.code !== 0) {
-      throw new Error(`RHEA SmartRouter rejected route (code ${body.code})${typeof body.msg === "string" ? `: ${body.msg}` : ""}`);
+      throw new UserFacingError(`RHEA SmartRouter rejected route (code ${body.code})${typeof body.msg === "string" ? `: ${cleanRheaText(body.msg)}` : ""}`);
     }
     const data = body?.data && typeof body.data === "object" ? body.data as Record<string, unknown> : body;
     if (data && typeof data.code === "number" && data.code !== 0) {
-      throw new Error(`RHEA SmartRouter rejected route (code ${data.code})${typeof data.msg === "string" ? `: ${data.msg}` : ""}`);
+      throw new UserFacingError(`RHEA SmartRouter rejected route (code ${data.code})${typeof data.msg === "string" ? `: ${cleanRheaText(data.msg)}` : ""}`);
     }
     const amountIn = String(data?.amount_in ?? "");
     const amountOut = String(data?.amount_out ?? "");
@@ -151,9 +151,9 @@ export class RheaClient {
     const signature = typeof data?.signature === "string" ? data.signature : "";
     const tokens = Array.isArray(data?.tokens) ? data.tokens.filter((item): item is string => typeof item === "string").map(stripAssetPrefix) : [];
     if (!/^\d+$/.test(amountIn) || !/^\d+$/.test(amountOut) || !/^\d+$/.test(minAmountOut) || !msg || !signature || tokens.length === 0) {
-      throw new Error("RHEA SmartRouter returned an incomplete route");
+      throw new UserFacingError("RHEA SmartRouter returned an incomplete route");
     }
-    if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new Error("RHEA SmartRouter changed the requested input amount");
+    if (BigInt(amountIn) !== BigInt(request.amountIn)) throw new UserFacingError("RHEA SmartRouter changed the requested input amount");
     return { kind: "rhea-smart-router", amountIn, amountOut, minAmountOut, msg, signature, tokens, receivedAt: Date.now(), expiresAt: Date.now() + SMART_ROUTER_TTL_MS };
   }
 
@@ -234,4 +234,8 @@ function rheaApiError(body: Record<string, unknown> | null): string | undefined 
 
 export function isRheaUnifiedTokenNotFound(error: unknown): boolean {
   return error instanceof Error && /token .*not found on chain/i.test(error.message);
+}
+
+function cleanRheaText(text: string): string {
+  return text.replace(/https?:\/\/\S+/g, "[link]").replace(/[\u0000-\u001f]+/g, " ").trim().slice(0, 160);
 }
