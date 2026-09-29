@@ -5,7 +5,9 @@ process.env.DATABASE_URL ??= "https://example.com/test-db";
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyNearTransactionResult, hasFailure } from "../src/near/reconcile.js";
+
+const { classifyNearTransactionResult, hasFailure } =
+  await import("../src/near/reconcile.js");
 
 test("NEAR reconciliation confirms successful final execution", () => {
   assert.equal(classifyNearTransactionResult({ SuccessValue: "" }, []), "confirmed");
