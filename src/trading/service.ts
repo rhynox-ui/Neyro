@@ -8,6 +8,7 @@ import { assertSlippageAllowed, assertTradeShareAllowed, getSpendableBalance } f
 import type { TradeQuote, TradeRequest } from "../domain/trading.js";
 import { NoopTradeRepository, PostgresTradeRepository, type TradeRepository } from "./repository.js";
 import { config } from "../config.js";
+import { reconcileNearTransaction } from "../near/reconcile.js";
 
 const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
@@ -206,6 +207,41 @@ export class TradingService {
         error instanceof Error ? error.message.slice(0, 200) : "execution_failed"
       );
       throw error;
+    }
+  }
+
+  async reconcileInFlight(): Promise<void> {
+    const trades = await this.repository.listInFlight();
+
+    for (const trade of trades) {
+      if (!trade.txHash) {
+        console.warn(
+          `Neyro trade ${trade.idempotencyKey} is ${trade.status} without a transaction hash; leaving it blocked for manual reconciliation`
+        );
+        continue;
+      }
+
+      const result = await reconcileNearTransaction(
+        trade.txHash,
+        trade.accountId
+      );
+
+      if (result.status === "failed") {
+        await this.repository.updateStatus(
+          trade.userId,
+          trade.idempotencyKey,
+          "failed",
+          trade.txHash,
+          "reconciled_execution_failure"
+        );
+        continue;
+      }
+
+      if (result.status === "unknown") {
+        console.warn(
+          `Neyro trade ${trade.idempotencyKey} could not be reconciled: ${result.error}`
+        );
+      }
     }
   }
 
