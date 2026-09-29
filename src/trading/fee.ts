@@ -39,6 +39,11 @@ export function computeFee(
   return pctFee > cap ? { fee: cap, capped: true } : { fee: pctFee, capped: false };
 }
 
+export function feeReceiver(plan: FeePlan): string {
+  if (plan.contractId !== "near") throw new Error("Protocol fee asset must be native NEAR");
+  return plan.treasury;
+}
+
 export function feeActions(plan: FeePlan): WalletAction[] {
   if (plan.contractId !== "near") throw new Error("Protocol fee asset must be native NEAR");
   const amount = BigInt(plan.amount);
