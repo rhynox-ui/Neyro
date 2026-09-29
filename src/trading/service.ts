@@ -109,6 +109,8 @@ export class TradingService {
       assertTradeShareAllowed(shareBps);
     }
 
+    const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+
     const request: TradeRequest = {
       accountId: wallet.accountId,
       side,
@@ -121,7 +123,6 @@ export class TradingService {
 
     const engine = new RheaTradingEngine();
     const quote = await engine.quote(request);
-    const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
     const expiresAt = Date.now() + PENDING_TTL_MS;
 
     pending.set(id, { userId, request, quote, expiresAt });
