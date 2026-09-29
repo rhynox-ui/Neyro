@@ -5,7 +5,8 @@ import { decryptSecret, encryptSecret } from "../src/security/secrets.js";
 import {
   DEFAULT_RISK_POLICY,
   assertSlippageAllowed,
-  assertTradeShareAllowed
+  assertTradeShareAllowed,
+  getSpendableBalance
 } from "../src/security/risk.js";
 
 test("secret encryption round trips", () => {
@@ -46,5 +47,14 @@ test("trade share policy rejects values above the limit", () => {
 test("trade share policy accepts values at the limit", () => {
   assert.doesNotThrow(() =>
     assertTradeShareAllowed(DEFAULT_RISK_POLICY.maxTradeBpsOfBalance)
+  );
+});
+
+
+test("spendable balance keeps the configured NEAR reserve", () => {
+  assert.equal(getSpendableBalance(100n, 10n), 90n);
+  assert.throws(
+    () => getSpendableBalance(10n, 10n),
+    /safety reserve/
   );
 });
