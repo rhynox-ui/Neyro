@@ -137,10 +137,11 @@ export class RheaClient {
       const detail = rheaApiError(body);
       throw new UserFacingError(`RHEA SmartRouter HTTP ${response.status}${detail ? `: ${cleanRheaText(detail)}` : ""}`);
     }
-    if (body && typeof body.code === "number" && body.code !== 0) {
-      throw new UserFacingError(`RHEA SmartRouter rejected route (code ${body.code})${typeof body.msg === "string" ? `: ${cleanRheaText(body.msg)}` : ""}`);
+    const envelope = parseSmartRouterEnvelope(body);
+    if (envelope.errorCode !== undefined && envelope.errorCode !== 0) {
+      throw new UserFacingError(`RHEA SmartRouter rejected route (code ${envelope.errorCode})${envelope.errorMessage ? `: ${cleanRheaText(envelope.errorMessage)}` : ""}`);
     }
-    const data = extractSmartRouterPayload(body);
+    const data = extractSmartRouterPayload(envelope.data);
     if (data && typeof data.code === "number" && data.code !== 0) {
       throw new UserFacingError(`RHEA SmartRouter rejected route (code ${data.code})${typeof data.msg === "string" ? `: ${cleanRheaText(data.msg)}` : ""}`);
     }
@@ -250,6 +251,39 @@ function rheaApiError(body: Record<string, unknown> | null): string | undefined 
 
 export function isRheaUnifiedTokenNotFound(error: unknown): boolean {
   return error instanceof Error && /token .*not found on chain/i.test(error.message);
+}
+
+function parseSmartRouterEnvelope(body: Record<string, unknown> | null): {
+  data: Record<string, unknown> | null;
+  errorCode?: number;
+  errorMessage?: string;
+} {
+  if (!body) return { data: null };
+  const resultCode = body.result_code;
+  const resultMessage = body.result_message;
+  if (typeof resultCode === "number") {
+    return {
+      data: parseRecord(body.result_data),
+      errorCode: resultCode,
+      errorMessage: typeof resultMessage === "string" ? resultMessage : undefined
+    };
+  }
+  return {
+    data: body,
+    errorCode: typeof body.code === "number" ? body.code : undefined,
+    errorMessage: typeof body.msg === "string" ? body.msg : undefined
+  };
+}
+
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {}
+  }
+  return null;
 }
 
 function extractSmartRouterPayload(body: Record<string, unknown> | null): Record<string, unknown> | null {
