@@ -6,7 +6,8 @@ process.env.DATABASE_URL = "https://example.com/test-db";
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RheaClient, type RheaQuoteRequest } from "../src/rhea/client.js";
+import type { RheaQuoteRequest } from "../src/rhea/client.js";
+const { RheaClient } = await import("../src/rhea/client.js");
 
 const request: RheaQuoteRequest = {
   fromToken: { chain: "near", address: "wrap.near", symbol: "NEAR", decimals: 24, isNative: true },
