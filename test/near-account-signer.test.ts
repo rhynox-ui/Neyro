@@ -68,7 +68,7 @@ test("RHEA route token extraction prefers protocol-provided token list", async (
 });
 
 test("RHEA registration preflight falls back to trade tokens", async () => {
-  const { extractRheaRouteTokens } = await import("../src/rhea/registration.js");
+  const { extractRheaRouteTokens } = await import("../src/rhea/route.js");
   assert.deepEqual(
     extractRheaRouteTokens({}, ["wrap.near", "foo.near"]),
     ["wrap.near", "foo.near"]
