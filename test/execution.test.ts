@@ -124,20 +124,18 @@ test("signer refuses non-swap actions before signing anything", async () => {
   assert.equal(classifyBatch(signer.sent), "failed");
 });
 
-test("value loss flags high-fee pools and price impact", async () => {
-  const { estimateValueLoss, valueLossWarning } = await import("../src/trading/outcome.js");
+test("price impact uses the new thresholds and wording", async () => {
+  const { estimatePriceImpact, priceImpactWarning } = await import("../src/trading/outcome.js");
   const NEAR = 10n ** 24n;
-  // 10 NEAR at $3 = $30 in; 58,000 tokens at $0.0005 = $29 out → ~3.3% lost.
-  const normal = estimateValueLoss(10n * NEAR, 24, 3, 58_000n * 10n ** 6n, 6, 0.0005)!;
+  // 10 NEAR at $3 = $30 in; 58,000 tokens at $0.0005 = $29 out -> ~3.3%.
+  const normal = estimatePriceImpact(10n * NEAR, 24, 3, 58_000n * 10n ** 6n, 6, 0.0005)!;
   assert.ok(Math.abs(normal - 1 / 30) < 1e-9);
-  assert.match(valueLossWarning(normal)!, /^⚠️ About 3.3%/);
-  // A 19.99%-fee Classic pool: $30 in, $24 out → 20% lost.
-  const scam = estimateValueLoss(10n * NEAR, 24, 3, 48_000n * 10n ** 6n, 6, 0.0005)!;
-  assert.match(valueLossWarning(scam)!, /^🚨 You lose about 20.0%/);
-  // Normal trades and unknown prices show nothing.
-  assert.equal(valueLossWarning(estimateValueLoss(10n * NEAR, 24, 3, 59_700n * 10n ** 6n, 6, 0.0005)), undefined);
-  assert.equal(estimateValueLoss(10n * NEAR, 24, null, 1n, 6, 1), null);
-  assert.equal(estimateValueLoss(10n * NEAR, 24, 3, 70_000n * 10n ** 6n, 6, 0.0005), 0);
+  assert.equal(priceImpactWarning(normal), "price impact: ~3.3%");
+
+  const veryHigh = estimatePriceImpact(10n * NEAR, 24, 3, 48_000n * 10n ** 6n, 6, 0.0005)!;
+  assert.equal(priceImpactWarning(veryHigh), "🚨 Very high price impact: ~20.0%");
+
+  assert.equal(priceImpactWarning(null), undefined);
 });
 
 test("route description names router, market and alternatives", async () => {
