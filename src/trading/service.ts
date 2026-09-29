@@ -117,8 +117,9 @@ export class TradingService {
     if (!wallet) throw new UserFacingError("Create a Neyro wallet first with /wallet");
 
     const amountText = humanAmount.trim();
-    if (!/^\d+(\.\d+)?$/.test(amountText) || /^0+(?:\.0*)?$/.test(amountText)) {
-      throw new UserFacingError("Amount must be a positive decimal number");
+    const sellAll = side === "sell" && amountText.toLowerCase() === "all";
+    if (!sellAll && (!/^\d+(\.\d+)?$/.test(amountText) || /^0+(?:\.0*)?$/.test(amountText))) {
+      throw new UserFacingError("Amount must be a positive decimal number, or "all" when selling");
     }
 
     const token = await this.rhea.resolveNearToken(tokenQuery);
@@ -130,27 +131,28 @@ export class TradingService {
 
     const tokenIn = side === "buy" ? near : token;
     const tokenOut = side === "buy" ? token : near;
-    // What the user spends in total; the fee comes out of it.
-    const total = parseUnits(amountText, tokenIn.decimals);
-
+    let total: bigint;
     assertSlippageAllowed(slippageBps);
 
     if (side === "buy") {
+      total = BigInt(parseUnits(amountText, tokenIn.decimals));
       const balance = tradableNear(await getNearBalance(wallet.accountId));
-      const amount = BigInt(total);
-      if (amount > balance) {
+      if (total > balance) {
         throw new UserFacingError(
           `Not enough NEAR: ${formatUnits(balance.toString(), 24)} NEAR available to trade (${formatUnits(config.NEAR_SPENDABLE_RESERVE_YOCTO, 24)} NEAR is kept for gas, storage and RHEA registration)`
         );
       }
-      assertTradeShareAllowed(amount, balance, config.MAX_TRADE_BPS_OF_BALANCE);
+      assertTradeShareAllowed(total, balance, config.MAX_TRADE_BPS_OF_BALANCE);
     } else {
       const balance = await ftBalanceOf(contractOf(tokenIn), wallet.accountId);
-      const amount = BigInt(total);
-      if (amount > balance) {
+      total = sellAll ? balance : BigInt(parseUnits(amountText, tokenIn.decimals));
+      if (total <= 0n) throw new UserFacingError(`No ${tokenIn.symbol} balance available to sell`);
+      if (total > balance) {
         throw new UserFacingError(`Not enough ${tokenIn.symbol}: you hold ${formatUnits(balance.toString(), tokenIn.decimals)}`);
       }
-      assertTradeShareAllowed(amount, balance, config.MAX_TRADE_BPS_OF_BALANCE);
+      if (total !== balance) {
+        assertTradeShareAllowed(total, balance, config.MAX_TRADE_BPS_OF_BALANCE);
+      }
     }
 
     const fee = await this.planFee(side, BigInt(total), tokenIn);
