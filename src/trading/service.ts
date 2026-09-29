@@ -165,7 +165,7 @@ export class TradingService {
     const engine = new RheaTradingEngine();
     const quote = await engine.quote(request);
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
-    const expiresAt = quoteDeadline(Date.now(), PENDING_TTL_MS, quote.raw.expiresAt);
+    const expiresAt = quoteDeadline(Date.now(), PENDING_TTL_MS, quote.raw?.expiresAt ?? quote.direct?.expiresAt);
 
     pending.set(id, { userId, request, quote, expiresAt, fee });
 
