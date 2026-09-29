@@ -34,8 +34,6 @@ async function ftBalanceOf(contractId: string, accountId: string): Promise<strin
     }
     const bytes = (result as { result: Uint8Array }).result;
     return new TextDecoder().decode(bytes);
-
-    return raw;
   });
 }
 
