@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
+process.env.NEAR_RPC_FALLBACK_URL ??= "https://rpc.mainnet.fastnear.com";
 
 const { withRpcFallback } = await import("../src/near/rpc.js");
 
