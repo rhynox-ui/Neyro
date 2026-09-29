@@ -459,7 +459,7 @@ export class TradingService {
         beforeBroadcast: (txHash) => this.repository.recordEvent(userId, id, { type: "fee_tx_signed", txHash, details })
       });
       await feeSigner.signAndSendTransactions(
-        [{ receiverId: fee.contractId, actions: feeActions(fee) }] as unknown as Parameters<NearAccountSigner["signAndSendTransactions"]>[0],
+        [{ receiverId: fee.treasury, actions: feeActions(fee) }] as unknown as Parameters<NearAccountSigner["signAndSendTransactions"]>[0],
         {}
       );
       const sent = feeSigner.sent[0];
