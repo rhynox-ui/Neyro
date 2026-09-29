@@ -19,7 +19,7 @@ import { deleteIncoming, keepScreen, replyNotice, replyScreen } from "./screens.
 import { scheduleDeletion } from "./autodelete.js";
 import type { WalletSummary } from "../wallet/repository.js";
 import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
-import { describeRoute, valueLossWarning } from "../trading/outcome.js";
+import { describeRoute, priceImpactWarning } from "../trading/outcome.js";
 import { ageLabel, createTokenPanel, feeLabel, SLIPPAGE_PRESETS } from "./panel.js";
 import { SettingsService, type SlippagePrefs } from "../settings/service.js";
 import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discovery/nearly.js";
@@ -729,7 +729,7 @@ export function registerBotHandlers(bot: Bot) {
         `Minimum: ${minimum} ${symbolOut}\n` +
         `Slippage: ${prepared.request.slippageBps / 100}%\n` +
         `Router: ${escapeHtml(describeRoute(prepared.quote.direct ? undefined : prepared.quote.raw?.route, prepared.quote.raw?.alternatives?.length ?? 0))}\n\n` +
-        (valueLossWarning(prepared.valueLoss) ? `${escapeHtml(valueLossWarning(prepared.valueLoss)!)}\n\n` : "") +
+        (priceImpactWarning(prepared.priceImpact) ? `${escapeHtml(priceImpactWarning(prepared.priceImpact)!)}\n\n` : "") +
         (prepared.unlisted
           ? `⚠️ <b>Unlisted token.</b> ${code(side === "buy" ? prepared.request.tokenOut.address : prepared.request.tokenIn.address)} is not on RHEA's token list. Verify the contract; anyone can deploy a token with any symbol.\n\n`
           : "") +
