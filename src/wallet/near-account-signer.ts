@@ -92,6 +92,7 @@ function executionStatusOf(value: unknown): unknown {
 
 export class NearAccountSigner implements NearTransactionSigner {
   private readonly sentTransactions: SentTransaction[] = [];
+  private readonly extraAllowedReceivers = new Set<string>();
 
   constructor(
     private readonly account: Account,
@@ -106,36 +107,42 @@ export class NearAccountSigner implements NearTransactionSigner {
     return this.sentTransactions;
   }
 
-  async signAndSendTransactions(
+  addAllowedReceivers(receivers: readonly string[]): void {
+    for (const receiver of receivers) this.extraAllowedReceivers.add(receiver);
+  }
+
+  private allowedReceivers(): string[] {
+    return [
+      ...(this.journal.allowedReceivers ?? []),
+      ...this.extraAllowedReceivers
+    ];
+  }
+
+  private async sendTransactions(
     transactions: NearTransaction[],
-    options: { signal?: AbortSignal }
+    options: { signal?: AbortSignal },
+    applyTransform: boolean
   ): Promise<{ txHashes: string[]; raw?: unknown }> {
     const raw: unknown[] = [];
-
     let planned: PlannedTransaction[] = transactions.map((transaction) => ({
       receiverId: transaction.receiverId,
       actions: transaction.actions.map(parseWalletAction)
     }));
 
-    if (this.journal.transform) {
+    if (applyTransform && this.journal.transform) {
       planned = this.journal.transform(planned);
     }
 
     for (const transaction of planned) {
       isAbort(options.signal);
-
-      if (this.journal.allowedReceivers) {
-        assertAllowedNearReceiver(
-          transaction.receiverId,
-          this.journal.allowedReceivers
-        );
+      if (this.journal.allowedReceivers || this.extraAllowedReceivers.size > 0) {
+        assertAllowedNearReceiver(transaction.receiverId, this.allowedReceivers());
       }
 
       const signed = await this.account.createSignedTransaction({
         receiverId: transaction.receiverId,
         actions: transaction.actions.map(toNearApiAction)
       });
-
       const txHash = transactionHash(signed);
       await this.journal.beforeBroadcast?.(txHash, transaction.receiverId);
 
@@ -144,32 +151,22 @@ export class NearAccountSigner implements NearTransactionSigner {
         receiverId: transaction.receiverId,
         result: "unknown"
       };
-
       this.sentTransactions.push(record);
 
       let outcome: unknown;
-
       try {
-        outcome = await this.account.provider.sendTransactionUntil(
-          signed,
-          WAIT_UNTIL
-        );
+        outcome = await this.account.provider.sendTransactionUntil(signed, WAIT_UNTIL);
       } catch (error) {
         if (error instanceof ActionExecutionError) {
           record.result = "reverted";
           record.failure = error.message.slice(0, 200);
           break;
         }
-
-        if (isDefinitiveRejection(error)) {
-          record.result = "rejected";
-        }
-
+        if (isDefinitiveRejection(error)) record.result = "rejected";
         throw error;
       }
 
       raw.push(outcome);
-
       const failure = findExecutionFailure(outcome);
       if (failure) {
         record.result = "reverted";
@@ -182,10 +179,7 @@ export class NearAccountSigner implements NearTransactionSigner {
         record.result = "executed";
       } catch (error) {
         record.result = "unknown";
-        record.failure =
-          error instanceof Error
-            ? error.message
-            : "unknown NEAR execution status";
+        record.failure = error instanceof Error ? error.message : "unknown NEAR execution status";
         break;
       }
     }
@@ -194,6 +188,34 @@ export class NearAccountSigner implements NearTransactionSigner {
       txHashes: this.sentTransactions.map((item) => item.txHash),
       raw
     };
+  }
+
+  async signAndSendRegistrationTransactions(
+    transactions: NearTransaction[],
+    options: { signal?: AbortSignal }
+  ): Promise<{ txHashes: string[]; raw?: unknown }> {
+    if (transactions.length === 0) return { txHashes: [], raw: [] };
+
+    for (const transaction of transactions) {
+      for (const action of transaction.actions) {
+        const parsed = parseWalletAction(action);
+        if (
+          parsed.type !== "FunctionCall" ||
+          !["tokens_storage_deposit", "storage_deposit"].includes(parsed.params.methodName)
+        ) {
+          throw new Error("NEAR registration execution blocked: unexpected action");
+        }
+      }
+    }
+
+    return this.sendTransactions(transactions, options, false);
+  }
+
+  async signAndSendTransactions(
+    transactions: NearTransaction[],
+    options: { signal?: AbortSignal }
+  ): Promise<{ txHashes: string[]; raw?: unknown }> {
+    return this.sendTransactions(transactions, options, true);
   }
 
   async waitForTransactions(
