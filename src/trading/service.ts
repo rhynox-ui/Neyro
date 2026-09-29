@@ -319,6 +319,10 @@ export class TradingService {
     try {
       const account = await this.walletService.getSigningAccount(userId, request.accountId);
       signer = new NearAccountSigner(account, {
+        allowedReceivers: [
+          request.tokenIn.address,
+          request.tokenOut.address
+        ],
         beforeBroadcast: (txHash, receiverId) =>
           this.repository.recordEvent(userId, id, { type: "tx_signed", txHash, details: { receiverId } }),
         transform: (transactions) => {
@@ -410,6 +414,7 @@ export class TradingService {
     try {
       const account = await this.walletService.getSigningAccount(userId, accountId);
       const feeSigner = new NearAccountSigner(account, {
+        allowedReceivers: [fee.contractId],
         beforeBroadcast: (txHash) => this.repository.recordEvent(userId, id, { type: "fee_tx_signed", txHash, details })
       });
       await feeSigner.signAndSendTransactions(
