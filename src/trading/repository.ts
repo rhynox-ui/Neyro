@@ -19,11 +19,13 @@ export type TradeRecord = {
 export interface TradeRepository {
   create(record: TradeRecord): Promise<void>;
   updateStatus(userId: number, idempotencyKey: string, status: TradeRecord["status"], txHash?: string, errorCode?: string): Promise<void>;
+  listInFlight(): Promise<TradeRecord[]>;
 }
 
 export class NoopTradeRepository implements TradeRepository {
   async create(_record: TradeRecord): Promise<void> {}
   async updateStatus(_userId: number, _idempotencyKey: string, _status: TradeRecord["status"], _txHash?: string, _errorCode?: string): Promise<void> {}
+  async listInFlight(): Promise<TradeRecord[]> { return []; }
 }
 
 export class PostgresTradeRepository implements TradeRepository {
@@ -58,5 +60,46 @@ export class PostgresTradeRepository implements TradeRepository {
       error_code=${errorCode ?? null}, updated_at=now()
       from users u where t.user_id=u.id and u.telegram_user_id=${userId}
       and t.idempotency_key=${idempotencyKey}`;
+  }
+
+  async listInFlight(): Promise<TradeRecord[]> {
+    const rows = await this.sql`
+      select
+        u.telegram_user_id as user_id,
+        w.near_account_id as account_id,
+        t.side,
+        t.token_in,
+        t.token_out,
+        t.amount_in,
+        t.expected_out,
+        t.slippage_bps,
+        t.router,
+        t.idempotency_key,
+        t.status,
+        t.tx_hash,
+        t.error_code
+      from trades t
+      join users u on u.id=t.user_id
+      join wallets w on w.id=t.wallet_id
+      where t.status in ('executing', 'submitted')
+      order by t.updated_at asc
+      limit 100
+    ` as unknown as Array<Record<string, unknown>>;
+
+    return rows.map((row) => ({
+      userId: Number(row.user_id),
+      accountId: String(row.account_id),
+      side: row.side as TradeRecord["side"],
+      tokenIn: String(row.token_in),
+      tokenOut: String(row.token_out),
+      amountIn: String(row.amount_in),
+      expectedOut: String(row.expected_out),
+      slippageBps: Number(row.slippage_bps),
+      router: row.router ? String(row.router) : undefined,
+      idempotencyKey: String(row.idempotency_key),
+      status: row.status as TradeRecord["status"],
+      txHash: row.tx_hash ? String(row.tx_hash) : undefined,
+      errorCode: row.error_code ? String(row.error_code) : undefined
+    }));
   }
 }
