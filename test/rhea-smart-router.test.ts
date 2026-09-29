@@ -7,7 +7,7 @@ process.env.DATABASE_URL = "https://example.com/test-db";
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { RheaQuoteRequest } from "../src/rhea/client.js";
-const { RheaClient } = await import("../src/rhea/client.js");
+const { RheaClient, isRheaUnifiedTokenNotFound } = await import("../src/rhea/client.js");
 
 const request: RheaQuoteRequest = {
   fromToken: { chain: "near", address: "wrap.near", symbol: "NEAR", decimals: 24, isNative: true },
@@ -91,4 +91,9 @@ test("direct RHEA sell sends the input token to aggregated DEX", () => {
   assert.equal(transaction?.receiverId, "shore-4lzt.launch.shoremarkets.near");
   assert.equal((transaction?.actions[0] as any).params.methodName, "ft_transfer_call");
   assert.equal((transaction?.actions[0] as any).params.args.receiver_id, "aggregatedex.near");
+});
+
+test("unified RHEA token-not-found detection is narrow", () => {
+  assert.equal(isRheaUnifiedTokenNotFound(new Error('Token "x.near" not found on chain near')), true);
+  assert.equal(isRheaUnifiedTokenNotFound(new Error("RHEA request timed out")), false);
 });
