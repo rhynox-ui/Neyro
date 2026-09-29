@@ -108,15 +108,9 @@ export class RheaClient {
       return await this.client.quote(payload);
     } catch (error) {
       if (error instanceof Error && /token .*not found on chain/i.test(error.message)) {
-        const direct = await this.smartRouterQuote(request).catch((fallbackError) => {
-          throw new UserFacingError(
-            "RHEA cannot route this token on NEAR right now. The token may have a live DCL pool, but RHEA's unified router has not indexed it yet. No transaction was submitted."
-          );
-        });
-        // Keep the public return type compatible with callers that only need
-        // the normalized quote fields. The direct quote is consumed through
-        // quoteDirect() by RheaTradingEngine when the unified API misses.
-        return direct as unknown as Quote;
+        throw new UserFacingError(
+          "RHEA unified routing does not know this token yet; trying the RHEA DCL SmartRouter fallback."
+        );
       }
       throw error;
     }
