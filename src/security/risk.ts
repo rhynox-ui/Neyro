@@ -35,3 +35,19 @@ export function assertTradeShareAllowed(
     throw new Error("Trade exceeds the configured wallet risk limit");
   }
 }
+
+
+export function getSpendableBalance(
+  balanceYocto: bigint,
+  reserveYocto: bigint
+): bigint {
+  if (balanceYocto < 0n || reserveYocto < 0n) {
+    throw new Error("NEAR balance and reserve must be non-negative");
+  }
+
+  if (balanceYocto <= reserveYocto) {
+    throw new Error("Insufficient NEAR balance after the safety reserve");
+  }
+
+  return balanceYocto - reserveYocto;
+}
