@@ -37,7 +37,7 @@ export class RheaTradingEngine implements TradingEngine {
   }
 
   async execute(
-    _request: TradeRequest,
+    request: TradeRequest,
     quote: TradeQuote
   ): Promise<{ transactionHash: string }> {
     const result = await this.rhea.swap(
