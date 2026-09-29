@@ -22,6 +22,7 @@ function collectBalances(value: unknown, out: RheaInternalBalance[]): void {
   );
   if (token && amount !== undefined && /^\d+$/.test(String(amount))) {
     out.push({ token: token.trim().toLowerCase().replace(/^nep141:/, ""), amount: String(amount) });
+    return;
   }
   for (const child of Object.values(record)) {
     if (child && typeof child === "object") collectBalances(child, out);
