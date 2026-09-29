@@ -17,7 +17,7 @@ import {
 } from "./repository.js";
 import { assessFill, classifyBatch, estimateValueLoss, quoteDeadline } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
-import { computeFee, feeActions, type FeePlan } from "./fee.js";
+import { computeFee, feeTransaction, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
 import { nearUsdFromDcl } from "../market/dcl.js";
@@ -458,8 +458,9 @@ export class TradingService {
         allowedReceivers: [fee.treasury],
         beforeBroadcast: (txHash) => this.repository.recordEvent(userId, id, { type: "fee_tx_signed", txHash, details })
       });
+      const feeTx = feeTransaction(fee);
       await feeSigner.signAndSendTransactions(
-        [{ receiverId: fee.contractId, actions: feeActions(fee) }] as unknown as Parameters<NearAccountSigner["signAndSendTransactions"]>[0],
+        [feeTx] as unknown as Parameters<NearAccountSigner["signAndSendTransactions"]>[0],
         {}
       );
       const sent = feeSigner.sent[0];
