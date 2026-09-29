@@ -111,7 +111,7 @@ export class RheaTradingEngine implements TradingEngine {
       const tokens = fresh.direct.tokens.length
         ? fresh.direct.tokens
         : [request.tokenIn.address, request.tokenOut.address];
-      await requireRheaTokenRegistration(request.accountId, tokens);
+      await this.ensureRheaRegistration(request.accountId, tokens);
       const transactions = RheaClient.directTransactions({
         fromToken: request.tokenIn,
         toToken: request.tokenOut,
