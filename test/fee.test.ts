@@ -46,7 +46,7 @@ test("a refunded swap is not a fill (the fee is only charged after a fill)", () 
 });
 
 test("native fee formatting never uses the sold token decimals", () => {
-  assert.equal(formatNativeFee("3761567417580738955"), "3.761567417580738955 NEAR");
+  assert.equal(formatNativeFee("3761567417580738955000000"), "3.761567417580738955 NEAR");
 });
 
 test("fee label", () => {
