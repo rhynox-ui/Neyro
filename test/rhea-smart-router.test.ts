@@ -97,3 +97,20 @@ test("unified RHEA token-not-found detection is narrow", () => {
   assert.equal(isRheaUnifiedTokenNotFound(new Error('Token "x.near" not found on chain near')), true);
   assert.equal(isRheaUnifiedTokenNotFound(new Error("RHEA request timed out")), false);
 });
+
+test("SmartRouter business errors remain user-visible", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ code: -1, msg: "route unavailable for token" })
+  })) as typeof fetch;
+  try {
+    await assert.rejects(
+      () => new RheaClient().quoteDirect(request),
+      /route unavailable for token/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
