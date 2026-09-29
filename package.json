@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/security.test.ts test/rpc.test.ts test/portfolio.test.ts test/near-account-signer.test.ts test/reconciliation.test.ts test/rhea-registration.test.ts"
+    "test": "tsx --test test/security.test.ts test/rpc.test.ts test/portfolio.test.ts test/near-account-signer.test.ts test/reconciliation.test.ts test/rhea-registration.test.ts test/rhea-smart-router.test.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
