@@ -119,7 +119,7 @@ export class TradingService {
     const amountText = humanAmount.trim();
     const sellAll = side === "sell" && amountText.toLowerCase() === "all";
     if (!sellAll && (!/^\d+(\.\d+)?$/.test(amountText) || /^0+(?:\.0*)?$/.test(amountText))) {
-      throw new UserFacingError("Amount must be a positive decimal number, or "all" when selling");
+      throw new UserFacingError('Amount must be a positive decimal number, or "all" when selling');
     }
 
     const token = await this.rhea.resolveNearToken(tokenQuery);
