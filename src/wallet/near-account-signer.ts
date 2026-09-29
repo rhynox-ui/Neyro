@@ -19,20 +19,55 @@ export type SentTransaction = {
   failure?: string;
 };
 
-export type PlannedTransaction = { receiverId: string; actions: WalletAction[] };
+export type PlannedTransaction = {
+  receiverId: string;
+  actions: WalletAction[];
+};
 
 export type SignerJournal = {
-  /**
-   * Adjusts the validated batch before anything is signed, e.g. to add the
-   * protocol fee to the swap transaction. Throwing aborts before broadcast.
-   */
   transform?(transactions: PlannedTransaction[]): PlannedTransaction[];
-  /**
-   * Called with the final hash after signing and before broadcast. If it
-   * throws, the transaction is not sent, so an unrecorded broadcast can't happen.
-   */
   beforeBroadcast?(txHash: string, receiverId: string): Promise<void>;
+  allowedReceivers?: readonly string[];
 };
+
+export const RHEA_AGGREGATED_DEX = "aggregatedex.near";
+
+export function classifyFinalExecutionStatus(
+  status: unknown
+): "confirmed" | "failed" {
+  if (!status || typeof status !== "object") {
+    throw new Error("NEAR RPC returned an unknown final execution status");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(status, "Failure")) {
+    return "failed";
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(status, "SuccessValue") ||
+    Object.prototype.hasOwnProperty.call(status, "SuccessReceiptId")
+  ) {
+    return "confirmed";
+  }
+
+  throw new Error("NEAR RPC returned an unknown final execution status");
+}
+
+export function assertAllowedNearReceiver(
+  receiverId: string,
+  allowedReceivers: readonly string[]
+): void {
+  const allowed = new Set([
+    RHEA_AGGREGATED_DEX,
+    ...allowedReceivers
+  ]);
+
+  if (!allowed.has(receiverId)) {
+    throw new Error(
+      `NEAR execution blocked: unexpected contract ${receiverId}`
+    );
+  }
+}
 
 const WAIT_UNTIL = "EXECUTED_OPTIMISTIC";
 
@@ -42,15 +77,16 @@ function isAbort(signal?: AbortSignal): void {
   }
 }
 
-/**
- * Adapter around a near-api-js Account.
- *
- * The Account owns the signer. Callers only see transaction hashes and
- * confirmation state; private keys never cross this boundary.
- *
- * Every transaction is signed first, its hash journaled, and only then
- * broadcast, so a timeout after broadcast still leaves a hash to reconcile.
- */
+function executionStatusOf(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(record, "status")) return record.status;
+  if (Object.prototype.hasOwnProperty.call(record, "outcome")) {
+    return executionStatusOf(record.outcome);
+  }
+  return value;
+}
+
 export class NearAccountSigner implements NearTransactionSigner {
   private readonly sentTransactions: SentTransaction[] = [];
 
@@ -63,7 +99,6 @@ export class NearAccountSigner implements NearTransactionSigner {
     return this.account.accountId;
   }
 
-  /** Every transaction this signer attempted to broadcast, in order. */
   get sent(): readonly SentTransaction[] {
     return this.sentTransactions;
   }
@@ -74,20 +109,30 @@ export class NearAccountSigner implements NearTransactionSigner {
   ): Promise<{ txHashes: string[]; raw?: unknown }> {
     const raw: unknown[] = [];
 
-    // Validate the whole batch before signing any of it.
     let planned: PlannedTransaction[] = transactions.map((transaction) => ({
       receiverId: transaction.receiverId,
       actions: transaction.actions.map(parseWalletAction)
     }));
-    if (this.journal.transform) planned = this.journal.transform(planned);
+
+    if (this.journal.transform) {
+      planned = this.journal.transform(planned);
+    }
 
     for (const transaction of planned) {
       isAbort(options.signal);
+
+      if (this.journal.allowedReceivers) {
+        assertAllowedNearReceiver(
+          transaction.receiverId,
+          this.journal.allowedReceivers
+        );
+      }
 
       const signed = await this.account.createSignedTransaction({
         receiverId: transaction.receiverId,
         actions: transaction.actions.map(toNearApiAction)
       });
+
       const txHash = transactionHash(signed);
       await this.journal.beforeBroadcast?.(txHash, transaction.receiverId);
 
@@ -96,31 +141,50 @@ export class NearAccountSigner implements NearTransactionSigner {
         receiverId: transaction.receiverId,
         result: "unknown"
       };
+
       this.sentTransactions.push(record);
 
       let outcome: unknown;
+
       try {
-        outcome = await this.account.provider.sendTransactionUntil(signed, WAIT_UNTIL);
+        outcome = await this.account.provider.sendTransactionUntil(
+          signed,
+          WAIT_UNTIL
+        );
       } catch (error) {
         if (error instanceof ActionExecutionError) {
-          // Executed on chain and failed; the outcome is known.
           record.result = "reverted";
           record.failure = error.message.slice(0, 200);
           break;
         }
-        if (isDefinitiveRejection(error)) record.result = "rejected";
+
+        if (isDefinitiveRejection(error)) {
+          record.result = "rejected";
+        }
+
         throw error;
       }
 
       raw.push(outcome);
+
       const failure = findExecutionFailure(outcome);
       if (failure) {
         record.result = "reverted";
         record.failure = failure;
-        // Later transactions in a batch depend on earlier ones; stop here.
         break;
       }
-      record.result = "executed";
+
+      try {
+        classifyFinalExecutionStatus(executionStatusOf(outcome));
+        record.result = "executed";
+      } catch (error) {
+        record.result = "unknown";
+        record.failure =
+          error instanceof Error
+            ? error.message
+            : "unknown NEAR execution status";
+        break;
+      }
     }
 
     return {
@@ -135,26 +199,34 @@ export class NearAccountSigner implements NearTransactionSigner {
   ): Promise<{ status: "confirmed" | "failed"; raw?: unknown }> {
     if (txHashes.length === 0) return { status: "failed" };
 
-    // sendTransactionUntil(EXECUTED_OPTIMISTIC) returns only after every
-    // receipt executed, so receipt-level results are already known here.
     const records = txHashes.map((hash) =>
       this.sentTransactions.find((item) => item.txHash === hash)
     );
+
     const confirmed = records.every((item) => item?.result === "executed");
-    return { status: confirmed ? "confirmed" : "failed", raw: records };
+
+    return {
+      status: confirmed ? "confirmed" : "failed",
+      raw: records
+    };
   }
 
-  /**
-   * Re-queries the chain for transactions whose outcome is still unknown,
-   * such as after an RPC timeout. Transactions the node has never seen stay unknown.
-   */
   async reconcile(): Promise<void> {
     for (const record of this.sentTransactions) {
       if (record.result !== "unknown") continue;
+
       try {
-        const lookup = await lookupTransaction(this.account.provider, record.txHash, this.account.accountId);
+        const lookup = await lookupTransaction(
+          this.account.provider,
+          record.txHash,
+          this.account.accountId
+        );
+
         record.result = lookup.result;
-        if (lookup.failure) record.failure = lookup.failure;
+
+        if (lookup.failure) {
+          record.failure = lookup.failure;
+        }
       } catch {
         console.warn("NEAR transaction reconciliation failed");
       }
