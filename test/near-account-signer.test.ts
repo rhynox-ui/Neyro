@@ -34,3 +34,23 @@ test("unknown NEAR final status fails closed", () => {
     /unknown final execution status/
   );
 });
+
+
+test("RHEA aggregate contract is explicitly allowed", () => {
+  assert.doesNotThrow(() =>
+    assertAllowedNearReceiver("aggregatedex.near", [])
+  );
+});
+
+test("token contracts supplied by the trade are allowed", () => {
+  assert.doesNotThrow(() =>
+    assertAllowedNearReceiver("token.example.near", ["token.example.near"])
+  );
+});
+
+test("unexpected NEAR receivers are blocked", () => {
+  assert.throws(
+    () => assertAllowedNearReceiver("malicious.example.near", ["token.example.near"]),
+    /unexpected contract/
+  );
+});
