@@ -148,6 +148,7 @@ async function handleSetup(request: Request): Promise<Response> {
     return new Response("Unauthorized. Provide the X-Neyro-Setup-Secret header.", { status: 401 });
   }
 
+  const url = new URL(request.url);
   const bot = await getBot();
   const webhookUrl = `${url.origin}/webhook`;
   await bot.api.setWebhook(webhookUrl, {
