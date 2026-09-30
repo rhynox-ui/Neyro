@@ -220,8 +220,8 @@ async function waitForLaunch(symbol: string, creator: string): Promise<LaunchRec
   let last: LaunchRecord | null = null;
   while (Date.now() < deadline) {
     last = await getLaunchBySymbol(symbol);
+    if (last && isCompletedLaunch(last, symbol, creator)) return last;
     if (last && last.creator === creator) {
-      if (last.step === "Done" && !last.inflight) return last;
       if (last.step === "Failed") {
         throw new UserFacingError(
           `NEARly launch ${last.id} was created but its on-chain launch pipeline failed. No automatic retry was performed. Use the NEARly launch recovery flow for launch #${last.id}.`
