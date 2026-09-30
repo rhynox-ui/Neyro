@@ -93,7 +93,8 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
         }
         case "ft_transfer_call": {
           if (receiver !== normalize(intent.tokenIn)) block(`sends ${receiver}, not the token being sold`);
-          if (!dexes.has(String(args.receiver_id))) block(`sends tokens to ${String(args.receiver_id)}`);
+          const destination = typeof args.receiver_id === "string" ? normalize(args.receiver_id) : "";
+          if (!dexes.has(destination)) block(`sends tokens to ${String(args.receiver_id)}`);
           if (attached > 1n) block("token transfer carries a deposit");
           const transferAmount = amountArg(action, "amount");
           if (transferAmount <= 0n) block("token transfer amount must be positive");
