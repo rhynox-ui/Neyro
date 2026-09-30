@@ -9,6 +9,10 @@ import { UserFacingError } from "../errors.js";
  */
 export const DEFAULT_DEX_CONTRACTS = ["v2.ref-finance.near", "dclv2.ref-labs.near", "aggregatedex.near"];
 
+export function normalizeContractId(value: string): string {
+  return value.trim().toLowerCase().replace(/^nep141:/, "");
+}
+
 const WRAPPED_NEAR = "wrap.near";
 /** Storage registrations (NEP-145) cost ~0.00125 NEAR each; allow a few. */
 const MAX_STORAGE_DEPOSIT = 10n ** 23n; // 0.1 NEAR per call
@@ -48,14 +52,15 @@ function amountArg(action: Extract<WalletAction, { type: "FunctionCall" }>, key:
  * - storage registrations are only for the user's own account or a DEX contract
  */
 export function assertSwapMatchesIntent(transactions: readonly PlannedTransaction[], intent: SwapIntent): void {
-  const dexes = new Set(intent.dexContracts);
-  const tokenContracts = new Set([intent.tokenIn, intent.tokenOut, WRAPPED_NEAR]);
+  const normalize = normalizeContractId;
+  const dexes = new Set(intent.dexContracts.map(normalize));
+  const tokenContracts = new Set([intent.tokenIn, intent.tokenOut, WRAPPED_NEAR].map(normalize));
   let spent = 0n;
   let wrapped = 0n;
   let storage = 0n;
 
   for (const tx of transactions) {
-    const receiver = tx.receiverId;
+    const receiver = normalize(tx.receiverId);
     if (!tokenContracts.has(receiver) && !dexes.has(receiver)) block(`unexpected contract ${receiver}`);
 
     for (const action of tx.actions) {
@@ -74,7 +79,7 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
           break;
         }
         case "near_deposit": {
-          if (receiver !== WRAPPED_NEAR || intent.side !== "buy") block("unexpected NEAR wrap");
+          if (receiver !== normalize(WRAPPED_NEAR) || intent.side !== "buy") block("unexpected NEAR wrap");
           wrapped += attached;
           break;
         }
@@ -84,7 +89,7 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
           break;
         }
         case "ft_transfer_call": {
-          if (receiver !== intent.tokenIn) block(`sends ${receiver}, not the token being sold`);
+          if (receiver !== normalize(intent.tokenIn)) block(`sends ${receiver}, not the token being sold`);
           if (!dexes.has(String(args.receiver_id))) block(`sends tokens to ${String(args.receiver_id)}`);
           if (attached > 1n) block("token transfer carries a deposit");
           spent += amountArg(action, "amount");
