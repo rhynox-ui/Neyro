@@ -26,6 +26,8 @@ export type SwapIntent = {
   tokenOut: string;
   /** Base units the user agreed to swap (after the protocol fee). */
   amountIn: bigint;
+  /** Maximum native/wNEAR output the route is allowed to unwrap. */
+  maxOutput?: bigint;
   dexContracts: readonly string[];
 };
 
@@ -89,6 +91,11 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
           if (receiver !== WRAPPED_NEAR) block("unexpected unwrap");
           if (intent.side !== "sell") block("unexpected NEAR unwrap");
           if (attached > 1n) block("unwrap carries a deposit");
+          const amount = amountArg(action, "amount");
+          if (amount <= 0n) block("unwrap amount must be positive");
+          if (intent.maxOutput !== undefined && amount > intent.maxOutput) {
+            block("unwraps more native output than the confirmed quote");
+          }
           break;
         }
         case "ft_transfer_call": {
