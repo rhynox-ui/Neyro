@@ -5,6 +5,7 @@ import { rateLimit } from "./rate-limit.js";
 
 export const BOT_COMMANDS = [
   { command: "start", description: "Open the Neyro trading terminal" },
+  { command: "help", description: "Show all Neyro commands" },
   { command: "wallet", description: "Create or view your wallet" },
   { command: "deposit", description: "Show your deposit address" },
   { command: "balance", description: "NEAR balance" },
