@@ -274,10 +274,6 @@ export class NearAccountSigner implements NearTransactionSigner {
 
         record.result = lookup.result;
 
-        if (lookup.result === "rejected") {
-          record.failure = lookup.failure ?? "NEAR transaction was rejected";
-        }
-
         if (lookup.failure) {
           record.failure = lookup.failure;
         }
