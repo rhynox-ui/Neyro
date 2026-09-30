@@ -322,14 +322,20 @@ function launchArgs(input: ReturnType<typeof validateInput>, devBuyYocto: bigint
     ...(input.twitter ? { twitter: input.twitter } : {}),
     ...(input.telegram ? { telegram: input.telegram } : {})
   };
+
+  // NEARly treats optional LaunchArgs fields semantically:
+  // - quote is omitted for the default NEAR pair
+  // - dev_buy is omitted unless a real first buy was requested
+  // Sending dev_buy: "0" on a non-NEAR pair is not equivalent to omitting it;
+  // the factory rejects any dev_buy supplied for a non-NEAR pair.
   return {
     name: input.name,
     symbol: input.symbol,
     icon: input.icon ?? null,
     description: input.description ?? null,
     links,
-    dev_buy: devBuyYocto.toString(),
-    quote: input.quote ?? NEARLY_DEFAULT_QUOTE,
+    ...(devBuyYocto > 0n ? { dev_buy: devBuyYocto.toString() } : {}),
+    ...(input.quote && input.quote !== NEARLY_WNEAR ? { quote: input.quote } : {}),
     creator_share_bps: 8000,
     ...(input.tax ? {
       tax: {
