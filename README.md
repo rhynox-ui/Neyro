@@ -40,7 +40,16 @@ updates by webhook, and a cron trigger settles unresolved trades every minute.
      (near.drpc.org), from NEAR's provider list; rpc.mainnet.near.org is
      deprecated for backend use.
 3. Deploy: build command `npm run build`, deploy command `npx wrangler deploy`.
-4. Open `https://<worker>.workers.dev/setup-webhook?secret=<SETUP_SECRET>` once.
+4. Set the webhook once from the shell that has the setup secret value:
+
+```bash
+SETUP_SECRET="<your-setup-secret>"
+curl -i \
+  -H "X-Neyro-Setup-Secret: $SETUP_SECRET" \
+  "https://<worker>.workers.dev/setup-webhook"
+```
+
+The setup secret is never sent in the URL. Do not put it in Telegram, GitHub, or source control.
    This points Telegram at the Worker and registers the command menu.
 5. Check `https://<worker>.workers.dev/health`.
 
