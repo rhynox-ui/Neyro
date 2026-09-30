@@ -170,6 +170,10 @@ function parseLaunch(raw: unknown): LaunchRecord | null {
   if (!Number.isSafeInteger(id) || id < 0) return null;
   if (typeof r.token !== "string" || typeof r.creator !== "string" || typeof r.symbol !== "string") return null;
   if (typeof r.step !== "string") return null;
+  if (typeof r.inflight !== "boolean") return null;
+  if (typeof r.quote !== "string") return null;
+  if (typeof r.total_supply !== "string" || !/^\d+$/.test(r.total_supply) || r.total_supply === "0") return null;
+  if (typeof r.pool_id !== "string" || !r.pool_id.trim()) return null;
   return {
     id,
     token: r.token,
@@ -177,10 +181,10 @@ function parseLaunch(raw: unknown): LaunchRecord | null {
     name: typeof r.name === "string" ? r.name : r.symbol,
     symbol: r.symbol,
     step: r.step,
-    inflight: Boolean(r.inflight),
-    quote: typeof r.quote === "string" ? r.quote : NEARLY_WNEAR,
-    total_supply: typeof r.total_supply === "string" ? r.total_supply : "",
-    pool_id: typeof r.pool_id === "string" ? r.pool_id : ""
+    inflight: r.inflight,
+    quote: r.quote,
+    total_supply: r.total_supply,
+    pool_id: r.pool_id
   };
 }
 
@@ -255,9 +259,20 @@ export async function launchNearlyToken(
 
   const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
   if (pending) {
-    throw new UserFacingError(
-      `A previous NEARly launch is still pending (transaction ${pending.txHash}). Do not launch again. Use /launch-status to reconcile it first.`
-    );
+    const recovered = await recoverNearlyLaunch(pending);
+    if (recovered === "live") {
+      await defaultStateStore().delete(userId, "launch-pending");
+      throw new UserFacingError(
+        `Your previous NEARly launch is already LIVE (transaction ${pending.txHash}). Do not submit another launch.`
+      );
+    }
+    if (recovered === "failed" || recovered === "reverted") {
+      await defaultStateStore().delete(userId, "launch-pending");
+    } else {
+      throw new UserFacingError(
+        `A previous NEARly launch is still pending (transaction ${pending.txHash}). Do not launch again. Use /launch-status to reconcile it first.`
+      );
+    }
   }
 
   let devBuy = 0n;
@@ -306,7 +321,7 @@ export async function launchNearlyToken(
         symbol: clean.symbol,
         creator: wallet.accountId,
         startedAt: Date.now()
-      } satisfies NearlyLaunchPending, 24 * 60 * 60 * 1000);
+      } satisfies NearlyLaunchPending, 30 * 24 * 60 * 60 * 1000);
     }
   });
 
