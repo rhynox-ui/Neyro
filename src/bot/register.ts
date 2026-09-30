@@ -1045,8 +1045,11 @@ export function registerBotHandlers(bot: Bot) {
         const response = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
         if (!response.ok) continue;
         const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.byteLength <= 16 * 1024) {
-          selected = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
+        const dataUri = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
+        // The factory limits the stored icon string, not the decoded image.
+        // Pick the largest Telegram rendition whose actual on-chain string fits.
+        if (new TextEncoder().encode(dataUri).byteLength <= 16 * 1024) {
+          selected = dataUri;
           selectedFileId = photo.file_id;
         }
       }
@@ -1081,11 +1084,11 @@ export function registerBotHandlers(bot: Bot) {
       const response = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
       if (!response.ok) throw new UserFacingError("Couldn't download that image from Telegram.");
       const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.byteLength > 16 * 1024) {
-        throw new UserFacingError("That image is over NEARly's 16 KB on-chain logo limit. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
+      const dataUri = `data:${document.mime_type.toLowerCase()};base64,${Buffer.from(bytes).toString("base64")}`;
+      if (new TextEncoder().encode(dataUri).byteLength > 16 * 1024) {
+        throw new UserFacingError("That image is too large for NEARly's 16 KB on-chain logo limit. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
       }
-      const mime = document.mime_type.toLowerCase();
-      const ready: LaunchWizard = { ...wizard, icon: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`, step: "review" };
+      const ready: LaunchWizard = { ...wizard, icon: dataUri, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
       const wallet = await requireWallet(ctx);
       if (!wallet) return;
