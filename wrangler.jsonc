@@ -12,6 +12,15 @@
   // Settle trades whose outcome was unknown (timeouts, cut-off invocations).
   "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true },
+  "secrets": {
+    "required": [
+      "TELEGRAM_BOT_TOKEN",
+      "DATABASE_URL",
+      "NEYRO_MASTER_KEY",
+      "TELEGRAM_WEBHOOK_SECRET",
+      "SETUP_SECRET"
+    ]
+  },
   // Mainnet is fixed in the deployed config so the Worker can never start on
   // testnet by accident. Secrets (bot token, master key, database URL) are
   // set in the dashboard, not here.
