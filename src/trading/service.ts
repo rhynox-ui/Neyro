@@ -469,9 +469,17 @@ export class TradingService {
       );
       const sent = feeSigner.sent[0];
       if (sent?.result !== "executed") {
-        await this.repository.recordEvent(userId, id, { type: "fee_uncollected", txHash: sent?.txHash, details: { ...details, result: sent?.result } });
+        await this.repository.recordEvent(userId, id, {
+          type: "fee_uncollected",
+          txHash: sent?.txHash,
+          details: { ...details, result: sent?.result ?? "unknown" }
+        });
+        // Never report an unconfirmed/unknown fee as collected. An unknown
+        // transaction may still land and is reconciled separately from the
+        // user's trade fill.
+        return undefined;
       }
-      return sent?.txHash;
+      return sent.txHash;
     } catch (error) {
       console.error("Fee collection failed", { id, error });
       await this.repository.recordEvent(userId, id, { type: "fee_uncollected", details }).catch(() => {});
