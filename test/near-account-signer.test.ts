@@ -57,3 +57,44 @@ test("RHEA registration preflight falls back to trade tokens", async () => {
     ["wrap.near", "foo.near"]
   );
 });
+
+
+test("registration validator requires explicit safe registration arguments", async () => {
+  const { NearAccountSigner } = await import("../src/wallet/near-account-signer.js");
+  const signer = new NearAccountSigner({} as never, { allowedReceivers: ["token.near"] });
+  await assert.rejects(
+    signer.signAndSendRegistrationTransactions([{
+      receiverId: "token.near",
+      actions: [{
+        type: "FunctionCall",
+        params: {
+          methodName: "storage_deposit",
+          args: { account_id: "alice.near", registration_only: false },
+          gas: "10000000000000",
+          deposit: "1"
+        }
+      }]
+    }] as never, {}),
+    /registration_only/
+  );
+});
+
+test("registration validator blocks receivers outside the allowlist", async () => {
+  const { NearAccountSigner } = await import("../src/wallet/near-account-signer.js");
+  const signer = new NearAccountSigner({} as never, { allowedReceivers: ["token.near"] });
+  await assert.rejects(
+    signer.signAndSendRegistrationTransactions([{
+      receiverId: "evil.near",
+      actions: [{
+        type: "FunctionCall",
+        params: {
+          methodName: "storage_deposit",
+          args: { account_id: "alice.near", registration_only: true },
+          gas: "10000000000000",
+          deposit: "1"
+        }
+      }]
+    }] as never, {}),
+    /unexpected contract/
+  );
+});
