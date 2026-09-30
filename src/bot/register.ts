@@ -856,7 +856,7 @@ export function registerBotHandlers(bot: Bot) {
     );
   });
 
-  pm.callbackQuery(/^launch:pair:(\\d+)$/, async (ctx) => {
+  pm.callbackQuery(/^launch:pair:(\d+)$/, async (ctx) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
     if (!wizard || wizard.step !== "pair" || !wizard.pairOptions) {
       await ctx.answerCallbackQuery("Launch pair selection expired");
