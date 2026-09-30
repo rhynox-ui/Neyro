@@ -45,6 +45,33 @@ test("tokens can only go to allowlisted DEX contracts, up to the agreed amount",
   blocked(() => assertSwapMatchesIntent(wrongToken, sell), /unexpected contract usdt/);
 });
 
+test("contract identifier normalization cannot bypass the allowlist", () => {
+  const batch = buyBatch();
+  batch[0]!.receiverId = "NEP141:" + MEME.toUpperCase();
+  batch[1]!.receiverId = "NEP141:WRAP.NEAR";
+  batch[1]!.actions[1] = functionCall(
+    "ft_transfer_call",
+    { receiver_id: "NEP141:DCLV2.REF-LABS.NEAR", amount: (5n * NEAR).toString(), msg: "{}" },
+    180n * TGAS,
+    1n
+  );
+  assert.doesNotThrow(() => assertSwapMatchesIntent(batch, buy));
+});
+
+test("incomplete routes are blocked", () => {
+  const noTransfer = buyBatch().slice(0, 1);
+  blocked(() => assertSwapMatchesIntent(noTransfer, buy), /no token transfer/);
+
+  const shortSell = sellBatch();
+  shortSell[0]!.actions[0] = functionCall(
+    "ft_transfer_call",
+    { receiver_id: "v2.ref-finance.near", amount: "999", msg: "{}" },
+    1n,
+    1n
+  );
+  blocked(() => assertSwapMatchesIntent(shortSell, sell), /exactly the confirmed amount/);
+});
+
 test("arbitrary DEX methods are never signed", () => {
   blocked(
     () => assertSwapMatchesIntent(
