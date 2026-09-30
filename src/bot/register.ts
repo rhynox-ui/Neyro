@@ -116,7 +116,7 @@ export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount"
 }
 
 type LaunchWizard = NearlyLaunchInput & {
-  step: "name" | "symbol" | "description" | "devBuyNear" | "pair" | "website" | "twitter" | "telegram" | "icon" | "review";
+  step: "name" | "symbol" | "description" | "tax" | "devBuyNear" | "pair" | "website" | "twitter" | "telegram" | "icon" | "review";
   pairOptions?: string[];
 };
 
@@ -138,6 +138,8 @@ export function renderNearlyLaunchReview(input: NearlyLaunchInput, accountId: st
     `X: ${escapeHtml(input.twitter ?? "—")}`,
     `Telegram: ${escapeHtml(input.telegram ?? "—")}`,
     `Logo: ${input.icon?.startsWith("data:image/") ? "📷 Uploaded image" : escapeHtml(input.icon ?? "—")}`,
+    `Tax: ${input.tax ? `${input.tax.buyBps / 100}% buy · ${input.tax.sellBps / 100}% sell` : "Off"}`,
+    `Tax split: ${input.tax ? `${input.tax.creatorBps / 100}% creator · ${input.tax.burnBps / 100}% burn · ${input.tax.holdersBps / 100}% holders` : "—"}`,
     "",
     `Pair: <b>${escapeHtml(launchQuoteLabel(input.quote))}</b>`,
     "Supply: 1,000,000,000 tokens",
@@ -996,15 +998,69 @@ export function registerBotHandlers(bot: Bot) {
             console.error("NEARly pair discovery error:", error);
             throw new UserFacingError("NEARly pair list is temporarily unavailable. Please try again in a moment.");
           }
-          const pairOptions = quotes.map((quote) => quote.accountId);
-          const state: LaunchWizard = { ...wizard, description: value, step: "pair", pairOptions };
-          await save(state);
-          const keyboard = new InlineKeyboard();
+          const state: LaunchWizard = { ...wizard, description: value, step: "tax" };
+          await save(state, [
+            "Optional tax configuration.",
+            "",
+            "Send <code>0</code> for no tax.",
+            "Or send <code>BUY SELL SPLIT</code>, e.g. <code>1 1 balanced</code>.",
+            "",
+            "Split presets: <code>balanced</code>, <code>holders</code>, <code>burn</code>, <code>creator</code>.",
+            "For custom split use percentages: <code>1 1 34 33 33</code>.",
+            "",
+            "Format: buy% sell% [creator% burn% holders%]"
+          ].join("\n"));
+          return;
           quotes.forEach((quote, index) => {
             if (index > 0 && index % 2 === 0) keyboard.row();
             keyboard.text(`${index === 0 && quote.accountId === NEARLY_WNEAR ? "Ⓝ " : ""}${quote.symbol}`, `launch:pair:${index}`);
           });
           await replyScreen(ctx, "launch", "Choose the <b>launch pair</b>.", { ...HTML, reply_markup: keyboard });
+          return;
+        }
+        case "tax": {
+          const finishTax = async (tax: LaunchWizard["tax"]) => {
+            const quotes = await getNearlyQuotes(true);
+            const pairOptions = quotes.map((quote) => quote.accountId);
+            const state: LaunchWizard = { ...wizard, tax, step: "pair", pairOptions };
+            await save(state);
+            const keyboard = new InlineKeyboard();
+            quotes.forEach((quote, index) => {
+              if (index > 0 && index % 2 === 0) keyboard.row();
+              keyboard.text(`${index === 0 && quote.accountId === NEARLY_WNEAR ? "Ⓝ " : ""}${quote.symbol}`, `launch:pair:${index}`);
+            });
+            await replyScreen(ctx, "launch", "Choose the <b>launch pair</b>.", { ...HTML, reply_markup: keyboard });
+          };
+          if (text === "0" || text.toLowerCase() === "off") {
+            await finishTax(undefined);
+            return;
+          }
+          const parts = text.toLowerCase().split(/\s+/);
+          const buy = Number(parts[0]);
+          const sell = Number(parts[1]);
+          if (![buy, sell].every((v) => Number.isInteger(v) && v >= 0 && v <= 4)) {
+            throw new UserFacingError("Tax buy/sell must be whole percentages from 0 to 4.");
+          }
+          let creator: number;
+          let burn: number;
+          let holders: number;
+          if (parts.length === 3) {
+            const presets: Record<string, [number, number, number]> = { balanced: [34, 33, 33], holders: [20, 0, 80], burn: [20, 80, 0], creator: [100, 0, 0] };
+            const preset = presets[parts[2]!];
+            if (!preset) throw new UserFacingError("Unknown tax split preset.");
+            [creator, burn, holders] = preset;
+          } else if (parts.length === 5) {
+            creator = Number(parts[2]);
+            burn = Number(parts[3]);
+            holders = Number(parts[4]);
+            if (![creator, burn, holders].every((v) => Number.isInteger(v) && v >= 0 && v <= 100)) {
+              throw new UserFacingError("Custom tax split percentages must be whole numbers from 0 to 100.");
+            }
+          } else {
+            throw new UserFacingError("Use <code>1 1 balanced</code> or <code>1 1 34 33 33</code>.");
+          }
+          if (creator + burn + holders !== 100) throw new UserFacingError("Tax split must total exactly 100%.");
+          await finishTax({ buyBps: buy * 100, sellBps: sell * 100, creatorBps: creator * 100, burnBps: burn * 100, holdersBps: holders * 100 });
           return;
         }
         case "pair": {
