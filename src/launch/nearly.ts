@@ -39,7 +39,7 @@ let quoteCache: { expiresAt: number; quotes: NearlyQuote[] } | undefined;
 const LAUNCH_TTL_MS = 60_000;
 const POLL_MS = 2_000;
 
-type LaunchCost = {
+export type LaunchCost = {
   launch_fee: string;
   token_storage: string;
   pool_create: string;
@@ -48,7 +48,7 @@ type LaunchCost = {
   total: string;
 };
 
-type LaunchRecord = {
+export type LaunchRecord = {
   id: number;
   token: string;
   creator: string;
