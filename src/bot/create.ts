@@ -4,6 +4,7 @@ import { registerBotHandlers } from "./register.js";
 import { rateLimit } from "./rate-limit.js";
 
 export const BOT_COMMANDS = [
+  { command: "start", description: "Open the Neyro trading terminal" },
   { command: "wallet", description: "Create or view your wallet" },
   { command: "deposit", description: "Show your deposit address" },
   { command: "balance", description: "NEAR balance" },
@@ -12,14 +13,14 @@ export const BOT_COMMANDS = [
   { command: "launch", description: "Launch a token on NEARly" },
   { command: "launch-status", description: "Check a pending NEARly launch" },
   { command: "launch-history", description: "View your previous NEARly launches" },
-  { command: "launch-cancel", description: "Cancel the current launch flow" },
+  { command: "launch-cancel", description: "Cancel an unfinished launch wizard" },
   { command: "withdraw", description: "Send NEAR or tokens out: /withdraw <amount|all> <token> <to>" },
   { command: "rhea-register", description: "Register a token for RHEA swaps" },
   { command: "rhea-recovery", description: "Check RHEA internal balances" },
   { command: "rhea-withdraw", description: "Recover an RHEA internal balance" },
   { command: "buy", description: "Buy a token with NEAR: /buy <token> <amount>" },
-  { command: "sell", description: "Sell a token for NEAR: /sell <token> <amount>" },
-  { command: "settings", description: "Default slippage" },
+  { command: "sell", description: "Sell a token for NEAR: /sell <token> <amount|all>" },
+  { command: "settings", description: "View and change trading settings" },
   { command: "health", description: "Bot and NEAR RPC status" }
 ];
 
