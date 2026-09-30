@@ -132,6 +132,10 @@ export class RheaClient {
     } catch (error) {
       throw new UserFacingError(`RHEA SmartRouter request failed: ${cleanRheaText(error instanceof Error ? error.message : "network error")}`);
     }
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > 1_000_000) {
+      throw new UserFacingError("RHEA SmartRouter response is too large");
+    }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
     if (!response.ok) {
       const detail = rheaApiError(body);
@@ -165,6 +169,9 @@ export class RheaClient {
       !signature ? "signature" : "",
       tokens.length === 0 ? "tokens" : ""
     ].filter(Boolean);
+    if (msg.length > 16_384 || signature.length > 16_384) {
+      throw new UserFacingError("RHEA SmartRouter returned oversized route data");
+    }
     if (missing.length > 0 || BigInt(minAmountOut || "0") > BigInt(amountOut || "0")) {
       const topKeys = body ? Object.keys(body).slice(0, 20).join(",") : "none";
       const dataKeys = data ? Object.keys(data).slice(0, 20).join(",") : "none";
