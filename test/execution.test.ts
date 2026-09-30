@@ -5,7 +5,7 @@ import type { Account } from "near-api-js";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 import { findExecutionFailure } from "../src/near/execution.js";
 import { NearAccountSigner } from "../src/wallet/near-account-signer.js";
-import { assessFill, classifyBatch, quoteDeadline } from "../src/trading/outcome.js";
+import { assessFill, classifyBatch, quoteDeadline, userFacingExecutionFailure } from "../src/trading/outcome.js";
 
 const success = { status: { SuccessValue: "" }, receipts_outcome: [{ outcome: { status: { SuccessValue: "" } } }] };
 const refunded = {
@@ -17,6 +17,17 @@ const refunded = {
     { outcome: { status: { SuccessValue: "IjAi" } } }
   ]
 };
+
+test("execution failures are sanitized and slippage failures are actionable", () => {
+  assert.equal(
+    userFacingExecutionFailure('{"ActionError":{"ExecutionError":"E204: slippage error"}}'),
+    "RHEA rejected the swap because the market moved beyond your slippage tolerance. No tokens were exchanged and no protocol fee was charged. Refresh the quote and retry."
+  );
+  assert.equal(
+    userFacingExecutionFailure("E68: some other contract panic"),
+    "The swap was rejected on chain. No tokens were exchanged and no protocol fee was charged."
+  );
+});
 
 test("findExecutionFailure detects receipt-level failures under a successful top-level status", () => {
   assert.equal(findExecutionFailure(success), undefined);
