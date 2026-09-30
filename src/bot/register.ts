@@ -15,7 +15,7 @@ import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
 import { UserFacingError, userMessage } from "../errors.js";
 import { RateLimiter } from "./rate-limit.js";
-import { deleteIncoming, keepScreen, replyNotice, replyScreen } from "./screens.js";
+import { deleteIncoming, keepScreen, replyNotice, replyScreen, trackScreen } from "./screens.js";
 import { scheduleDeletion } from "./autodelete.js";
 import type { WalletSummary } from "../wallet/repository.js";
 import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
@@ -1028,6 +1028,7 @@ export function registerBotHandlers(bot: Bot) {
     try {
       const photos = [...ctx.message.photo].sort((a, b) => (a.file_size ?? 0) - (b.file_size ?? 0));
       let selected: string | undefined;
+      let selectedFileId: string | undefined;
       for (const photo of photos) {
         const file = await ctx.api.getFile(photo.file_id);
         if (!file.file_path) continue;
@@ -1036,17 +1037,22 @@ export function registerBotHandlers(bot: Bot) {
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.byteLength <= 16 * 1024) {
           selected = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
+          selectedFileId = photo.file_id;
         }
       }
-      if (!selected) throw new UserFacingError("That photo is too large for NEARly's 16 KB on-chain logo limit. Send a smaller image.");
+      if (!selected || !selectedFileId) throw new UserFacingError("That photo is too large for NEARly's 16 KB on-chain logo limit. Send a smaller image.");
       const ready: LaunchWizard = { ...wizard, icon: selected, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
       const wallet = await requireWallet(ctx);
       if (!wallet) return;
-      await replyScreen(ctx, "launch", renderNearlyLaunchReview(ready, wallet.accountId), {
+      const review = renderNearlyLaunchReview(ready, wallet.accountId);
+      const keyboard = new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel");
+      const sent = await ctx.replyWithPhoto(selectedFileId, {
         ...HTML,
-        reply_markup: new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel")
+        caption: review,
+        reply_markup: keyboard
       });
+      await trackScreen(ctx, "launch", sent.chat.id, sent.message_id);
     } catch (error) {
       console.error("NEARly launch logo upload error:", error);
       await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't process that logo")}`);
