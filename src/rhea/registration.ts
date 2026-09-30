@@ -4,6 +4,7 @@ import { storageRegistrationCost } from "../near/ft.js";
 import { createNearConnection } from "../near/client.js";
 import { UserFacingError } from "../errors.js";
 import { extractRheaRouteTokens } from "./route.js";
+import { isValidAccountId } from "../near/tokens.js";
 
 export { extractRheaRouteTokens } from "./route.js";
 
@@ -111,6 +112,10 @@ export async function buildRheaRegistrationPlan(
 ): Promise<RheaRegistrationPlan> {
   const uniqueTokens = [...new Set(tokens.map((token) => token.trim().toLowerCase().replace(/^nep141:/, "")).filter(Boolean))];
   if (uniqueTokens.length === 0) throw new Error("No RHEA tokens require registration");
+  if (uniqueTokens.length > 16) throw new Error("Too many RHEA route tokens");
+  if (uniqueTokens.some((token) => !isValidAccountId(token) || token === RHEA_AGGREGATED_DEX)) {
+    throw new Error("RHEA route contains an invalid token contract");
+  }
 
   const check = await requireRheaTokenRegistrationState(accountId, uniqueTokens);
   const transactions: NearTransaction[] = [];
