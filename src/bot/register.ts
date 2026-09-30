@@ -26,7 +26,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { launchNearlyToken, recoverNearlyLaunch, launchQuoteLabel, NEARLY_TOKEN, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending } from "../launch/nearly.js";
+import { launchNearlyToken, recoverNearlyLaunch, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote } from "../launch/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -115,7 +115,10 @@ export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount"
   }
 }
 
-type LaunchWizard = NearlyLaunchInput & { step: "name" | "symbol" | "description" | "devBuyNear" | "pair" | "website" | "twitter" | "telegram" | "icon" | "review" };
+type LaunchWizard = NearlyLaunchInput & {
+  step: "name" | "symbol" | "description" | "devBuyNear" | "pair" | "website" | "twitter" | "telegram" | "icon" | "review";
+  pairOptions?: string[];
+};
 
 function launchSkip(value: string): string | undefined {
   const v = value.trim();
@@ -818,21 +821,28 @@ export function registerBotHandlers(bot: Bot) {
     );
   });
 
-  pm.callbackQuery(/^launch:pair:(near|nearly)$/, async (ctx) => {
+  pm.callbackQuery(/^launch:pair:(\\d+)$/, async (ctx) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
-    if (!wizard || wizard.step !== "pair") {
+    if (!wizard || wizard.step !== "pair" || !wizard.pairOptions) {
       await ctx.answerCallbackQuery("Launch pair selection expired");
       return;
     }
-    const quote = ctx.match[1] === "nearly" ? NEARLY_TOKEN : NEARLY_WNEAR;
-    await defaultStateStore().set(ctx.from.id, "launch-wizard", { ...wizard, quote, step: "devBuyNear" }, 30 * 60 * 1000);
+    const index = Number(ctx.match[1]);
+    const quote = Number.isSafeInteger(index) ? wizard.pairOptions[index] : undefined;
+    if (!quote) {
+      await ctx.answerCallbackQuery("That pair is no longer available");
+      return;
+    }
+    const nextStep = quote === NEARLY_WNEAR ? "devBuyNear" : "website";
+    const nextState: LaunchWizard = { ...wizard, quote, step: nextStep };
+    delete nextState.pairOptions;
+    await defaultStateStore().set(ctx.from.id, "launch-wizard", nextState, 30 * 60 * 1000);
     await ctx.answerCallbackQuery(`Pair: ${launchQuoteLabel(quote)}`);
-    await replyScreen(
-      ctx,
-      "launch",
-      `Enter your optional <b>first buy</b> in ${launchQuoteLabel(quote)}, or send <code>0</code> for none.`,
-      HTML
-    );
+    if (nextStep === "devBuyNear") {
+      await replyScreen(ctx, "launch", "Enter your optional <b>first buy in NEAR</b>, or send <code>0</code> for none.", HTML);
+    } else {
+      await replyScreen(ctx, "launch", "Website URL, or <code>skip</code>.", HTML);
+    }
   });
 
   pm.command("launch-status", async (ctx) => {
@@ -906,6 +916,9 @@ export function registerBotHandlers(bot: Bot) {
         `Contract: ${code(result.launch.token)}\n` +
         `Launch ID: <code>${result.launch.id}</code>\n` +
         `Cost: ${formatNear(BigInt(result.cost.total))} NEAR\n` +
+        `Pair: <b>${escapeHtml(launchQuoteLabel(result.launch.quote))}</b>\n` +
+        `First buy: ${result.launch.quote === NEARLY_WNEAR ? `${escapeHtml(result.devBuyNear)} NEAR` : "Not available for this pair"}\n` +
+
         `First buy: ${escapeHtml(result.devBuyNear)} NEAR\n` +
         `Status: <b>LIVE</b>\n\n` +
         `🔗 <a href="https://nearblocks.io/txns/${result.txHash}">View launch transaction</a>\n` +
@@ -976,25 +989,39 @@ export function registerBotHandlers(bot: Bot) {
           if (!/^[A-Za-z0-9]{1,10}$/.test(text)) throw new UserFacingError("Symbol must be 1–10 ASCII letters/digits.");
           await save({ ...wizard, symbol: text.toUpperCase(), step: "description" }, "Enter a short <b>description</b> (max 500 chars), or send <code>skip</code>.");
           return;
-        case "description":
+        case "description": {
           if (value && value.length > 500) throw new UserFacingError("Description must be at most 500 characters.");
-          await save({ ...wizard, description: value, step: "pair" });
-          await replyScreen(ctx, "launch", "Choose the <b>launch pair</b>.", {
-            ...HTML,
-            reply_markup: new InlineKeyboard()
-              .text("Ⓝ NEAR", "launch:pair:near")
-              .text("🟣 NEARLY", "launch:pair:nearly")
-          });
-          return;
-        case "pair":
-          if (!["near", "nearly"].includes(text.toLowerCase())) {
-            throw new UserFacingError("Choose NEAR or NEARLY, or tap one of the pair buttons.");
+          let quotes: readonly NearlyQuote[];
+          try {
+            quotes = await getNearlyQuotes(true);
+          } catch (error) {
+            console.error("NEARly pair discovery error:", error);
+            throw new UserFacingError("NEARly pair list is temporarily unavailable. Please try again in a moment.");
           }
-          await save(
-            { ...wizard, quote: text.toLowerCase() === "nearly" ? NEARLY_TOKEN : NEARLY_WNEAR, step: "devBuyNear" },
-            `Enter your optional <b>first buy</b> in ${text.toLowerCase() === "nearly" ? "NEARLY" : "NEAR"}, or send <code>0</code> for none.`
-          );
+          const pairOptions = quotes.map((quote) => quote.accountId);
+          const state: LaunchWizard = { ...wizard, description: value, step: "pair", pairOptions };
+          await save(state);
+          const keyboard = new InlineKeyboard();
+          quotes.forEach((quote, index) => {
+            if (index > 0 && index % 2 === 0) keyboard.row();
+            keyboard.text(`${index === 0 && quote.accountId === NEARLY_WNEAR ? "Ⓝ " : ""}${quote.symbol}`, `launch:pair:${index}`);
+          });
+          await replyScreen(ctx, "launch", "Choose the <b>launch pair</b>.", { ...HTML, reply_markup: keyboard });
           return;
+        }
+        case "pair": {
+          const options = wizard.pairOptions ?? [];
+          const quote = options.find((accountId) => accountId.toLowerCase() === text.toLowerCase())
+            ?? options.find((accountId) => launchQuoteLabel(accountId).toLowerCase() === text.toLowerCase());
+          if (!quote) throw new UserFacingError("Choose one of the approved NEARly pairs shown above.");
+          const nextStep = quote === NEARLY_WNEAR ? "devBuyNear" : "website";
+          const state: LaunchWizard = { ...wizard, quote, step: nextStep };
+          delete state.pairOptions;
+          await save(state, nextStep === "devBuyNear"
+            ? "Enter your optional <b>first buy in NEAR</b>, or send <code>0</code> for none."
+            : "Website URL, or <code>skip</code>.");
+          return;
+        }
         case "devBuyNear":
           if (!/^(?:0|\d+(?:\.\d+)?)$/.test(text)) {
             throw new UserFacingError(`Enter a valid ${launchQuoteLabel(wizard.quote)} amount such as 0, 0.05 or 0.1.`);
