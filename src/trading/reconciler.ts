@@ -85,6 +85,22 @@ export async function reconcileOnce(deps: ReconcilerDeps, limit = 25): Promise<n
       console.error("Trade reconciliation failed", { id: trade.idempotencyKey, error });
     }
   }
+
+  const fees = await deps.repository.listUnresolvedFees(25);
+  for (const fee of fees) {
+    try {
+      const lookup = await deps.lookup(fee.txHash, fee.accountId);
+      if (lookup.result === "executed") {
+        await deps.repository.recordFeeResolution(fee.telegramUserId, fee.idempotencyKey, fee.txHash, "collected");
+        resolved++;
+      } else if (lookup.result === "reverted") {
+        await deps.repository.recordFeeResolution(fee.telegramUserId, fee.idempotencyKey, fee.txHash, "failed");
+        resolved++;
+      }
+    } catch (error) {
+      console.error("Fee reconciliation failed", { id: fee.idempotencyKey, txHash: fee.txHash, error });
+    }
+  }
   return resolved;
 }
 
