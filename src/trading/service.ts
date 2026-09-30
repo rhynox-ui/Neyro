@@ -260,16 +260,36 @@ export class TradingService {
       return undefined;
     }
 
-    const tokenUnits = Number(computed.fee) / 10 ** (tokenIn.decimals ?? 0);
-    const feeUsd = tokenUnits * (tokenPrice ?? 0);
-    const nativeUnits = Math.ceil((feeUsd / nearPrice) * 1e24);
-    if (!Number.isFinite(nativeUnits) || nativeUnits <= 0) return undefined;
+    // Keep the fee conversion integer-safe. A token balance can exceed
+    // Number.MAX_SAFE_INTEGER in base units, especially for high-supply meme
+    // tokens. Convert both USD prices to fixed-point integers before doing
+    // the token -> USD -> yoctoNEAR calculation.
+    const PRICE_SCALE = 1_000_000_000n;
+    const priceToScaled = (price: number): bigint | null => {
+      if (!Number.isFinite(price) || price <= 0) return null;
+      const scaled = Math.round(price * Number(PRICE_SCALE));
+      return Number.isSafeInteger(scaled) && scaled > 0 ? BigInt(scaled) : null;
+    };
+    const tokenPriceScaled = priceToScaled(tokenPrice ?? 0);
+    const nearPriceScaled = priceToScaled(nearPrice);
+    if (!tokenPriceScaled || !nearPriceScaled) return undefined;
+
+    const tokenDecimals = tokenIn.decimals ?? 0;
+    const tokenUsdNumerator = computed.fee * tokenPriceScaled;
+    const tokenUsdDenominator = 10n ** BigInt(tokenDecimals) * PRICE_SCALE;
+    // Ceiling keeps the fee conversion from rounding down below the intended
+    // USD value. Then convert USD to yoctoNEAR with the same fixed precision.
+    const nativeNumerator = tokenUsdNumerator * 10n ** 24n;
+    const nativeDenominator = tokenUsdDenominator * nearPriceScaled / PRICE_SCALE;
+    if (nativeDenominator <= 0n) return undefined;
+    const nativeUnits = (nativeNumerator + nativeDenominator - 1n) / nativeDenominator;
+    if (nativeUnits <= 0n) return undefined;
 
     return {
       side,
       treasury,
       contractId: "near",
-      amount: BigInt(nativeUnits).toString(),
+      amount: nativeUnits.toString(),
       capped: computed.capped
     };
   }
