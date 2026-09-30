@@ -199,10 +199,7 @@ export class NearAccountSigner implements NearTransactionSigner {
     if (transactions.length === 0) return { txHashes: [], raw: [] };
 
     for (const transaction of transactions) {
-      assertAllowedNearReceiver(transaction.receiverId, [
-        RHEA_AGGREGATED_DEX,
-        ...transactions.map((item) => item.receiverId)
-      ]);
+      assertAllowedNearReceiver(transaction.receiverId, this.allowedReceivers());
       for (const action of transaction.actions) {
         const parsed = parseWalletAction(action);
         if (
