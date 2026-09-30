@@ -990,16 +990,26 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start") });
   });
 
+  // Telegram photo reviews must be edited as captions, not as text messages.
+  const editLaunchReview = async (ctx: Context, text: string) => {
+    const message = ctx.callbackQuery?.message;
+    if (message && "photo" in message && message.photo) {
+      await ctx.editMessageCaption(text, HTML);
+    } else {
+      await ctx.editMessageText(text, HTML);
+    }
+  };
+
   pm.callbackQuery("launch:confirm", async (ctx) => {
     await ctx.answerCallbackQuery("Launching on NEARly…");
     await ctx.editMessageReplyMarkup();
     const userId = ctx.from.id;
     const wizard = await defaultStateStore().take<LaunchWizard>(userId, "launch-wizard");
     if (!wizard || wizard.step !== "review" || !wizard.name || !wizard.symbol) {
-      return void await ctx.editMessageText("❌ Launch confirmation expired. Start again with /launch.", HTML);
+      return void await editLaunchReview(ctx, "❌ Launch confirmation expired. Start again with /launch.");
     }
     if (await defaultStateStore().get(userId, "launch-executing")) {
-      return void await ctx.editMessageText("⏳ A launch is already executing for this wallet. Do not submit another one.", HTML);
+      return void await editLaunchReview(ctx, "⏳ A launch is already executing for this wallet. Do not submit another one.");
     }
     await defaultStateStore().set(userId, "launch-executing", { name: wizard.name, symbol: wizard.symbol, startedAt: Date.now() }, 15 * 60 * 1000);
     try {
@@ -1008,11 +1018,11 @@ export function registerBotHandlers(bot: Bot) {
       const result = await launchNearlyToken(walletService, userId, wizard);
       await defaultStateStore().delete(userId, "launch-executing");
       await saveNearlyLaunchHistory(userId, result);
-      await ctx.editMessageText(renderNearlyLaunchSuccess(result), HTML);
+      await editLaunchReview(ctx, renderNearlyLaunchSuccess(result));
     } catch (error) {
       await defaultStateStore().delete(userId, "launch-executing");
       console.error("NEARly launch execution error:", error);
-      await ctx.editMessageText(`❌ ${userMessage(error, "NEARly launch failed")}`, HTML);
+      await editLaunchReview(ctx, `❌ ${userMessage(error, "NEARly launch failed")}`);
     }
   });
 
