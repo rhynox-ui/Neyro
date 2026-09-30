@@ -301,16 +301,14 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
 
 function iconByteLength(icon: string | undefined): number {
   if (!icon) return 0;
-  if (!icon.startsWith("data:image/")) return new TextEncoder().encode(icon).byteLength;
-  const comma = icon.indexOf(",");
-  if (comma < 0) return 0;
-  const base64 = icon.slice(comma + 1);
-  return Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+  // The factory charges quote_launch against the UTF-8 byte length of the
+  // serialized icon string (Rust String::len()), not the decoded image bytes.
+  return new TextEncoder().encode(icon).byteLength;
 }
 
 /**
  * NEARly's quote_launch expects icon_bytes to include the UTF-8 byte length
- * of the icon value plus the name, symbol and description text.
+ * of the icon string plus the name, symbol and description text.
  */
 export function launchQuoteBytes(input: Pick<NearlyLaunchInput, "name" | "symbol" | "description" | "icon">): number {
   const text = input.name + input.symbol + (input.description ?? "");
@@ -545,7 +543,7 @@ export async function launchNearlyToken(
     actions: [
       functionCall(
         "launch",
-        launchArgs(clean, devBuy),
+        { args: launchArgs(clean, devBuy) },
         LAUNCH_GAS,
         required
       )
