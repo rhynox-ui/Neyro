@@ -170,10 +170,10 @@ function parseLaunch(raw: unknown): LaunchRecord | null {
   if (!Number.isSafeInteger(id) || id < 0) return null;
   if (typeof r.token !== "string" || typeof r.creator !== "string" || typeof r.symbol !== "string") return null;
   if (typeof r.step !== "string") return null;
-  if (typeof r.inflight !== "boolean") return null;
-  if (typeof r.quote !== "string") return null;
-  if (typeof r.total_supply !== "string" || !/^\d+$/.test(r.total_supply) || r.total_supply === "0") return null;
-  if (typeof r.pool_id !== "string" || !r.pool_id.trim()) return null;
+  if (r.inflight !== undefined && typeof r.inflight !== "boolean") return null;
+  if (r.quote !== undefined && typeof r.quote !== "string") return null;
+  if (r.total_supply !== undefined && (typeof r.total_supply !== "string" || !/^\d+$/.test(r.total_supply))) return null;
+  if (r.pool_id !== undefined && (typeof r.pool_id !== "string" || !r.pool_id.trim())) return null;
   return {
     id,
     token: r.token,
@@ -181,10 +181,10 @@ function parseLaunch(raw: unknown): LaunchRecord | null {
     name: typeof r.name === "string" ? r.name : r.symbol,
     symbol: r.symbol,
     step: r.step,
-    inflight: r.inflight,
-    quote: r.quote,
-    total_supply: r.total_supply,
-    pool_id: r.pool_id
+    inflight: r.inflight === true,
+    quote: typeof r.quote === "string" ? r.quote : "",
+    total_supply: typeof r.total_supply === "string" ? r.total_supply : "",
+    pool_id: typeof r.pool_id === "string" ? r.pool_id : ""
   };
 }
 
