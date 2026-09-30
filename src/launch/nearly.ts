@@ -79,8 +79,8 @@ function validateHttpsUrl(value: string | undefined, field: string): string | un
   } catch {
     throw new UserFacingError(`${field} must be a valid HTTPS URL`);
   }
-  if (url.protocol !== "https:") {
-    throw new UserFacingError(`${field} must use HTTPS`);
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new UserFacingError(`${field} must use HTTPS without embedded credentials`);
   }
   if (v.length > 200) throw new UserFacingError(`${field} is too long (max 200 characters)`);
   return v;
