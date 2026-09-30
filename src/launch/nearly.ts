@@ -162,9 +162,13 @@ function validateIcon(value: string | undefined): string | undefined {
     if (comma < 0) throw new UserFacingError("Uploaded logo data is invalid");
     const base64 = v.slice(comma + 1);
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new UserFacingError("Uploaded logo data is invalid");
-    const bytes = Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
-    if (bytes > 16 * 1024) throw new UserFacingError("Logo is too large for NEARly's 16 KB metadata limit");
-  } else if (v.length > 16 * 1024) {
+    // NEARly's factory measures the stored Rust String in bytes, including
+    // the data:image/ prefix and base64 text. Checking decoded image bytes
+    // here is insufficient because base64 expands the stored representation.
+    if (new TextEncoder().encode(v).byteLength > 16 * 1024) {
+      throw new UserFacingError("Logo is too large for NEARly's 16 KB on-chain metadata limit. Send a smaller image.");
+    }
+  } else if (new TextEncoder().encode(v).byteLength > 16 * 1024) {
     throw new UserFacingError("Logo URL is too large for NEARly's 16 KB metadata limit");
   }
   return v;
@@ -575,6 +579,17 @@ export async function launchNearlyToken(
 
   if (sent.txHashes.length !== 1) {
     throw new UserFacingError("NEARly launch did not produce a transaction hash; no duplicate launch was submitted.");
+  }
+
+  // sendTransactionUntil can return a receipt even when a receipt-level
+  // execution failed. Do not wait 60s for indexing in that case; surface the
+  // actual on-chain failure and clear the pending guard so the user can retry.
+  const sentRecord = signer.sent.at(-1);
+  if (sentRecord?.result === "reverted") {
+    await defaultStateStore().delete(userId, "launch-pending");
+    throw new UserFacingError(
+      `NEARly launch transaction ${sentRecord.txHash} reverted: ${sentRecord.failure ?? "execution failed"}`
+    );
   }
 
   const record = await waitForLaunch(clean.symbol, wallet.accountId);
