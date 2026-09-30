@@ -1,7 +1,7 @@
 import { formatUnits, parseUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 import { config } from "../config.js";
-import { getNearBalance, tradableNear } from "../near/account.js";
+import { getNearBalance } from "../near/account.js";
 import { functionCall } from "../near/actions.js";
 import { withRpcFallback } from "../near/rpc.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
