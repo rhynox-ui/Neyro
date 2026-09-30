@@ -26,7 +26,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { launchNearlyToken, type NearlyLaunchInput } from "../launch/nearly.js";
+import { launchNearlyToken, recoverNearlyLaunch, type NearlyLaunchInput, type NearlyLaunchPending } from "../launch/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -818,8 +818,43 @@ export function registerBotHandlers(bot: Bot) {
     );
   });
 
+  pm.command("launch-status", async (ctx) => {
+    const userId = ctx.from.id;
+    const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
+    if (!pending) return void await ctx.reply("ℹ️ No pending NEARly launch.");
+    try {
+      const status = await recoverNearlyLaunch(pending);
+      if (status === "live") {
+        await defaultStateStore().delete(userId, "launch-pending");
+        await defaultStateStore().delete(userId, "launch-executing");
+        return void await ctx.reply(
+          `✅ <b>NEARly launch recovered</b>\\n\\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\\nTransaction: ${code(pending.txHash)}\\nStatus: <b>LIVE</b>`,
+          HTML
+        );
+      }
+      if (status === "reverted" || status === "failed") {
+        await defaultStateStore().delete(userId, "launch-pending");
+        await defaultStateStore().delete(userId, "launch-executing");
+        return void await ctx.reply(
+          `↩️ <b>NEARly launch did not complete</b>\\n\\nTransaction: ${code(pending.txHash)}\\nYou can start a new launch with /launch.`,
+          HTML
+        );
+      }
+      return void await ctx.reply(
+        `⏳ <b>NEARly launch is still pending</b>\\n\\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\\nTransaction: ${code(pending.txHash)}\\n\\n<b>Do not retry.</b> Check /launch-status again after the transaction is indexed.`,
+        HTML
+      );
+    } catch (error) {
+      console.error("NEARly launch recovery error:", error);
+      await ctx.reply(`⏳ Launch status is not confirmed yet. <b>Do not retry.</b>\\nTransaction: ${code(pending.txHash)}`, HTML);
+    }
+  });
+
   pm.command("launch-cancel", async (ctx) => {
     await defaultStateStore().delete(ctx.from.id, "launch-wizard");
+    if (await defaultStateStore().get(ctx.from.id, "launch-pending")) {
+      return void await ctx.reply("⏳ A launch transaction is still pending. Use /launch-status before starting another launch.");
+    }
     await defaultStateStore().delete(ctx.from.id, "launch-executing");
     await ctx.reply("❌ Launch flow cancelled.");
   });
