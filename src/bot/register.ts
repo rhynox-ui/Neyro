@@ -26,7 +26,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { launchNearlyToken, recoverNearlyLaunch, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote } from "../launch/nearly.js";
+import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -123,6 +123,36 @@ type LaunchWizard = NearlyLaunchInput & {
 function launchSkip(value: string): string | undefined {
   const v = value.trim();
   return !v || v === "-" || v.toLowerCase() === "skip" ? undefined : v;
+}
+
+function renderNearlyLaunchSuccess(result: Pick<NearlyLaunchResult, "txHash" | "launch" | "cost" | "devBuyNear">): string {
+  return (
+    "✅ <b>Token launched on NEARly</b>\n\n" +
+    `Name: <b>${escapeHtml(result.launch.name)}</b>\n` +
+    `Symbol: <b>${escapeHtml(result.launch.symbol)}</b>\n` +
+    `Contract: ${code(result.launch.token)}\n` +
+    `Launch ID: <code>${result.launch.id}</code>\n` +
+    `Cost: ${formatNear(BigInt(result.cost.total))} NEAR\n` +
+    `Pair: <b>${escapeHtml(launchQuoteLabel(result.launch.quote))}</b>\n` +
+    `First buy: ${result.launch.quote === NEARLY_WNEAR ? `${escapeHtml(result.devBuyNear)} NEAR` : "Not available for this pair"}\n` +
+    `Status: <b>LIVE</b>\n\n` +
+    `🔗 <a href="${explorerTx(result.txHash)}">View launch transaction</a>\n` +
+    `🔗 <a href="https://nearly.trade/">Open NEARly</a>`
+  );
+}
+
+function renderNearlyLaunchHistory(entries: readonly NearlyLaunchHistoryEntry[]): string {
+  if (entries.length === 0) return "📜 <b>Your NEARly launches</b>\n\nNo successful launches saved yet.";
+  return [
+    "📜 <b>Your NEARly launches</b>",
+    "",
+    ...entries.map((entry, index) => [
+      `${index + 1}. <b>${escapeHtml(entry.launch.name)}</b> (${escapeHtml(entry.launch.symbol)})`,
+      `   Contract: ${code(entry.launch.token)}`,
+      `   Launch ID: <code>${entry.launch.id}</code> · ${formatNear(BigInt(entry.cost.total))} NEAR`,
+      `   <a href="${explorerTx(entry.txHash)}">View launch transaction</a> · <a href="https://nearly.trade/">NEARly</a>`
+    ].join("\n"))
+  ].join("\n\n");
 }
 
 export function renderNearlyLaunchReview(input: NearlyLaunchInput, accountId: string): string {
@@ -850,15 +880,20 @@ export function registerBotHandlers(bot: Bot) {
   pm.command("launch-status", async (ctx) => {
     const userId = ctx.from.id;
     const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
-    if (!pending) return void await ctx.reply("ℹ️ No pending NEARly launch.");
+    if (!pending) {
+      const history = await getNearlyLaunchHistory(userId, 10);
+      const keyboard = new InlineKeyboard().text("📜 Previous launches", "launch:history").row().text("🚀 New launch", "launch:start");
+      return void await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: keyboard });
+    }
     try {
       const status = await recoverNearlyLaunch(pending);
       if (status === "live") {
         await defaultStateStore().delete(userId, "launch-pending");
         await defaultStateStore().delete(userId, "launch-executing");
+        const history = await getNearlyLaunchHistory(userId, 10);
         return void await ctx.reply(
-          `✅ <b>NEARly launch recovered</b>\n\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\nTransaction: ${code(pending.txHash)}\nStatus: <b>LIVE</b>`,
-          HTML
+          `✅ <b>NEARly launch recovered</b>\n\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\nTransaction: ${code(pending.txHash)}\nStatus: <b>LIVE</b>\n\n${renderNearlyLaunchHistory(history)}`,
+          { ...HTML, reply_markup: new InlineKeyboard().text("📜 Previous launches", "launch:history") }
         );
       }
       if (status === "reverted" || status === "failed") {
@@ -866,25 +901,37 @@ export function registerBotHandlers(bot: Bot) {
         await defaultStateStore().delete(userId, "launch-executing");
         return void await ctx.reply(
           `↩️ <b>NEARly launch did not complete</b>\n\nTransaction: ${code(pending.txHash)}\nYou can start a new launch with /launch.`,
-          HTML
+          { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") }
         );
       }
       return void await ctx.reply(
-        `⏳ <b>NEARly launch is still pending</b>\n\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\nTransaction: ${code(pending.txHash)}\n\n<b>Do not retry.</b> Check /launch-status again after the transaction is indexed.`,
-        HTML
+        `⏳ <b>NEARly launch is still pending</b>\n\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\nTransaction: ${code(pending.txHash)}\n\n<b>Do not retry.</b> A broadcast NEAR transaction cannot be cancelled by the bot; use Refresh to reconcile it before launching again.`,
+        { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Refresh", "launch:status").text("❌ Cancel flow", "launch:pending-cancel").row().text("📜 Previous launches", "launch:history") }
       );
     } catch (error) {
       console.error("NEARly launch recovery error:", error);
-      await ctx.reply(`⏳ Launch status is not confirmed yet. <b>Do not retry.</b>\nTransaction: ${code(pending.txHash)}`, HTML);
+      await ctx.reply(`⏳ Launch status is not confirmed yet. <b>Do not retry.</b>\nTransaction: ${code(pending.txHash)}`, { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Refresh", "launch:status").text("❌ Cancel flow", "launch:pending-cancel") });
     }
   });
 
+  pm.command("launch-history", async (ctx) => {
+    const history = await getNearlyLaunchHistory(ctx.from.id, 20);
+    await ctx.reply(renderNearlyLaunchHistory(history), {
+      ...HTML,
+      reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start")
+    });
+  });
+
   pm.command("launch-cancel", async (ctx) => {
-    await defaultStateStore().delete(ctx.from.id, "launch-wizard");
-    if (await defaultStateStore().get(ctx.from.id, "launch-pending")) {
-      return void await ctx.reply("⏳ A launch transaction is still pending. Use /launch-status before starting another launch.");
+    const userId = ctx.from.id;
+    await defaultStateStore().delete(userId, "launch-wizard");
+    await defaultStateStore().delete(userId, "launch-executing");
+    if (await defaultStateStore().get(userId, "launch-pending")) {
+      return void await ctx.reply(
+        "❌ <b>Launch flow cancelled locally.</b>\n\nThe previous on-chain transaction is still pending and cannot be cancelled by Neyro. Use /launch-status to reconcile it before starting another launch.",
+        { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Check status", "launch:status").text("📜 Previous launches", "launch:history") }
+      );
     }
-    await defaultStateStore().delete(ctx.from.id, "launch-executing");
     await ctx.reply("❌ Launch flow cancelled.");
   });
 
@@ -892,6 +939,52 @@ export function registerBotHandlers(bot: Bot) {
     await defaultStateStore().delete(ctx.from.id, "launch-wizard");
     await ctx.answerCallbackQuery("Cancelled");
     await ctx.editMessageText("❌ Launch cancelled.", HTML);
+  });
+
+  pm.callbackQuery("launch:start", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    if (!await requireWallet(ctx)) return;
+    await defaultStateStore().set(ctx.from.id, "launch-wizard", { step: "name" }, 30 * 60 * 1000);
+    await ctx.reply("🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nSend /launch-cancel anytime to stop.", HTML);
+  });
+
+  pm.callbackQuery("launch:status", async (ctx) => {
+    await ctx.answerCallbackQuery("Checking…");
+    const userId = ctx.from.id;
+    const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
+    if (!pending) {
+      const history = await getNearlyLaunchHistory(userId, 10);
+      return void await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start") });
+    }
+    const status = await recoverNearlyLaunch(pending).catch(() => "unknown" as const);
+    if (status === "live") {
+      await defaultStateStore().delete(userId, "launch-pending");
+      await defaultStateStore().delete(userId, "launch-executing");
+      return void await ctx.reply(`✅ <b>Previous launch is LIVE</b>\n\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\nTransaction: ${code(pending.txHash)}`, { ...HTML, reply_markup: new InlineKeyboard().text("📜 Previous launches", "launch:history") });
+    }
+    if (status === "reverted" || status === "failed") {
+      await defaultStateStore().delete(userId, "launch-pending");
+      await defaultStateStore().delete(userId, "launch-executing");
+      return void await ctx.reply("↩️ <b>Previous launch did not complete.</b> You can start a new launch.", { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") });
+    }
+    return void await ctx.reply(`⏳ <b>Still pending</b>\nTransaction: ${code(pending.txHash)}\n\nDo not launch again yet.`, { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Refresh", "launch:status").text("❌ Cancel flow", "launch:pending-cancel") });
+  });
+
+  pm.callbackQuery("launch:pending-cancel", async (ctx) => {
+    const userId = ctx.from.id;
+    await defaultStateStore().delete(userId, "launch-wizard");
+    await defaultStateStore().delete(userId, "launch-executing");
+    await ctx.answerCallbackQuery("Local launch flow cancelled");
+    await ctx.editMessageText(
+      "❌ <b>Launch flow cancelled locally.</b>\n\nThe on-chain transaction is still pending and cannot be cancelled. Neyro will keep it protected from duplicate launches.",
+      { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Check status", "launch:status").text("📜 Previous launches", "launch:history") }
+    );
+  });
+
+  pm.callbackQuery("launch:history", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const history = await getNearlyLaunchHistory(ctx.from.id, 20);
+    await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start") });
   });
 
   pm.callbackQuery("launch:confirm", async (ctx) => {
@@ -911,20 +1004,8 @@ export function registerBotHandlers(bot: Bot) {
       if (!wallet) throw new Error("Wallet not found");
       const result = await launchNearlyToken(walletService, userId, wizard);
       await defaultStateStore().delete(userId, "launch-executing");
-      await ctx.editMessageText(
-        "✅ <b>Token launched on NEARly</b>\n\n" +
-        `Name: <b>${escapeHtml(result.launch.name)}</b>\n` +
-        `Symbol: <b>${escapeHtml(result.launch.symbol)}</b>\n` +
-        `Contract: ${code(result.launch.token)}\n` +
-        `Launch ID: <code>${result.launch.id}</code>\n` +
-        `Cost: ${formatNear(BigInt(result.cost.total))} NEAR\n` +
-        `Pair: <b>${escapeHtml(launchQuoteLabel(result.launch.quote))}</b>\n` +
-        `First buy: ${result.launch.quote === NEARLY_WNEAR ? `${escapeHtml(result.devBuyNear)} NEAR` : "Not available for this pair"}\n` +
-        `Status: <b>LIVE</b>\n\n` +
-        `🔗 <a href="https://nearblocks.io/txns/${result.txHash}">View launch transaction</a>\n` +
-        `🔗 <a href="https://nearly.trade/">Open NEARly</a>`,
-        HTML
-      );
+      await saveNearlyLaunchHistory(userId, result);
+      await ctx.editMessageText(renderNearlyLaunchSuccess(result), HTML);
     } catch (error) {
       await defaultStateStore().delete(userId, "launch-executing");
       console.error("NEARly launch execution error:", error);
