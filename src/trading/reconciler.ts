@@ -23,13 +23,31 @@ export function decideResolution(lookups: readonly TxLookup[], ageMs: number): R
   // Hashes are journaled before broadcast, so no hashes means nothing was sent.
   if (lookups.length === 0) return { status: "failed" };
 
-  const reverted = lookups.find((item) => item.result === "reverted");
-  if (reverted) return { status: "reverted", failure: reverted.failure };
-  if (lookups.every((item) => item.result === "executed")) return { status: "submitted" };
+  const hasUnknown = lookups.some((item) => item.result === "unknown");
+  const hasExecuted = lookups.some((item) => item.result === "executed");
+  const hasReverted = lookups.some((item) => item.result === "reverted");
 
-  // Some hashes are still unseen.
-  if (ageMs < TX_VALIDITY_MS) return undefined;
-  return lookups.some((item) => item.result === "executed") ? { status: "partial" } : { status: "failed" };
+  // An unresolved hash can still land. Never finalize a batch while any
+  // transaction remains unknown, even if another transaction already failed.
+  if (hasUnknown && ageMs < TX_VALIDITY_MS) return undefined;
+
+  if (hasUnknown) {
+    // The remaining hash can no longer become valid. If another transaction
+    // executed, the batch is partial; otherwise nothing reached the chain.
+    return hasExecuted ? { status: "partial" } : { status: "failed" };
+  }
+
+  if (hasReverted && hasExecuted) return { status: "partial" };
+  if (hasReverted) {
+    const reverted = lookups.find((item) => item.result === "reverted");
+    return { status: "reverted", failure: reverted?.failure };
+  }
+
+  if (lookups.every((item) => item.result === "executed")) {
+    return { status: "submitted" };
+  }
+
+  return undefined;
 }
 
 export function resolutionMessage(resolution: Resolution, txLinks: string[]): string {
