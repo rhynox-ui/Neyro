@@ -252,7 +252,7 @@ export async function launchNearlyToken(
   let devBuy = 0n;
   const requested = cleanOptional(clean.devBuyNear);
   if (requested) {
-    if (!/^\d+(?:\.\d+)?$/.test(requested) || Number(requested) <= 0) {
+    if (!/^\d+(?:\.\d+)?$/.test(requested)) {
       throw new UserFacingError("First buy must be a positive NEAR amount");
     }
     try {
