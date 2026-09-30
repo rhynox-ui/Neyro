@@ -165,11 +165,11 @@ function validateIcon(value: string | undefined): string | undefined {
     // NEARly's factory measures the stored Rust String in bytes, including
     // the data:image/ prefix and base64 text. Checking decoded image bytes
     // here is insufficient because base64 expands the stored representation.
-    if (new TextEncoder().encode(v).byteLength > 16 * 1024) {
-      throw new UserFacingError("Logo is too large for NEARly's 16 KB on-chain metadata limit. Send a smaller image.");
+    if (new TextEncoder().encode(v).byteLength > 8 * 1024) {
+      throw new UserFacingError("Logo is too large for NEARly's 16 KB on-chain metadata limit; Neyro uses an 8 KB gas-safety ceiling. Send a smaller image.");
     }
-  } else if (new TextEncoder().encode(v).byteLength > 16 * 1024) {
-    throw new UserFacingError("Logo URL is too large for NEARly's 16 KB metadata limit");
+  } else if (new TextEncoder().encode(v).byteLength > 8 * 1024) {
+    throw new UserFacingError("Logo URL is too large for NEARly's 16 KB metadata limit; Neyro uses an 8 KB gas-safety ceiling");
   }
   return v;
 }
