@@ -125,7 +125,7 @@ function launchSkip(value: string): string | undefined {
   return !v || v === "-" || v.toLowerCase() === "skip" ? undefined : v;
 }
 
-export function renderNearlyLaunchSuccess(result: Pick<NearlyLaunchResult, "txHash" | "launch" | "cost" | "devBuyNear">): string {
+function renderNearlyLaunchSuccess(result: Pick<NearlyLaunchResult, "txHash" | "launch" | "cost" | "devBuyNear">): string {
   return (
     "✅ <b>Token launched on NEARly</b>\n\n" +
     `Name: <b>${escapeHtml(result.launch.name)}</b>\n` +
@@ -141,7 +141,7 @@ export function renderNearlyLaunchSuccess(result: Pick<NearlyLaunchResult, "txHa
   );
 }
 
-export function renderNearlyLaunchHistory(entries: readonly NearlyLaunchHistoryEntry[]): string {
+function renderNearlyLaunchHistory(entries: readonly NearlyLaunchHistoryEntry[]): string {
   if (entries.length === 0) return "📜 <b>Your NEARly launches</b>\n\nNo successful launches saved yet.";
   return [
     "📜 <b>Your NEARly launches</b>",
