@@ -147,6 +147,19 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
   };
 }
 
+function quoteDecimals(quote: string): number {
+  return quote === NEARLY_TOKEN ? 18 : 24;
+}
+
+function iconByteLength(icon: string | undefined): number {
+  if (!icon) return 0;
+  if (!icon.startsWith("data:image/")) return new TextEncoder().encode(icon).byteLength;
+  const comma = icon.indexOf(",");
+  if (comma < 0) return 0;
+  const base64 = icon.slice(comma + 1);
+  return Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+}
+
 function launchArgs(input: ReturnType<typeof validateInput>, devBuyYocto: bigint): Record<string, unknown> {
   const links = {
     ...(input.website ? { website: input.website } : {}),
@@ -257,7 +270,7 @@ export async function launchNearlyToken(
   if (!wallet) throw new UserFacingError("Create a Neyro wallet first with /wallet");
 
   const clean = validateInput(input);
-  const iconBytes = clean.icon ? new TextEncoder().encode(clean.icon).byteLength : 0;
+  const iconBytes = iconByteLength(clean.icon);
 
   const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
   if (pending) {
@@ -284,7 +297,7 @@ export async function launchNearlyToken(
       throw new UserFacingError("First buy must be a positive NEAR amount");
     }
     try {
-      devBuy = BigInt(parseUnits(requested, 24));
+      devBuy = BigInt(parseUnits(requested, quoteDecimals(clean.quote)));
       if (devBuy <= 0n) throw new Error("non-positive");
     } catch {
       throw new UserFacingError("First buy has too many decimal places");
@@ -297,7 +310,7 @@ export async function launchNearlyToken(
     : (() => { throw new UserFacingError("NEARly returned an invalid first-buy cap"); })();
   if (devBuy > cap) {
     throw new UserFacingError(
-      `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), 24)} NEAR. Lower the first buy and retry.`
+      `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), quoteDecimals(clean.quote))} ${clean.quote === NEARLY_TOKEN ? "NEARLY" : "NEAR"}. Lower the first buy and retry.`
     );
   }
 
@@ -372,7 +385,7 @@ export async function launchNearlyToken(
     txHash: sent.txHashes[0]!,
     launch: record,
     cost,
-    devBuyNear: formatUnits(devBuy.toString(), 24)
+    devBuyNear: formatUnits(devBuy.toString(), quoteDecimals(clean.quote))
   };
 }
 
