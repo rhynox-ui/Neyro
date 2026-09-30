@@ -340,7 +340,7 @@ function launchArgs(input: ReturnType<typeof validateInput>, devBuyYocto: bigint
     links,
     ...(devBuyYocto > 0n ? { dev_buy: devBuyYocto.toString() } : {}),
     ...(input.quote && input.quote !== NEARLY_WNEAR ? { quote: input.quote } : {}),
-    creator_share_bps: 8000,
+    creator_share_bps: 7000,
     ...(input.tax ? {
       tax: {
         buy_bps: input.tax.buyBps,
