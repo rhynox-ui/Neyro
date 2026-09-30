@@ -82,7 +82,7 @@ export function tokenFeeToNative(
   const nearPrice = toScaled(nearPriceUsd);
   if (!tokenPrice || !nearPrice) return null;
 
-  const denominator = 10n ** BigInt(tokenDecimals) * SCALE * nearPrice;
+  const denominator = 10n ** BigInt(tokenDecimals) * nearPrice;
   const numerator = tokenFee * tokenPrice * 10n ** 24n;
   return (numerator + denominator - 1n) / denominator;
 }
