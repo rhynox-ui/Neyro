@@ -8,7 +8,7 @@ import {
 import { config } from "../config.js";
 import { UserFacingError } from "../errors.js";
 import { ftMetadata } from "../near/ft.js";
-import { looksLikeContractId } from "../near/tokens.js";
+import { isValidAccountId, looksLikeContractId } from "../near/tokens.js";
 import type { DirectRheaNearQuote } from "../domain/trading.js";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
 
@@ -151,6 +151,12 @@ export class RheaClient {
     const msg = stringField(data, "msg", "message");
     const signature = stringField(data, "signature");
     const tokens = normalizeRouteTokens(data?.tokens ?? data?.routeTokens ?? data?.pathTokens);
+    if (tokens.some((token) => !isValidAccountId(token))) {
+      throw new UserFacingError("RHEA SmartRouter returned an invalid route token");
+    }
+    if (tokens.length > 16) {
+      throw new UserFacingError("RHEA SmartRouter returned too many route tokens");
+    }
     const missing = [
       !/^\d+$/.test(amountIn) ? "amount_in" : "",
       !/^\d+$/.test(amountOut) || BigInt(amountOut || "0") <= 0n ? "amount_out" : "",
@@ -336,6 +342,7 @@ function normalizeRouteTokens(value: unknown): string[] {
     }
     return "";
   }).filter(Boolean);
+  return [...new Set(out)];
 }
 
 function cleanRheaText(text: string): string {
