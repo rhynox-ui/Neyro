@@ -157,7 +157,7 @@ test("direct RHEA sell sends the input token to aggregated DEX", () => {
   };
   const quote = {
     kind: "rhea-smart-router" as const,
-    amountIn: "1000000000000000000",
+    amountIn: request.amountIn,
     amountOut: "9000000000000000000000",
     minAmountOut: "8910000000000000000000",
     msg: "route-message",
