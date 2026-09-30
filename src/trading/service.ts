@@ -461,9 +461,10 @@ export class TradingService {
    */
   private async collectFee(userId: number, id: string, accountId: string, fee: FeePlan): Promise<string | undefined> {
     const details = { contractId: fee.contractId, amount: fee.amount, treasury: fee.treasury };
+    let feeSigner: NearAccountSigner | undefined;
     try {
       const account = await this.walletService.getSigningAccount(userId, accountId);
-      const feeSigner = new NearAccountSigner(account, {
+      feeSigner = new NearAccountSigner(account, {
         allowedReceivers: [fee.treasury],
         beforeBroadcast: (txHash) => this.repository.recordEvent(userId, id, { type: "fee_tx_signed", txHash, details })
       });
@@ -471,7 +472,7 @@ export class TradingService {
         [{ receiverId: feeReceiver(fee), actions: feeActions(fee) }] as unknown as Parameters<NearAccountSigner["signAndSendTransactions"]>[0],
         {}
       );
-      const sent = feeSigner.sent[0];
+      const sent = feeSigner?.sent[0];
       if (sent?.result !== "executed") {
         await this.repository.recordEvent(userId, id, {
           type: "fee_uncollected",
@@ -488,7 +489,7 @@ export class TradingService {
       // A timeout after broadcast is not proof that the fee failed. Reconcile
       // the journaled fee transaction before deciding what to record; otherwise
       // a successfully landed fee would be invisible to the fee reconciler.
-      await feeSigner.reconcile().catch((reconcileError) => {
+      await feeSigner?.reconcile().catch((reconcileError) => {
         console.warn("Fee transaction reconciliation failed", { id, reconcileError });
       });
       const sent = feeSigner.sent[0];
