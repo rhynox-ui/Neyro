@@ -1,14 +1,9 @@
 // Cloudflare Workers entry point: Telegram webhook, optional Queue consumer,
 // and a cron trigger for the trade reconciler. src/index.ts is the Node
 // (long polling) equivalent.
-//
-// Nothing that reads configuration is imported at module level. Cloudflare
-// runs the module's top level once while validating an upload, before any
-// secrets exist on a first deploy; a config error there would block the
-// deploy. The app loads on the first request instead, and /health reports
-// what is missing.
 import type { Bot } from "grammy";
 import type { Update } from "grammy/types";
+import { BOT_COMMANDS } from "./bot/commands.js";
 
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
@@ -19,10 +14,9 @@ interface UpdateQueue {
 }
 
 interface Env {
-  /** Worker secrets are accessed from the binding, not inferred from process.env. */
+  TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   SETUP_SECRET?: string;
-  /** Optional Cloudflare Queue binding; see wrangler.jsonc. */
   NEYRO_TELEGRAM_UPDATES?: UpdateQueue;
 }
 
@@ -30,7 +24,6 @@ type QueueBatch = {
   messages: readonly { body: Update; ack(): void }[];
 };
 
-/** Secrets set with `wrangler secret put`; checked by name only, never logged. */
 const REQUIRED_SECRETS = ["TELEGRAM_BOT_TOKEN", "DATABASE_URL", "NEYRO_MASTER_KEY"] as const;
 
 function missingSecrets(): string[] {
@@ -74,14 +67,11 @@ function getApp(): Promise<App> {
   return appPromise;
 }
 
-/** One bot per isolate; init() fetches the bot's own info once. */
 function getBot(): Promise<Bot> {
   botPromise ??= (async () => {
     const app = await getApp();
     const bot = app.create.createBot(app.config.TELEGRAM_BOT_TOKEN);
     await bot.init();
-    // Keep Telegram's command menu synchronized on every Worker cold start,
-    // so newly deployed commands such as /launch do not remain stale.
     await bot.api.setMyCommands(app.create.BOT_COMMANDS);
     return bot;
   })().catch((error) => {
@@ -96,7 +86,6 @@ async function processUpdate(update: Update): Promise<void> {
   await bot.handleUpdate(update);
 }
 
-/** Why the Worker can't serve yet, or undefined when it can. */
 async function configurationProblem(): Promise<string | undefined> {
   const missing = missingSecrets();
   if (missing.length) return `Missing secrets: ${missing.join(", ")}`;
@@ -109,7 +98,6 @@ async function configurationProblem(): Promise<string | undefined> {
       ? `Invalid configuration: ${issues.map((issue) => `${issue.path?.join(".")}: ${issue.message}`).join("; ")}`
       : "Configuration failed to load";
   }
-  // The deployed bot is mainnet-only.
   if (app.config.NEAR_NETWORK !== "mainnet") return "The Worker only runs on NEAR mainnet";
   return undefined;
 }
@@ -129,10 +117,6 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext):
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  // With a Queue, the update is stored before acknowledging and processed
-  // by the consumer with no time limit. Without one, it runs after the
-  // response via waitUntil (about 30s guaranteed); a trade cut off mid-way
-  // stays "executing" and the cron reconciler settles it from its tx journal.
   if (env.NEYRO_TELEGRAM_UPDATES) {
     try {
       await env.NEYRO_TELEGRAM_UPDATES.send(update);
@@ -146,26 +130,53 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext):
   return new Response("ok");
 }
 
-/** GET /setup-webhook with X-Neyro-Setup-Secret points Telegram at this Worker. */
+async function telegramApi(env: Env, method: string, body: unknown): Promise<{ ok: boolean; description?: string }> {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  }
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json() as { ok: boolean; description?: string };
+  if (!response.ok || !payload.ok) {
+    throw new Error(`Telegram ${method} failed: ${payload.description ?? `HTTP ${response.status}`}`);
+  }
+  return payload;
+}
+
+/**
+ * Webhook setup intentionally does not load the application/database stack.
+ * It only authenticates the setup secret and talks directly to Telegram using
+ * Worker bindings. This keeps deployment recovery independent of app config.
+ */
 async function handleSetup(request: Request, env: Env): Promise<Response> {
-  const { create } = await getApp();
   if (!env.SETUP_SECRET || request.headers.get("x-neyro-setup-secret") !== env.SETUP_SECRET) {
     return new Response("Unauthorized. Provide the X-Neyro-Setup-Secret header.", { status: 401 });
   }
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    return new Response("TELEGRAM_BOT_TOKEN is not configured.", { status: 500 });
+  }
 
   const url = new URL(request.url);
-  const bot = await getBot();
   const webhookUrl = `${url.origin}/webhook`;
-  await bot.api.setWebhook(webhookUrl, {
-    ...(env.TELEGRAM_WEBHOOK_SECRET ? { secret_token: env.TELEGRAM_WEBHOOK_SECRET } : {}),
-    allowed_updates: ["message", "callback_query"],
-    drop_pending_updates: false
-  });
-  await bot.api.setMyCommands(create.BOT_COMMANDS);
-  return Response.json({ ok: true, webhookUrl, commands: create.BOT_COMMANDS.length });
+
+  try {
+    await telegramApi(env, "setWebhook", {
+      url: webhookUrl,
+      ...(env.TELEGRAM_WEBHOOK_SECRET ? { secret_token: env.TELEGRAM_WEBHOOK_SECRET } : {}),
+      allowed_updates: ["message", "callback_query"],
+      drop_pending_updates: false
+    });
+    await telegramApi(env, "setMyCommands", { commands: BOT_COMMANDS });
+    return Response.json({ ok: true, webhookUrl, commands: BOT_COMMANDS.length });
+  } catch (error) {
+    console.error("Webhook setup failed:", error);
+    return new Response("Telegram webhook setup failed.", { status: 502 });
+  }
 }
 
-/** GET /icon/<token>: the token's on-chain icon, for Telegram link previews. */
 async function handleIcon(pathname: string): Promise<Response> {
   const app = await getApp();
   const token = decodeURIComponent(pathname.slice("/icon/".length)).toLowerCase();
@@ -183,11 +194,6 @@ async function handleIcon(pathname: string): Promise<Response> {
   });
 }
 
-/**
- * GET /debug/price?secret=SETUP_SECRET&token=<contract>: runs each market-data
- * step for one token and reports its result or error, for diagnosing blank
- * token cards. Returns only public market data.
- */
 async function handleDebugPrice(request: Request): Promise<Response> {
   const app = await getApp();
   const url = new URL(request.url);
@@ -203,8 +209,6 @@ async function handleDebugPrice(request: Request): Promise<Response> {
       return { ok: false, ms: Date.now() - started, error: String(error).slice(0, 300) };
     }
   };
-
-  // Each RPC endpoint on its own, so a rate-limited one is visible.
   const rpc = Object.fromEntries(await Promise.all(app.rpc.RPC_ENDPOINTS.map(async (endpoint) => [
     endpoint.name,
     { url: endpoint.url, ...(await step(async () => {
@@ -234,8 +238,6 @@ async function handleDebugPrice(request: Request): Promise<Response> {
   const pricing = launchValue
     ? await step(() => app.nearly.nearlyPriceUsd(launchValue, typeof nearUsd === "number" ? nearUsd : null))
     : { ok: false, error: "no launch" };
-
-  // Candidate sources for 24h stats, fetched from the Worker's own IP.
   const probe = (target: string) => step(async () => {
     const response = await fetch(target, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (compatible; NeyroBot/1.0)" } });
     return { status: response.status, body: (await response.text()).slice(0, 400) };
@@ -244,7 +246,6 @@ async function handleDebugPrice(request: Request): Promise<Response> {
     intear: await probe(`https://prices.intear.tech/token?token_id=${encodeURIComponent(token)}`),
     geckoterminal: await probe(`https://api.geckoterminal.com/api/v2/networks/near/tokens/${encodeURIComponent(token)}/pools?page=1`)
   };
-  // On-chain fallback over every indexed RHEA pool (any quote token).
   const poolIndex = await step(async () => {
     const cursor = await app.pools.loadPoolCursor();
     return { ...cursor, entries: await app.pools.defaultPoolStore().count() };
@@ -260,16 +261,18 @@ async function handleDebugPrice(request: Request): Promise<Response> {
     const source = app.icon.decodeIcon(metadata.icon);
     return source ? (source.kind === "image" ? `${source.contentType}, ${source.bytes.length} bytes` : `redirect ${source.url}`) : `no usable icon (${metadata.icon ? metadata.icon.slice(0, 30) : "none"})`;
   });
-
   return Response.json({ token, icon: iconCheck, sources, fastnearKey: Boolean(app.config.FASTNEAR_API_KEY), rpc, rheaNear, dclNear, dexscreener, poolIndex, tokenPools, onchain, launch: launchValue ? { poolId: launchValue.poolId, tokenIsX: launchValue.tokenIsX, quote: launchValue.quote } : launch, pool, pricing });
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const problem = await configurationProblem();
 
+    // Recovery endpoints must be reachable even if the application stack has
+    // a configuration/runtime problem.
+    if (url.pathname === "/setup-webhook") return handleSetup(request, env);
     if (url.pathname === "/health") {
+      const problem = await configurationProblem();
       return Response.json({
         ok: !problem,
         ...(problem ? { problem } : {}),
@@ -279,19 +282,15 @@ export default {
         queue: Boolean(env.NEYRO_TELEGRAM_UPDATES)
       });
     }
+
+    const problem = await configurationProblem();
     if (problem) return new Response(problem, { status: 500 });
     if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
-    if (url.pathname === "/setup-webhook") return handleSetup(request, env);
     if (url.pathname === "/debug/price") return handleDebugPrice(request);
     if (url.pathname.startsWith("/icon/")) return handleIcon(url.pathname);
     return new Response("Neyro is running.");
   },
 
-  /**
-   * Queue consumer. Every message is acknowledged, even on failure: retrying
-   * an update could repeat a non-idempotent action such as a withdrawal.
-   * Trades are protected by the database claim either way.
-   */
   async queue(batch: QueueBatch): Promise<void> {
     for (const message of batch.messages) {
       try {
@@ -303,7 +302,6 @@ export default {
     }
   },
 
-  /** Cron trigger (every minute): delete expired messages, index new pools, settle unknown or stale trades. */
   async scheduled(_event: unknown, _env: Env, ctx: ExecutionContext): Promise<void> {
     if (await configurationProblem()) return;
     const app = await getApp();
@@ -311,7 +309,6 @@ export default {
     const bot = await getBot();
     ctx.waitUntil(app.autodelete.deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error)));
     ctx.waitUntil(app.store.defaultStateStore().purgeExpired().catch((error) => console.error("State purge failed:", error)));
-    // Index new RHEA pools so any pair can be priced from the chain.
     ctx.waitUntil(app.pools.refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error)));
     ctx.waitUntil(app.reconciler.reconcileOnce({
       repository: new app.repository.PostgresTradeRepository(databaseUrl),
