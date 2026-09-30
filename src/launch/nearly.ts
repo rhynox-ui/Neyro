@@ -200,8 +200,19 @@ export async function recoverNearlyLaunch(pending: NearlyLaunchPending): Promise
   const launch = await getNearlyLaunchBySymbol(pending.symbol);
   if (!launch || launch.creator !== pending.creator || launch.symbol !== pending.symbol) return "processing";
   if (launch.step === "Failed") return "failed";
-  if (launch.step === "Done" && !launch.inflight) return "live";
+  if (isCompletedLaunch(launch, pending.symbol, pending.creator)) return "live";
   return "processing";
+}
+
+function isCompletedLaunch(launch: LaunchRecord, symbol: string, creator: string): boolean {
+  return launch.symbol === symbol &&
+    launch.creator === creator &&
+    launch.step === "Done" &&
+    !launch.inflight &&
+    launch.quote === NEARLY_WNEAR &&
+    launch.token.trim().length > 0 &&
+    launch.pool_id.trim().length > 0 &&
+    launch.total_supply.trim().length > 0;
 }
 
 async function waitForLaunch(symbol: string, creator: string): Promise<LaunchRecord> {
