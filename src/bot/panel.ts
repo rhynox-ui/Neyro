@@ -475,7 +475,7 @@ export function createTokenPanel({ tradingService, walletService, settings, stor
             `Minimum: ${minimum} ${outSymbol}`,
             ...(prepared.fee
               ? [
-                  `Fee: ${formatUnits(prepared.fee.amount, prepared.request.tokenIn.decimals ?? 0)} ${inSymbol}${prepared.fee.capped ? " (capped)" : ""}`,
+                  `Protocol fee: ${formatUnits(prepared.fee.amount, 24)} NEAR${prepared.fee.capped ? " (capped)" : ""}`,
                   `Swapping: ${formatUnits(prepared.request.amountIn, prepared.request.tokenIn.decimals ?? 0)} ${inSymbol}`
                 ]
               : []),
