@@ -13,7 +13,7 @@ import { TradingService } from "../trading/service.js";
 import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
 import type { ExecutionResult } from "../trading/service.js";
 import { config } from "../config.js";
-import { userMessage } from "../errors.js";
+import { UserFacingError, userMessage } from "../errors.js";
 import { RateLimiter } from "./rate-limit.js";
 import { deleteIncoming, keepScreen, replyNotice, replyScreen } from "./screens.js";
 import { scheduleDeletion } from "./autodelete.js";
@@ -26,6 +26,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
+import { launchNearlyToken, type NearlyLaunchInput } from "../launch/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -112,6 +113,38 @@ export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount"
     default:
       return `❌ <b>Withdrawal failed on chain.</b> ${result.reason ? escapeHtml(result.reason) : ""}${txs}`;
   }
+}
+
+type LaunchWizard = NearlyLaunchInput & { step: "name" | "symbol" | "description" | "devBuyNear" | "website" | "twitter" | "telegram" | "icon" | "review" };
+
+function launchSkip(value: string): string | undefined {
+  const v = value.trim();
+  return !v || v === "-" || v.toLowerCase() === "skip" ? undefined : v;
+}
+
+export function renderNearlyLaunchReview(input: NearlyLaunchInput, accountId: string): string {
+  return [
+    "🚀 <b>Launch on NEARly</b>",
+    "",
+    `Wallet: ${code(accountId)}`,
+    `Name: <b>${escapeHtml(input.name ?? "")}</b>`,
+    `Symbol: <b>${escapeHtml(input.symbol ?? "")}</b>`,
+    `Description: ${escapeHtml(input.description ?? "—")}`,
+    `First buy: ${escapeHtml(input.devBuyNear ?? "0")} NEAR`,
+    `Website: ${escapeHtml(input.website ?? "—")}`,
+    `X: ${escapeHtml(input.twitter ?? "—")}`,
+    `Telegram: ${escapeHtml(input.telegram ?? "—")}`,
+    `Logo: ${escapeHtml(input.icon ?? "—")}`,
+    "",
+    "Pair: NEAR",
+    "Supply: 1,000,000,000 tokens",
+    "Liquidity: Rhea DCL · 1% fee",
+    "LP: locked by NEARly",
+    "",
+    "NEARly calculates the exact launch/storage/pool cost on-chain immediately before signing.",
+    "",
+    "⚠️ Confirm only if the details are correct. Launching creates a real mainnet token and spends NEAR."
+  ].join("\n");
 }
 
 export function renderSettings(prefs: SlippagePrefs) {
@@ -776,6 +809,128 @@ export function registerBotHandlers(bot: Bot) {
       : "💰 Sell\n\nPaste a token contract id to open its trading panel, or send /sell <token> <amount-token>.");
   });
   pm.callbackQuery("portfolio", async (ctx) => { await ctx.answerCallbackQuery(); await showPortfolio(ctx); });
+  pm.command("launch", async (ctx) => {
+    if (!await requireWallet(ctx)) return;
+    await defaultStateStore().set(ctx.from.id, "launch-wizard", { step: "name" }, 30 * 60 * 1000);
+    await replyScreen(ctx, "launch",
+      "🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nSend /launch-cancel anytime to stop.",
+      HTML
+    );
+  });
+
+  pm.command("launch-cancel", async (ctx) => {
+    await defaultStateStore().delete(ctx.from.id, "launch-wizard");
+    await defaultStateStore().delete(ctx.from.id, "launch-executing");
+    await ctx.reply("❌ Launch flow cancelled.");
+  });
+
+  pm.callbackQuery("launch:cancel", async (ctx) => {
+    await defaultStateStore().delete(ctx.from.id, "launch-wizard");
+    await ctx.answerCallbackQuery("Cancelled");
+    await ctx.editMessageText("❌ Launch cancelled.", HTML);
+  });
+
+  pm.callbackQuery("launch:confirm", async (ctx) => {
+    await ctx.answerCallbackQuery("Launching on NEARly…");
+    await ctx.editMessageReplyMarkup();
+    const userId = ctx.from.id;
+    const wizard = await defaultStateStore().take<LaunchWizard>(userId, "launch-wizard");
+    if (!wizard || wizard.step !== "review" || !wizard.name || !wizard.symbol) {
+      return void await ctx.editMessageText("❌ Launch confirmation expired. Start again with /launch.", HTML);
+    }
+    if (await defaultStateStore().get(userId, "launch-executing")) {
+      return void await ctx.editMessageText("⏳ A launch is already executing for this wallet. Do not submit another one.", HTML);
+    }
+    await defaultStateStore().set(userId, "launch-executing", { name: wizard.name, symbol: wizard.symbol, startedAt: Date.now() }, 15 * 60 * 1000);
+    try {
+      const wallet = await requireWallet(ctx);
+      if (!wallet) throw new Error("Wallet not found");
+      const result = await launchNearlyToken(walletService, userId, wizard);
+      await defaultStateStore().delete(userId, "launch-executing");
+      await ctx.editMessageText(
+        "✅ <b>Token launched on NEARly</b>\n\n" +
+        `Name: <b>${escapeHtml(result.launch.name)}</b>\n` +
+        `Symbol: <b>${escapeHtml(result.launch.symbol)}</b>\n` +
+        `Contract: ${code(result.launch.token)}\n` +
+        `Launch ID: <code>${result.launch.id}</code>\n` +
+        `Cost: ${formatNear(BigInt(result.cost.total))} NEAR\n` +
+        `First buy: ${escapeHtml(result.devBuyNear)} NEAR\n` +
+        `Status: <b>LIVE</b>\n\n` +
+        `🔗 <a href="https://nearblocks.io/txns/${result.txHash}">View launch transaction</a>\n` +
+        `🔗 <a href="https://nearly.trade/${encodeURIComponent(result.launch.token)}">Open on NEARly</a>`,
+        HTML
+      );
+    } catch (error) {
+      await defaultStateStore().delete(userId, "launch-executing");
+      console.error("NEARly launch execution error:", error);
+      await ctx.editMessageText(`❌ ${userMessage(error, "NEARly launch failed")}`, HTML);
+    }
+  });
+
+  pm.on("message:text", async (ctx, next) => {
+    const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
+    if (!wizard) return next();
+    const text = ctx.message.text.trim();
+    if (text.startsWith("/")) return next();
+    await deleteIncoming(ctx);
+    const value = launchSkip(text);
+
+    try {
+      const save = async (state: LaunchWizard, prompt?: string) => {
+        await defaultStateStore().set(ctx.from.id, "launch-wizard", state, 30 * 60 * 1000);
+        if (prompt) await replyScreen(ctx, "launch", prompt, HTML);
+      };
+
+      switch (wizard.step) {
+        case "name":
+          if (!text || text.length > 32) throw new UserFacingError("Name must be 1–32 characters.");
+          await save({ ...wizard, name: text, step: "symbol" }, "Enter the token <b>symbol</b> (1–10 ASCII letters/digits). Example: <code>NEYRO</code>.");
+          return;
+        case "symbol":
+          if (!/^[A-Za-z0-9]{1,10}$/.test(text)) throw new UserFacingError("Symbol must be 1–10 ASCII letters/digits.");
+          await save({ ...wizard, symbol: text.toUpperCase(), step: "description" }, "Enter a short <b>description</b> (max 500 chars), or send <code>skip</code>.");
+          return;
+        case "description":
+          if (value && value.length > 500) throw new UserFacingError("Description must be at most 500 characters.");
+          await save({ ...wizard, description: value, step: "devBuyNear" }, "Enter your optional <b>first buy</b> in NEAR, or send <code>0</code> for none.");
+          return;
+        case "devBuyNear":
+          if (!/^(?:0|\d+(?:\.\d+)?)$/.test(text)) throw new UserFacingError("Enter a valid NEAR amount such as 0, 0.05 or 0.1.");
+          await save({ ...wizard, devBuyNear: text === "0" ? undefined : text, step: "website" }, "Website URL, or <code>skip</code>.");
+          return;
+        case "website":
+          if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("Website must be an HTTPS URL up to 200 characters.");
+          await save({ ...wizard, website: value, step: "twitter" }, "X URL, or <code>skip</code>.");
+          return;
+        case "twitter":
+          if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("X must be an HTTPS URL up to 200 characters.");
+          await save({ ...wizard, twitter: value, step: "telegram" }, "Telegram URL, or <code>skip</code>.");
+          return;
+        case "telegram":
+          if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("Telegram must be an HTTPS URL up to 200 characters.");
+          await save({ ...wizard, telegram: value, step: "icon" }, "Logo URL (HTTPS/IPFS), or <code>skip</code>.");
+          return;
+        case "icon":
+          if (value && !(value.startsWith("https://") || value.startsWith("ipfs://"))) throw new UserFacingError("Logo must be an HTTPS or IPFS URL.");
+          if (value && value.length > 16 * 1024) throw new UserFacingError("Logo URL exceeds the 16 KB limit.");
+          const ready: LaunchWizard = { ...wizard, icon: value, step: "review" };
+          await save(ready);
+          const wallet = await requireWallet(ctx);
+          if (!wallet) return;
+          await replyScreen(ctx, "launch", renderNearlyLaunchReview(ready, wallet.accountId), {
+            ...HTML,
+            reply_markup: new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel")
+          });
+          return;
+        case "review":
+          await replyNotice(ctx, "Use the Confirm Launch or Cancel button above.");
+          return;
+      }
+    } catch (error) {
+      await replyNotice(ctx, `❌ ${userMessage(error, "Invalid launch input")}`);
+    }
+  });
+
   pm.command("new", async (ctx) => { await showLaunchFeed(ctx, false); });
   pm.callbackQuery("discover", async (ctx) => { await ctx.answerCallbackQuery(); await showLaunchFeed(ctx, false); });
   pm.callbackQuery("nl:feed", async (ctx) => { await ctx.answerCallbackQuery("Refreshing…"); await showLaunchFeed(ctx, true); });
