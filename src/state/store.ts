@@ -39,9 +39,13 @@ export class InMemoryStateStore implements StateStore {
     this.rows.delete(this.id(userId, key));
   }
   async take<T>(userId: number, key: string): Promise<T | null> {
-    const value = await this.get<T>(userId, key);
-    this.rows.delete(this.id(userId, key));
-    return value;
+    // No await before deletion: concurrent callbacks in the same isolate
+    // must not both consume the same confirmation.
+    const id = this.id(userId, key);
+    const row = this.rows.get(id);
+    this.rows.delete(id);
+    if (!row || row.expiresAt <= Date.now()) return null;
+    return JSON.parse(row.value) as T;
   }
   async takeDue<T extends { dueAtMs: number }>(prefix: string, nowMs: number) {
     const due: { userId: number; value: T }[] = [];
