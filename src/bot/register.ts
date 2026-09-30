@@ -26,7 +26,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { launchNearlyToken, recoverNearlyLaunch, type NearlyLaunchInput, type NearlyLaunchPending } from "../launch/nearly.js";
+import { launchNearlyToken, recoverNearlyLaunch, launchQuoteLabel, NEARLY_TOKEN, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending } from "../launch/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -115,7 +115,7 @@ export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount"
   }
 }
 
-type LaunchWizard = NearlyLaunchInput & { step: "name" | "symbol" | "description" | "devBuyNear" | "website" | "twitter" | "telegram" | "icon" | "review" };
+type LaunchWizard = NearlyLaunchInput & { step: "name" | "symbol" | "description" | "devBuyNear" | "pair" | "website" | "twitter" | "telegram" | "icon" | "review" };
 
 function launchSkip(value: string): string | undefined {
   const v = value.trim();
@@ -134,9 +134,9 @@ export function renderNearlyLaunchReview(input: NearlyLaunchInput, accountId: st
     `Website: ${escapeHtml(input.website ?? "—")}`,
     `X: ${escapeHtml(input.twitter ?? "—")}`,
     `Telegram: ${escapeHtml(input.telegram ?? "—")}`,
-    `Logo: ${escapeHtml(input.icon ?? "—")}`,
+    `Logo: ${input.icon?.startsWith("data:image/") ? "📷 Uploaded image" : escapeHtml(input.icon ?? "—")}`,
     "",
-    "Pair: NEAR",
+    `Pair: <b>${escapeHtml(launchQuoteLabel(input.quote))}</b>`,
     "Supply: 1,000,000,000 tokens",
     "Liquidity: Rhea DCL · 1% fee",
     "LP: locked by NEARly",
@@ -813,9 +813,21 @@ export function registerBotHandlers(bot: Bot) {
     if (!await requireWallet(ctx)) return;
     await defaultStateStore().set(ctx.from.id, "launch-wizard", { step: "name" }, 30 * 60 * 1000);
     await replyScreen(ctx, "launch",
-      "🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nSend /launch-cancel anytime to stop.",
+      "🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nYou can upload a logo photo when asked.\n\nSend /launch-cancel anytime to stop.",
       HTML
     );
+  });
+
+  pm.callbackQuery(/^launch:pair:(near|nearly)$/, async (ctx) => {
+    const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
+    if (!wizard || wizard.step !== "pair") {
+      await ctx.answerCallbackQuery("Launch pair selection expired");
+      return;
+    }
+    const quote = ctx.match[1] === "nearly" ? NEARLY_TOKEN : NEARLY_WNEAR;
+    await defaultStateStore().set(ctx.from.id, "launch-wizard", { ...wizard, quote, step: "website" }, 30 * 60 * 1000);
+    await ctx.answerCallbackQuery(`Pair: ${launchQuoteLabel(quote)}`);
+    await replyScreen(ctx, "launch", "Website URL, or <code>skip</code>.", HTML);
   });
 
   pm.command("launch-status", async (ctx) => {
@@ -902,6 +914,40 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
+  // Accept a Telegram photo as the on-chain launch logo.
+  // Pick the largest Telegram rendition that remains within NEARly's 16 KB limit.
+  pm.on("message:photo", async (ctx) => {
+    const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
+    if (!wizard || wizard.step !== "icon") return;
+    await deleteIncoming(ctx);
+    try {
+      const photos = [...ctx.message.photo].sort((a, b) => (a.file_size ?? 0) - (b.file_size ?? 0));
+      let selected: string | undefined;
+      for (const photo of photos) {
+        const file = await ctx.api.getFile(photo.file_id);
+        if (!file.file_path) continue;
+        const response = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
+        if (!response.ok) continue;
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength <= 16 * 1024) {
+          selected = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
+        }
+      }
+      if (!selected) throw new UserFacingError("That photo is too large for NEARly's 16 KB on-chain logo limit. Send a smaller image.");
+      const ready: LaunchWizard = { ...wizard, icon: selected, step: "review" };
+      await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
+      const wallet = await requireWallet(ctx);
+      if (!wallet) return;
+      await replyScreen(ctx, "launch", renderNearlyLaunchReview(ready, wallet.accountId), {
+        ...HTML,
+        reply_markup: new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel")
+      });
+    } catch (error) {
+      console.error("NEARly launch logo upload error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't process that logo")}`);
+    }
+  });
+
   pm.on("message:text", async (ctx, next) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
     if (!wizard) return next();
@@ -931,7 +977,22 @@ export function registerBotHandlers(bot: Bot) {
           return;
         case "devBuyNear":
           if (!/^(?:0|\d+(?:\.\d+)?)$/.test(text)) throw new UserFacingError("Enter a valid NEAR amount such as 0, 0.05 or 0.1.");
-          await save({ ...wizard, devBuyNear: text === "0" ? undefined : text, step: "website" }, "Website URL, or <code>skip</code>.");
+          await save({ ...wizard, devBuyNear: text === "0" ? undefined : text, step: "pair" });
+          await replyScreen(ctx, "launch", "Choose the <b>launch pair</b>.", {
+            ...HTML,
+            reply_markup: new InlineKeyboard()
+              .text("Ⓝ NEAR", "launch:pair:near")
+              .text("🟣 NEARLY", "launch:pair:nearly")
+          });
+          return;
+        case "pair":
+          if (!["near", "nearly"].includes(text.toLowerCase())) {
+            throw new UserFacingError("Choose NEAR or NEARLY, or tap one of the pair buttons.");
+          }
+          await save(
+            { ...wizard, quote: text.toLowerCase() === "nearly" ? NEARLY_TOKEN : NEARLY_WNEAR, step: "website" },
+            "Website URL, or <code>skip</code>."
+          );
           return;
         case "website":
           if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("Website must be an HTTPS URL up to 200 characters.");
@@ -943,7 +1004,7 @@ export function registerBotHandlers(bot: Bot) {
           return;
         case "telegram":
           if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("Telegram must be an HTTPS URL up to 200 characters.");
-          await save({ ...wizard, telegram: value, step: "icon" }, "Logo URL (HTTPS/IPFS), or <code>skip</code>.");
+          await save({ ...wizard, telegram: value, step: "icon" }, "Send a <b>photo</b> for the logo, or send an HTTPS/IPFS logo URL, or <code>skip</code>.");
           return;
         case "icon":
           if (value && !(value.startsWith("https://") || value.startsWith("ipfs://"))) throw new UserFacingError("Logo must be an HTTPS or IPFS URL.");
