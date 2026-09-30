@@ -72,6 +72,14 @@ export type NearlyLaunchInput = {
   devBuyNear?: string;
   /** Quote asset used for the RHEA launch pair. */
   quote?: string;
+  /** Immutable NEARly token tax configuration. Values are basis points. */
+  tax?: {
+    buyBps: number;
+    sellBps: number;
+    creatorBps: number;
+    burnBps: number;
+    holdersBps: number;
+  };
 };
 
 export type NearlyLaunchResult = {
@@ -221,6 +229,19 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
   const twitter = validateHttpsUrl(input.twitter, "X");
   const telegram = validateHttpsUrl(input.telegram, "Telegram");
   const quote = cleanOptional(input.quote) ?? NEARLY_DEFAULT_QUOTE;
+  const tax = input.tax;
+  if (tax) {
+    const bps = [tax.buyBps, tax.sellBps, tax.creatorBps, tax.burnBps, tax.holdersBps];
+    if (!bps.every((value) => Number.isInteger(value) && value >= 0)) {
+      throw new UserFacingError("Tax settings must be whole-number basis points");
+    }
+    if (tax.buyBps > 400 || tax.sellBps > 400) {
+      throw new UserFacingError("NEARly tax cannot exceed 4% on either side");
+    }
+    if (tax.creatorBps + tax.burnBps + tax.holdersBps !== 10_000) {
+      throw new UserFacingError("NEARly tax destinations must total 100%");
+    }
+  }
 
   return {
     ...input,
@@ -231,7 +252,8 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
     ...(icon ? { icon } : {}),
     ...(website ? { website } : {}),
     ...(twitter ? { twitter } : {}),
-    ...(telegram ? { telegram } : {})
+    ...(telegram ? { telegram } : {}),
+    ...(tax ? { tax } : {})
   };
 }
 
@@ -257,7 +279,17 @@ function launchArgs(input: ReturnType<typeof validateInput>, devBuyYocto: bigint
     description: input.description ?? null,
     links,
     dev_buy: devBuyYocto.toString(),
-    quote: input.quote ?? NEARLY_DEFAULT_QUOTE
+    quote: input.quote ?? NEARLY_DEFAULT_QUOTE,
+    creator_share_bps: 8000,
+    ...(input.tax ? {
+      tax: {
+        buy_bps: input.tax.buyBps,
+        sell_bps: input.tax.sellBps,
+        creator_bps: input.tax.creatorBps,
+        burn_bps: input.tax.burnBps,
+        holders_bps: input.tax.holdersBps
+      }
+    } : {})
   };
 }
 
@@ -407,7 +439,8 @@ export async function launchNearlyToken(
 
   const cost = parseCost(await view("quote_launch", {
     icon_bytes: iconBytes,
-    dev_buy: devBuy.toString()
+    dev_buy: devBuy.toString(),
+    tax: Boolean(clean.tax)
   }));
 
   const balance = await getNearBalance(wallet.accountId);
