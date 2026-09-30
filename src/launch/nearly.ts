@@ -311,7 +311,7 @@ export async function launchNearlyToken(
     : (() => { throw new UserFacingError("NEARly returned an invalid first-buy cap"); })();
   if (devBuy > cap) {
     throw new UserFacingError(
-      `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), quoteDecimals(clean.quote))} ${quote === NEARLY_TOKEN ? "NEARLY" : "NEAR"}. Lower the first buy and retry.`
+      `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), quoteDecimals(quote))} ${quote === NEARLY_TOKEN ? "NEARLY" : "NEAR"}. Lower the first buy and retry.`
     );
   }
 
@@ -386,7 +386,7 @@ export async function launchNearlyToken(
     txHash: sent.txHashes[0]!,
     launch: record,
     cost,
-    devBuyNear: formatUnits(devBuy.toString(), quoteDecimals(clean.quote))
+    devBuyNear: formatUnits(devBuy.toString(), quoteDecimals(quote))
   };
 }
 
