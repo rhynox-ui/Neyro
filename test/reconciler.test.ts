@@ -93,6 +93,70 @@ test("reconcileOnce resolves settled trades, notifies users, and leaves pending 
   assert.match(messages[0]!, /txns\/h1/);
 });
 
+test("unresolved fee transactions are reconciled without double-recording", async () => {
+  const repository = new (class extends NoopTradeRepository {
+    resolutions: Array<{ key: string; txHash: string; status: "collected" | "failed" }> = [];
+    override async listUnresolvedFees() {
+      return [{
+        telegramUserId: 7,
+        idempotencyKey: "fee-landed",
+        accountId: "alice.near",
+        txHash: "fee1",
+        details: { amount: "123" },
+        createdAt: new Date(1_000_000)
+      }];
+    }
+    override async recordFeeResolution(_userId: number, key: string, txHash: string, status: "collected" | "failed") {
+      this.resolutions.push({ key, txHash, status });
+      return true;
+    }
+  })();
+
+  const count = await reconcileOnce({
+    repository,
+    lookup: async () => executed,
+    notify: async () => {},
+    explorerLink: (hash) => hash,
+    now: () => 1_000_000
+  });
+
+  assert.equal(count, 1);
+  assert.deepEqual(repository.resolutions, [
+    { key: "fee-landed", txHash: "fee1", status: "collected" }
+  ]);
+});
+
+test("unknown fee transactions stay unresolved until their validity window expires", async () => {
+  const repository = new (class extends NoopTradeRepository {
+    resolutions: Array<{ status: "collected" | "failed" }> = [];
+    override async listUnresolvedFees() {
+      return [{
+        telegramUserId: 7,
+        idempotencyKey: "fee-unknown",
+        accountId: "alice.near",
+        txHash: "fee2",
+        details: { amount: "123" },
+        createdAt: new Date(1_000_000)
+      }];
+    }
+    override async recordFeeResolution(_userId: number, _key: string, _txHash: string, status: "collected" | "failed") {
+      this.resolutions.push({ status });
+      return true;
+    }
+  })();
+
+  const count = await reconcileOnce({
+    repository,
+    lookup: async () => unknown,
+    notify: async () => {},
+    explorerLink: (hash) => hash,
+    now: () => 1_000_000 + TX_VALIDITY_MS - 1
+  });
+
+  assert.equal(count, 0);
+  assert.deepEqual(repository.resolutions, []);
+});
+
 test("a trade another worker already resolved is not announced twice", async () => {
   const repository = new FakeRepository([trade("landed", ["h1"])], false);
   const messages: string[] = [];
