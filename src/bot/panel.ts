@@ -61,6 +61,7 @@ import { stripAssetPrefix, type NearToken } from "../rhea/client.js";
 import type { TradingService, ExecutionResult } from "../trading/service.js";
 import type { WalletService } from "../wallet/service.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
+import { formatNativeFee } from "../trading/fee.js";
 import { userMessage } from "../errors.js";
 import { describeRoute, priceImpactWarning } from "../trading/outcome.js";
 import { deleteIncoming, keepScreen, replyNotice, trackScreen } from "./screens.js";
