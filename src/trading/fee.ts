@@ -54,3 +54,27 @@ export function feeActions(plan: FeePlan): WalletAction[] {
     }
   ];
 }
+
+
+/** Convert a token-denominated fee to native NEAR without floating-point token arithmetic. */
+export function tokenFeeToNative(
+  tokenFee: bigint,
+  tokenDecimals: number,
+  tokenPriceUsd: number,
+  nearPriceUsd: number
+): bigint | null {
+  if (tokenFee <= 0n || !Number.isFinite(tokenPriceUsd) || tokenPriceUsd <= 0 ||
+      !Number.isFinite(nearPriceUsd) || nearPriceUsd <= 0) return null;
+  const SCALE = 1_000_000_000n;
+  const toScaled = (price: number): bigint | null => {
+    const scaled = Math.round(price * Number(SCALE));
+    return Number.isSafeInteger(scaled) && scaled > 0 ? BigInt(scaled) : null;
+  };
+  const tokenPrice = toScaled(tokenPriceUsd);
+  const nearPrice = toScaled(nearPriceUsd);
+  if (!tokenPrice || !nearPrice) return null;
+
+  const denominator = 10n ** BigInt(tokenDecimals) * SCALE * nearPrice;
+  const numerator = tokenFee * tokenPrice * 10n ** 24n;
+  return (numerator + denominator - 1n) / denominator;
+}
