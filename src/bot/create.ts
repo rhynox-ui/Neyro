@@ -1,5 +1,4 @@
 import { Bot } from "grammy";
-import { createNearConnection } from "../near/client.js";
 import { withRpcFallback } from "../near/rpc.js";
 import { registerBotHandlers } from "./register.js";
 import { rateLimit } from "./rate-limit.js";
