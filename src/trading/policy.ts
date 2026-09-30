@@ -58,6 +58,7 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
   let spent = 0n;
   let wrapped = 0n;
   let storage = 0n;
+  let transferCalls = 0;
 
   for (const tx of transactions) {
     const receiver = normalize(tx.receiverId);
@@ -80,11 +81,13 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
         }
         case "near_deposit": {
           if (receiver !== normalize(WRAPPED_NEAR) || intent.side !== "buy") block("unexpected NEAR wrap");
+          if (attached <= 0n) block("NEAR wrap amount must be positive");
           wrapped += attached;
           break;
         }
         case "near_withdraw": {
           if (receiver !== WRAPPED_NEAR) block("unexpected unwrap");
+          if (intent.side !== "sell") block("unexpected NEAR unwrap");
           if (attached > 1n) block("unwrap carries a deposit");
           break;
         }
@@ -92,7 +95,10 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
           if (receiver !== normalize(intent.tokenIn)) block(`sends ${receiver}, not the token being sold`);
           if (!dexes.has(String(args.receiver_id))) block(`sends tokens to ${String(args.receiver_id)}`);
           if (attached > 1n) block("token transfer carries a deposit");
-          spent += amountArg(action, "amount");
+          const transferAmount = amountArg(action, "amount");
+          if (transferAmount <= 0n) block("token transfer amount must be positive");
+          spent += transferAmount;
+          transferCalls++;
           break;
         }
         default: {
@@ -105,7 +111,12 @@ export function assertSwapMatchesIntent(transactions: readonly PlannedTransactio
     }
   }
 
+  if (transferCalls === 0) block("route contains no token transfer");
   if (spent > intent.amountIn) block("spends more than the confirmed amount");
-  if (intent.side === "buy" && wrapped > intent.amountIn) block("wraps more NEAR than the confirmed amount");
+  if (spent !== intent.amountIn) block("route does not spend exactly the confirmed amount");
+  if (intent.side === "buy") {
+    if (wrapped > intent.amountIn) block("wraps more NEAR than the confirmed amount");
+    if (wrapped !== intent.amountIn) block("route does not wrap exactly the confirmed NEAR amount");
+  }
   if (storage > MAX_TOTAL_STORAGE) block("storage deposits are too large");
 }
