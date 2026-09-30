@@ -15,8 +15,27 @@ export const NEARLY_WNEAR = "wrap.near";
 /** NEARLY's current native token. */
 export const NEARLY_TOKEN = "nearly-993927.nearlytrade.near";
 export const NEARLY_DEFAULT_QUOTE = NEARLY_WNEAR;
-export const NEARLY_SUPPORTED_QUOTES = [NEARLY_WNEAR, NEARLY_TOKEN] as const;
 const LAUNCH_GAS = 300_000_000_000_000n;
+const QUOTE_CACHE_MS = 30_000;
+
+export type NearlyQuote = {
+  accountId: string;
+  symbol: string;
+  decimals: number;
+};
+
+const KNOWN_QUOTE_SYMBOLS: Record<string, string> = {
+  [NEARLY_WNEAR]: "NEAR",
+  [NEARLY_TOKEN]: "NEARLY",
+  "token.rhealab.near": "RHEA",
+  "zec.omft.near": "ZEC",
+  "kat.token0.near": "KAT",
+  "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1": "USDC",
+  "2260fac5e5542a773aa44fbcfedf7c193bc2c599.factory.bridge.near": "BTC",
+  "eth.bridge.near": "ETH"
+};
+
+let quoteCache: { expiresAt: number; quotes: NearlyQuote[] } | undefined;
 const LAUNCH_TTL_MS = 60_000;
 const POLL_MS = 2_000;
 
@@ -111,10 +130,72 @@ function validateIcon(value: string | undefined): string | undefined {
   return v;
 }
 
-function validateQuote(value: string | undefined): string {
+function quoteAccount(raw: Record<string, unknown>): string | undefined {
+  for (const key of ["token", "account_id", "accountId", "contract", "asset"]) {
+    if (typeof raw[key] === "string" && raw[key].trim()) return raw[key].trim();
+  }
+  return undefined;
+}
+
+function quoteDecimalsValue(raw: Record<string, unknown>): number {
+  const value = raw.decimals;
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 36) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed >= 0 && parsed <= 36) return parsed;
+  }
+  return 24;
+}
+
+function quoteSymbol(raw: Record<string, unknown>, accountId: string): string {
+  for (const key of ["symbol", "ticker", "name"]) {
+    if (typeof raw[key] === "string" && raw[key].trim()) return raw[key].trim().toUpperCase();
+  }
+  return KNOWN_QUOTE_SYMBOLS[accountId] ?? accountId.split(".")[0]!.toUpperCase();
+}
+
+function parseQuotes(raw: unknown): NearlyQuote[] {
+  const source = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).quotes)
+      ? (raw as Record<string, unknown>).quotes
+      : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).pairs)
+        ? (raw as Record<string, unknown>).pairs
+        : null;
+
+  if (!source) throw new UserFacingError("NEARly returned an invalid pair list");
+
+  const quotes = source.flatMap((item) => {
+    if (typeof item === "string") {
+      return [{ accountId: item, symbol: KNOWN_QUOTE_SYMBOLS[item] ?? item.split(".")[0]!.toUpperCase(), decimals: item === NEARLY_TOKEN ? 18 : 24 }];
+    }
+    if (!item || typeof item !== "object") return [];
+    const rawItem = item as Record<string, unknown>;
+    const accountId = quoteAccount(rawItem);
+    if (!accountId) return [];
+    return [{ accountId, symbol: quoteSymbol(rawItem, accountId), decimals: quoteDecimalsValue(rawItem) }];
+  });
+
+  const unique = new Map<string, NearlyQuote>();
+  for (const quote of quotes) unique.set(quote.accountId, quote);
+  const result = [...unique.values()];
+  if (!result.some((quote) => quote.accountId === NEARLY_WNEAR)) {
+    throw new UserFacingError("NEARly pair data did not include the default NEAR pair");
+  }
+  return result;
+}
+
+export async function getNearlyQuotes(forceRefresh = false): Promise<readonly NearlyQuote[]> {
+  if (!forceRefresh && quoteCache && quoteCache.expiresAt > Date.now()) return quoteCache.quotes;
+  const quotes = parseQuotes(await view<unknown>("get_quotes", {}));
+  quoteCache = { expiresAt: Date.now() + QUOTE_CACHE_MS, quotes };
+  return quotes;
+}
+
+function validateQuote(value: string | undefined, quotes: readonly NearlyQuote[]): string {
   const quote = cleanOptional(value) ?? NEARLY_DEFAULT_QUOTE;
-  if (!(NEARLY_SUPPORTED_QUOTES as readonly string[]).includes(quote)) {
-    throw new UserFacingError("That NEARly launch pair is not currently supported by Neyro");
+  if (!quotes.some((item) => item.accountId === quote)) {
+    throw new UserFacingError("That NEARly launch pair is not currently approved");
   }
   return quote;
 }
@@ -132,7 +213,7 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
   const website = validateHttpsUrl(input.website, "Website");
   const twitter = validateHttpsUrl(input.twitter, "X");
   const telegram = validateHttpsUrl(input.telegram, "Telegram");
-  const quote = validateQuote(input.quote);
+  const quote = cleanOptional(input.quote) ?? NEARLY_DEFAULT_QUOTE;
 
   return {
     ...input,
@@ -145,10 +226,6 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
     ...(twitter ? { twitter } : {}),
     ...(telegram ? { telegram } : {})
   };
-}
-
-function quoteDecimals(quote: string): number {
-  return quote === NEARLY_TOKEN ? 18 : 24;
 }
 
 function iconByteLength(icon: string | undefined): number {
@@ -270,7 +347,8 @@ export async function launchNearlyToken(
   if (!wallet) throw new UserFacingError("Create a Neyro wallet first with /wallet");
 
   const clean = validateInput(input);
-  const quote = clean.quote ?? NEARLY_DEFAULT_QUOTE;
+  const quotes = await getNearlyQuotes();
+  const quote = validateQuote(clean.quote, quotes);
   const iconBytes = iconByteLength(clean.icon);
 
   const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
@@ -293,26 +371,31 @@ export async function launchNearlyToken(
 
   let devBuy = 0n;
   const requested = cleanOptional(clean.devBuyNear);
+  if (requested && quote !== NEARLY_WNEAR) {
+    throw new UserFacingError("NEARly first buys are available only on the NEAR pair");
+  }
   if (requested) {
     if (!/^\d+(?:\.\d+)?$/.test(requested)) {
       throw new UserFacingError("First buy must be a positive NEAR amount");
     }
     try {
-      devBuy = BigInt(parseUnits(requested, quoteDecimals(quote)));
+      devBuy = BigInt(parseUnits(requested, 24));
       if (devBuy <= 0n) throw new Error("non-positive");
     } catch {
       throw new UserFacingError("First buy has too many decimal places");
     }
   }
 
-  const capRaw = await view<unknown>("get_dev_buy_cap", {});
-  const cap = typeof capRaw === "string" && /^\d+$/.test(capRaw)
-    ? BigInt(capRaw)
-    : (() => { throw new UserFacingError("NEARly returned an invalid first-buy cap"); })();
-  if (devBuy > cap) {
-    throw new UserFacingError(
-      `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), quoteDecimals(quote))} ${quote === NEARLY_TOKEN ? "NEARLY" : "NEAR"}. Lower the first buy and retry.`
-    );
+  if (devBuy > 0n) {
+    const capRaw = await view<unknown>("get_dev_buy_cap", {});
+    const cap = typeof capRaw === "string" && /^\d+$/.test(capRaw)
+      ? BigInt(capRaw)
+      : (() => { throw new UserFacingError("NEARly returned an invalid first-buy cap"); })();
+    if (devBuy > cap) {
+      throw new UserFacingError(
+        `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), 24)} NEAR. Lower the first buy and retry.`
+      );
+    }
   }
 
   const cost = parseCost(await view("quote_launch", {
@@ -386,16 +469,11 @@ export async function launchNearlyToken(
     txHash: sent.txHashes[0]!,
     launch: record,
     cost,
-    devBuyNear: formatUnits(devBuy.toString(), quoteDecimals(quote))
+    devBuyNear: formatUnits(devBuy.toString(), 24)
   };
 }
 
 export function launchQuoteLabel(quote: string | undefined): string {
-  switch (quote) {
-    case NEARLY_TOKEN:
-      return "NEARLY";
-    case NEARLY_WNEAR:
-    default:
-      return "NEAR";
-  }
+  if (!quote || quote === NEARLY_WNEAR) return "NEAR";
+  return KNOWN_QUOTE_SYMBOLS[quote] ?? quote.split(".")[0]!.toUpperCase();
 }
