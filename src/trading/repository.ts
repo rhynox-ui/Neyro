@@ -60,6 +60,15 @@ export type TradeEvent = {
 };
 
 /** A trade whose on-chain outcome still has to be established. */
+export type UnresolvedFee = {
+  telegramUserId: number;
+  idempotencyKey: string;
+  accountId: string;
+  txHash: string;
+  details: Record<string, unknown>;
+  createdAt: Date;
+};
+
 export type UnresolvedTrade = {
   telegramUserId: number;
   idempotencyKey: string;
@@ -73,6 +82,8 @@ export type UnresolvedTrade = {
 export interface TradeRepository {
   /** Trades left unknown, or executing for longer than `staleMs` (e.g. after a crash). */
   listUnresolved(staleMs: number, limit: number): Promise<UnresolvedTrade[]>;
+  listUnresolvedFees(limit: number): Promise<UnresolvedFee[]>;
+  recordFeeResolution(userId: number, idempotencyKey: string, txHash: string, status: "collected" | "failed"): Promise<boolean>;
   /**
    * Moves an unresolved trade to its final status. Returns false if another
    * worker already resolved it.
@@ -94,6 +105,8 @@ export class NoopTradeRepository implements TradeRepository {
   async updateStatus(_userId: number, _idempotencyKey: string, _update: TradeStatusUpdate): Promise<void> {}
   async recordEvent(_userId: number, _idempotencyKey: string, _event: TradeEvent): Promise<void> {}
   async listUnresolved(_staleMs: number, _limit: number): Promise<UnresolvedTrade[]> { return []; }
+  async listUnresolvedFees(_limit: number): Promise<UnresolvedFee[]> { return []; }
+  async recordFeeResolution(_userId: number, _idempotencyKey: string, _txHash: string, _status: "collected" | "failed"): Promise<boolean> { return false; }
   async resolve(_userId: number, _idempotencyKey: string, _update: TradeStatusUpdate): Promise<boolean> { return false; }
 }
 
@@ -162,6 +175,54 @@ export class PostgresTradeRepository implements TradeRepository {
       where u.telegram_user_id=${userId} and t.idempotency_key=${idempotencyKey}
       returning id`) as unknown as { id: string }[];
     if (rows.length === 0) throw new Error("Trade event could not be recorded");
+  }
+
+  async listUnresolvedFees(limit: number): Promise<UnresolvedFee[]> {
+    const rows = (await this.sql`
+      select u.telegram_user_id, t.idempotency_key, w.near_account_id,
+        e.tx_hash, e.details, e.created_at
+      from trade_events e
+      join trades t on t.id=e.trade_id
+      join users u on u.id=t.user_id
+      join wallets w on w.id=t.wallet_id
+      where e.event_type='fee_uncollected' and e.tx_hash is not null
+        and not exists (
+          select 1 from trade_events done
+          where done.trade_id=e.trade_id
+            and done.event_type='fee_collected'
+            and done.tx_hash=e.tx_hash
+        )
+      order by e.created_at
+      limit ${limit}
+    `) as unknown as {
+      telegram_user_id: string | number; idempotency_key: string; near_account_id: string;
+      tx_hash: string; details: Record<string, unknown>; created_at: string | Date;
+    }[];
+    return rows.map((row) => ({
+      telegramUserId: Number(row.telegram_user_id),
+      idempotencyKey: row.idempotency_key,
+      accountId: row.near_account_id,
+      txHash: row.tx_hash,
+      details: row.details ?? {},
+      createdAt: new Date(row.created_at)
+    }));
+  }
+
+  async recordFeeResolution(userId: number, idempotencyKey: string, txHash: string, status: "collected" | "failed"): Promise<boolean> {
+    const rows = (await this.sql`
+      insert into trade_events (trade_id,event_type,tx_hash,details)
+      select t.id, ${status === "collected" ? "fee_collected" : "fee_failed"}, ${txHash}, ${JSON.stringify({ reconciled: true })}::jsonb
+      from trades t join users u on u.id=t.user_id
+      where u.telegram_user_id=${userId} and t.idempotency_key=${idempotencyKey}
+        and not exists (
+          select 1 from trade_events done
+          where done.trade_id=t.id
+            and done.event_type in ('fee_collected','fee_failed')
+            and done.tx_hash=${txHash}
+        )
+      returning id
+    `) as unknown as { id: string }[];
+    return rows.length > 0;
   }
 
   async listUnresolved(staleMs: number, limit: number): Promise<UnresolvedTrade[]> {
