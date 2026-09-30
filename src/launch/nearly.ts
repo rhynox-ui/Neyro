@@ -381,16 +381,38 @@ function parseLaunch(raw: unknown): LaunchRecord | null {
   };
 }
 
+async function findLaunch(symbol: string, creator: string): Promise<LaunchRecord | null> {
+  const bySymbol = await view<unknown>("get_launch_by_symbol", { symbol }).catch(() => null);
+  const direct = parseLaunch(bySymbol);
+  if (direct && direct.creator === creator && direct.symbol === symbol) return direct;
+
+  const countRaw = await view<unknown>("get_num_launches", {}).catch(() => null);
+  const count = typeof countRaw === "number"
+    ? countRaw
+    : typeof countRaw === "string" && /^\\d+$/.test(countRaw) ? Number(countRaw) : null;
+  if (count !== null && Number.isSafeInteger(count) && count >= 0) {
+    const fromIndex = Math.max(0, count - 100);
+    const raw = await view<unknown>("get_launches", { from_index: fromIndex, limit: 100 }).catch(() => null);
+    if (Array.isArray(raw)) {
+      const match = raw.map((item) => parseLaunch(item))
+        .find((item) => item?.creator === creator && item.symbol === symbol);
+      if (match) return match;
+    }
+  }
+
+  const raw = await view<unknown>("get_launches", { from_index: 0, limit: 50 }).catch(() => null);
+  if (Array.isArray(raw)) {
+    return raw.map((item) => parseLaunch(item))
+      .find((item) => item?.creator === creator && item.symbol === symbol) ?? null;
+  }
+  return null;
+}
+
 async function waitForLaunch(symbol: string, creator: string): Promise<LaunchRecord> {
   const deadline = Date.now() + LAUNCH_TTL_MS;
   while (Date.now() < deadline) {
-    const raw = await view<unknown>("get_launches", { from_index: 0, limit: 50 });
-    if (Array.isArray(raw)) {
-      const match = raw
-        .map((item) => parseLaunch(item))
-        .find((item) => item?.creator === creator && item.symbol === symbol && item.step === "Done");
-      if (match) return match;
-    }
+    const match = await findLaunch(symbol, creator);
+    if (match?.step === "Done") return match;
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
   throw new UserFacingError("Launch transaction confirmed, but NEARly has not indexed the new launch yet. No duplicate launch was submitted.");
@@ -401,13 +423,11 @@ export async function recoverNearlyLaunch(pending: NearlyLaunchPending): Promise
   if (!status) return "unknown";
   if (status.result === "reverted") return "reverted";
   if (status.result === "unknown") return "unknown";
-  for (let i = 0; i < 3; i++) {
-    const raw = await view<unknown>("get_launches", { from_index: 0, limit: 50 }).catch(() => null);
-    if (Array.isArray(raw)) {
-      const match = raw.map((item) => parseLaunch(item)).find((item) => item?.creator === pending.creator && item.symbol === pending.symbol);
-      if (match?.step === "Done") return "live";
-      if (match?.inflight) return "processing";
-    }
+  const deadline = Date.now() + LAUNCH_TTL_MS;
+  while (Date.now() < deadline) {
+    const match = await findLaunch(pending.symbol, pending.creator);
+    if (match?.step === "Done") return "live";
+    if (match?.inflight) return "processing";
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
   return "unknown";
