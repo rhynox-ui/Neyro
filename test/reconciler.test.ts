@@ -19,13 +19,13 @@ test("no journaled hashes means nothing was broadcast", () => {
 
 test("on-chain results settle the trade", () => {
   assert.deepEqual(decideResolution([executed, executed], 0), { status: "submitted" });
-  assert.deepEqual(decideResolution([executed, reverted], 0), { status: "reverted", failure: "E68: slippage error" });
+  assert.deepEqual(decideResolution([executed, reverted], 0), { status: "partial" });
 });
 
-test("mixed executed/reverted batches are partial", () => {
+test("reverted-only batches preserve the on-chain failure", () => {
   assert.deepEqual(
-    decideResolution([executed, reverted], 0),
-    { status: "partial" }
+    decideResolution([reverted], 0),
+    { status: "reverted", failure: "E68: slippage error" }
   );
 });
 
@@ -33,7 +33,7 @@ test("a reverted transaction does not settle while another hash is unknown", () 
   assert.equal(decideResolution([reverted, unknown], TX_VALIDITY_MS - 1), undefined);
   assert.deepEqual(
     decideResolution([reverted, unknown], TX_VALIDITY_MS),
-    { status: "partial" }
+    { status: "failed" }
   );
 });
 
