@@ -495,13 +495,18 @@ export async function launchNearlyToken(
   }
   if (requested) {
     if (!/^\d+(?:\.\d+)?$/.test(requested)) {
-      throw new UserFacingError("First buy must be a positive NEAR amount");
+      throw new UserFacingError("First buy must be a NEAR amount such as 0, 0.05 or 0.1");
     }
     try {
       devBuy = BigInt(parseUnits(requested, 24));
-      if (devBuy <= 0n) throw new Error("non-positive");
     } catch {
       throw new UserFacingError("First buy has too many decimal places");
+    }
+    // A zero first buy is valid and means no dev_buy argument should be sent.
+    // Treat it the same as an omitted value so persisted/direct callers cannot
+    // accidentally turn the optional zero into a validation failure.
+    if (devBuy < 0n) {
+      throw new UserFacingError("First buy cannot be negative");
     }
   }
 
@@ -525,9 +530,18 @@ export async function launchNearlyToken(
 
   const balance = await getNearBalance(wallet.accountId);
   const required = BigInt(cost.total);
-  if (balance.available < required + BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO)) {
+  const launchStorageCost = required - devBuy;
+  const reserve = BigInt(config.NEAR_SPENDABLE_RESERVE_YOCTO);
+  if (balance.available < required + reserve) {
     throw new UserFacingError(
-      `Not enough spendable NEAR. Launch requires ${formatUnits(required.toString(), 24)} NEAR and Neyro keeps ${formatUnits(config.NEAR_SPENDABLE_RESERVE_YOCTO, 24)} NEAR reserved for gas/storage.`
+      [
+        "Not enough spendable NEAR.",
+        `Launch/storage cost: ${formatUnits(launchStorageCost.toString(), 24)} NEAR`,
+        `First buy: ${formatUnits(devBuy.toString(), 24)} NEAR`,
+        `Total required: ${formatUnits(required.toString(), 24)} NEAR`,
+        `Available: ${formatUnits(balance.available.toString(), 24)} NEAR`,
+        `Reserved for gas/storage: ${formatUnits(reserve.toString(), 24)} NEAR`
+      ].join("\n")
     );
   }
 
