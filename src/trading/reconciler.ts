@@ -93,7 +93,7 @@ export async function reconcileOnce(deps: ReconcilerDeps, limit = 25): Promise<n
       if (lookup.result === "executed") {
         await deps.repository.recordFeeResolution(fee.telegramUserId, fee.idempotencyKey, fee.txHash, "collected");
         resolved++;
-      } else if (lookup.result === "reverted") {
+      } else if (lookup.result === "reverted" || (lookup.result === "unknown" && now() - fee.createdAt.getTime() >= TX_VALIDITY_MS)) {
         await deps.repository.recordFeeResolution(fee.telegramUserId, fee.idempotencyKey, fee.txHash, "failed");
         resolved++;
       }
