@@ -19,6 +19,9 @@ interface UpdateQueue {
 }
 
 interface Env {
+  /** Worker secrets are accessed from the binding, not inferred from process.env. */
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  SETUP_SECRET?: string;
   /** Optional Cloudflare Queue binding; see wrangler.jsonc. */
   NEYRO_TELEGRAM_UPDATES?: UpdateQueue;
 }
@@ -114,8 +117,7 @@ async function configurationProblem(): Promise<string | undefined> {
 async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   if (request.method !== "POST") return new Response("Neyro webhook is up.");
 
-  const { config } = await getApp();
-  const secret = config.TELEGRAM_WEBHOOK_SECRET;
+  const secret = env.TELEGRAM_WEBHOOK_SECRET;
   if (secret && request.headers.get("x-telegram-bot-api-secret-token") !== secret) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -145,9 +147,9 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext):
 }
 
 /** GET /setup-webhook with X-Neyro-Setup-Secret points Telegram at this Worker. */
-async function handleSetup(request: Request): Promise<Response> {
-  const { config, create } = await getApp();
-  if (!config.SETUP_SECRET || request.headers.get("x-neyro-setup-secret") !== config.SETUP_SECRET) {
+async function handleSetup(request: Request, env: Env): Promise<Response> {
+  const { create } = await getApp();
+  if (!env.SETUP_SECRET || request.headers.get("x-neyro-setup-secret") !== env.SETUP_SECRET) {
     return new Response("Unauthorized. Provide the X-Neyro-Setup-Secret header.", { status: 401 });
   }
 
@@ -279,7 +281,7 @@ export default {
     }
     if (problem) return new Response(problem, { status: 500 });
     if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
-    if (url.pathname === "/setup-webhook") return handleSetup(request);
+    if (url.pathname === "/setup-webhook") return handleSetup(request, env);
     if (url.pathname === "/debug/price") return handleDebugPrice(request);
     if (url.pathname.startsWith("/icon/")) return handleIcon(url.pathname);
     return new Response("Neyro is running.");
