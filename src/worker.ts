@@ -147,6 +147,44 @@ async function telegramApi(env: Env, method: string, body: unknown): Promise<{ o
 }
 
 /**
+ * Returns Telegram's current webhook state without exposing the bot token.
+ */
+async function handleWebhookStatus(request: Request, env: Env): Promise<Response> {
+  if (!env.SETUP_SECRET || request.headers.get("x-neyro-setup-secret") !== env.SETUP_SECRET) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    return new Response("TELEGRAM_BOT_TOKEN is not configured.", { status: 500 });
+  }
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getWebhookInfo`);
+    const payload = await response.json() as {
+      ok: boolean;
+      description?: string;
+      result?: {
+        url?: string;
+        has_custom_certificate?: boolean;
+        pending_update_count?: number;
+        ip_address?: string;
+        last_error_date?: number;
+        last_error_message?: string;
+        last_synchronization_error_date?: number;
+        max_connections?: number;
+        allowed_updates?: string[];
+      };
+    };
+    if (!response.ok || !payload.ok) {
+      return Response.json({ ok: false, description: payload.description ?? `HTTP ${response.status}` }, { status: 502 });
+    }
+    return Response.json({ ok: true, webhook: payload.result ?? null });
+  } catch (error) {
+    console.error("Webhook status failed:", error);
+    return new Response("Telegram webhook status failed.", { status: 502 });
+  }
+}
+
+/**
  * Webhook setup intentionally does not load the application/database stack.
  * It only authenticates the setup secret and talks directly to Telegram using
  * Worker bindings. This keeps deployment recovery independent of app config.
@@ -271,6 +309,8 @@ export default {
     // Recovery endpoints must be reachable even if the application stack has
     // a configuration/runtime problem.
     if (url.pathname === "/setup-webhook") return handleSetup(request, env);
+    if (url.pathname === "/webhook-status") return handleWebhookStatus(request, env);
+    if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
     if (url.pathname === "/health") {
       const problem = await configurationProblem();
       return Response.json({
@@ -285,7 +325,6 @@ export default {
 
     const problem = await configurationProblem();
     if (problem) return new Response(problem, { status: 500 });
-    if (url.pathname === "/webhook") return handleWebhook(request, env, ctx);
     if (url.pathname === "/debug/price") return handleDebugPrice(request);
     if (url.pathname.startsWith("/icon/")) return handleIcon(url.pathname);
     return new Response("Neyro is running.");
