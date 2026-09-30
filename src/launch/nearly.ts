@@ -3,7 +3,9 @@ import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex"
 import { config } from "../config.js";
 import { getNearBalance } from "../near/account.js";
 import { functionCall } from "../near/actions.js";
-import { withRpcFallback } from "../near/rpc.js";
+import { createFailoverProvider, withRpcFallback } from "../near/rpc.js";
+import { lookupTransaction } from "../near/execution.js";
+import { defaultStateStore } from "../state/store.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
 import type { WalletService } from "../wallet/service.js";
 import { UserFacingError } from "../errors.js";
@@ -53,6 +55,15 @@ export type NearlyLaunchResult = {
   cost: LaunchCost;
   devBuyNear: string;
 };
+
+export type NearlyLaunchPending = {
+  txHash: string;
+  symbol: string;
+  creator: string;
+  startedAt: number;
+};
+
+export type NearlyLaunchRecovery = "live" | "failed" | "processing" | "unknown" | "reverted";
 
 function cleanOptional(value: string | undefined): string | undefined {
   const v = value?.trim();
@@ -173,8 +184,24 @@ function parseLaunch(raw: unknown): LaunchRecord | null {
   };
 }
 
-async function getLaunchBySymbol(symbol: string): Promise<LaunchRecord | null> {
+export async function getNearlyLaunchBySymbol(symbol: string): Promise<LaunchRecord | null> {
   return parseLaunch(await view("get_launch_by_symbol", { symbol }));
+}
+
+async function getLaunchBySymbol(symbol: string): Promise<LaunchRecord | null> {
+  return getNearlyLaunchBySymbol(symbol);
+}
+
+export async function recoverNearlyLaunch(pending: NearlyLaunchPending): Promise<NearlyLaunchRecovery> {
+  const tx = await lookupTransaction(createFailoverProvider(), pending.txHash, pending.creator);
+  if (tx.result === "reverted") return "reverted";
+  if (tx.result === "unknown") return "unknown";
+
+  const launch = await getNearlyLaunchBySymbol(pending.symbol);
+  if (!launch || launch.creator !== pending.creator || launch.symbol !== pending.symbol) return "processing";
+  if (launch.step === "Failed") return "failed";
+  if (launch.step === "Done" && !launch.inflight) return "live";
+  return "processing";
 }
 
 async function waitForLaunch(symbol: string, creator: string): Promise<LaunchRecord> {
@@ -215,6 +242,13 @@ export async function launchNearlyToken(
   const clean = validateInput(input);
   const iconBytes = clean.icon ? new TextEncoder().encode(clean.icon).byteLength : 0;
 
+  const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
+  if (pending) {
+    throw new UserFacingError(
+      `A previous NEARly launch is still pending (transaction ${pending.txHash}). Do not launch again. Use /launch-status to reconcile it first.`
+    );
+  }
+
   let devBuy = 0n;
   const requested = cleanOptional(clean.devBuyNear);
   if (requested) {
@@ -223,6 +257,7 @@ export async function launchNearlyToken(
     }
     try {
       devBuy = BigInt(parseUnits(requested, 24));
+      if (devBuy <= 0n) throw new Error("non-positive");
     } catch {
       throw new UserFacingError("First buy has too many decimal places");
     }
@@ -253,7 +288,15 @@ export async function launchNearlyToken(
 
   const account = await walletService.getSigningAccount(userId, wallet.accountId);
   const signer = new NearAccountSigner(account, {
-    allowedReceivers: [NEARLY_FACTORY]
+    allowedReceivers: [NEARLY_FACTORY],
+    beforeBroadcast: async (txHash) => {
+      await defaultStateStore().set(userId, "launch-pending", {
+        txHash,
+        symbol: clean.symbol,
+        creator: wallet.accountId,
+        startedAt: Date.now()
+      } satisfies NearlyLaunchPending, 24 * 60 * 60 * 1000);
+    }
   });
 
   const tx: NearTransaction = {
@@ -285,6 +328,7 @@ export async function launchNearlyToken(
         `NEARly launch transaction ${record.txHash} was reverted. No retry was submitted.`
       );
     } else if (record.result === "rejected") {
+      await defaultStateStore().delete(userId, "launch-pending");
       throw error;
     } else {
       throw new UserFacingError(
@@ -298,6 +342,7 @@ export async function launchNearlyToken(
   }
 
   const record = await waitForLaunch(clean.symbol, wallet.accountId);
+  await defaultStateStore().delete(userId, "launch-pending");
   return {
     txHash: sent.txHashes[0]!,
     launch: record,
