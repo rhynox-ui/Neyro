@@ -155,30 +155,37 @@ function quoteSymbol(raw: Record<string, unknown>, accountId: string): string {
 }
 
 function parseQuotes(raw: unknown): NearlyQuote[] {
-  const source: unknown[] | null = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).quotes)
-      ? (raw as Record<string, unknown>).quotes as unknown[]
-      : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).pairs)
-        ? (raw as Record<string, unknown>).pairs as unknown[]
-        : null;
+  const root = raw && typeof raw === "object" ? raw as Record<string, unknown> : undefined;
+  const container = Array.isArray(raw) ? raw
+    : root && root.quotes !== undefined ? root.quotes
+    : root && root.pairs !== undefined ? root.pairs
+    : undefined;
 
-  if (!source) throw new UserFacingError("NEARly returned an invalid pair list");
+  const source: Array<{ key?: string; value: unknown }> = Array.isArray(container)
+    ? container.map((value) => ({ value }))
+    : container && typeof container === "object"
+      ? Object.entries(container).map(([key, value]) => ({ key, value }))
+      : [];
 
-  const quotes = source.flatMap((item: unknown) => {
-    if (typeof item === "string") {
-      return [{ accountId: item, symbol: KNOWN_QUOTE_SYMBOLS[item] ?? item.split(".")[0]!.toUpperCase(), decimals: item === NEARLY_TOKEN ? 18 : 24 }];
+  if (source.length === 0) throw new UserFacingError("NEARly returned an invalid pair list");
+
+  const quotes = source.flatMap(({ key, value }: { key?: string; value: unknown }) => {
+    if (typeof value === "string") {
+      const accountId = value;
+      return [{ accountId, symbol: KNOWN_QUOTE_SYMBOLS[accountId] ?? accountId.split(".")[0]!.toUpperCase(), decimals: accountId === NEARLY_TOKEN ? 18 : 24 }];
     }
-    if (!item || typeof item !== "object") return [];
-    const rawItem = item as Record<string, unknown>;
-    const accountId = quoteAccount(rawItem);
+    if (!value || typeof value !== "object") return [];
+    const rawItem = value as Record<string, unknown>;
+    const accountId = quoteAccount(rawItem) ?? (key && key.includes(".") ? key : undefined);
     if (!accountId) return [];
     return [{ accountId, symbol: quoteSymbol(rawItem, accountId), decimals: quoteDecimalsValue(rawItem) }];
   });
 
   const unique = new Map<string, NearlyQuote>();
   for (const quote of quotes) unique.set(quote.accountId, quote);
-  const result = [...unique.values()];
+  const result = [...unique.values()].sort((a, b) =>
+    Number(b.accountId === NEARLY_WNEAR) - Number(a.accountId === NEARLY_WNEAR)
+  );
   if (!result.some((quote) => quote.accountId === NEARLY_WNEAR)) {
     throw new UserFacingError("NEARly pair data did not include the default NEAR pair");
   }
