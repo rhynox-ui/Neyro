@@ -72,6 +72,17 @@ test("incomplete routes are blocked", () => {
   blocked(() => assertSwapMatchesIntent(shortSell, sell), /exactly the confirmed amount/);
 });
 
+test("sell unwrapping cannot exceed the confirmed native output quote", () => {
+  const boundedSell = { ...sell, maxOutput: 5n };
+  const safe = sellBatch();
+  safe[1]!.actions[0] = functionCall("near_withdraw", { amount: "5" }, 10n * TGAS, 1n);
+  assert.doesNotThrow(() => assertSwapMatchesIntent(safe, boundedSell));
+
+  const drain = sellBatch();
+  drain[1]!.actions[0] = functionCall("near_withdraw", { amount: "6" }, 10n * TGAS, 1n);
+  blocked(() => assertSwapMatchesIntent(drain, boundedSell), /unwraps more native output/);
+});
+
 test("arbitrary DEX methods are never signed", () => {
   blocked(
     () => assertSwapMatchesIntent(
