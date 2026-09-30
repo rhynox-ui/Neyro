@@ -932,7 +932,10 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  // Accept a Telegram photo as the on-chain launch logo.
+  // Accept a Telegram photo as the on-chain launch logo. Telegram photo messages
+  // are preferred because users do not need to host the image themselves.
+  // The handler below selects the smallest Telegram rendition that fits NEARly's 16 KB on-chain logo limit.
+
   // Pick the largest Telegram rendition that remains within NEARly's 16 KB limit.
   pm.on("message:photo", async (ctx) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
@@ -1079,7 +1082,7 @@ export function registerBotHandlers(bot: Bot) {
           return;
         case "telegram":
           if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("Telegram must be an HTTPS URL up to 200 characters.");
-          await save({ ...wizard, telegram: value, step: "icon" }, "Send a <b>photo</b> for the logo, or send an HTTPS/IPFS logo URL, or <code>skip</code>.");
+          await save({ ...wizard, telegram: value, step: "icon" }, "🖼️ Send a <b>photo</b> for the logo (recommended), send an HTTPS/IPFS logo URL, or <code>skip</code>. You do <b>not</b> need to host the image yourself.");
           return;
         case "icon":
           if (value && !(value.startsWith("https://") || value.startsWith("ipfs://"))) throw new UserFacingError("Logo must be an HTTPS or IPFS URL.");
