@@ -15,7 +15,7 @@ import {
   type TradeRepository,
   type TradeStatus
 } from "./repository.js";
-import { assessFill, classifyBatch, estimatePriceImpact, normalizePriceImpact, quoteDeadline } from "./outcome.js";
+import { assessFill, classifyBatch, estimatePriceImpact, normalizePriceImpact, quoteDeadline, userFacingExecutionFailure } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
 import { computeFee, feeActions, feeReceiver, tokenFeeToNative, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
