@@ -1053,13 +1053,13 @@ export function registerBotHandlers(bot: Bot) {
         const bytes = new Uint8Array(await response.arrayBuffer());
         const dataUri = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
         // The factory limits the stored icon string to 16 KiB.
-        if (new TextEncoder().encode(dataUri).byteLength <= 16 * 1024) {
+        if (new TextEncoder().encode(dataUri).byteLength <= 8 * 1024) {
           selected = dataUri;
           selectedFileId = photo.file_id;
           break;
         }
       }
-      if (!selected || !selectedFileId) throw new UserFacingError("That photo is too large for NEARly's 16 KB on-chain logo limit. Send a smaller image.");
+      if (!selected || !selectedFileId) throw new UserFacingError("That photo is too large for NEARly's 16 KB on-chain logo limit; Neyro uses an 8 KB gas-safety ceiling. Send a smaller image.");
       const ready: LaunchWizard = { ...wizard, icon: selected, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
       const wallet = await requireWallet(ctx);
@@ -1091,8 +1091,8 @@ export function registerBotHandlers(bot: Bot) {
       if (!response.ok) throw new UserFacingError("Couldn't download that image from Telegram.");
       const bytes = new Uint8Array(await response.arrayBuffer());
       const dataUri = `data:${document.mime_type.toLowerCase()};base64,${Buffer.from(bytes).toString("base64")}`;
-      if (new TextEncoder().encode(dataUri).byteLength > 16 * 1024) {
-        throw new UserFacingError("That image is too large for NEARly's 16 KB on-chain logo limit. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
+      if (new TextEncoder().encode(dataUri).byteLength > 8 * 1024) {
+        throw new UserFacingError("That image is too large for NEARly's 16 KB on-chain logo limit; Neyro uses an 8 KB gas-safety ceiling. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
       }
       const ready: LaunchWizard = { ...wizard, icon: dataUri, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
