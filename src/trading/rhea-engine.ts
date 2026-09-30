@@ -30,7 +30,31 @@ export class RheaTradingEngine implements TradingEngine {
       sender: request.accountId,
       recipient: request.accountId
     };
+    // RHEA's current NEAR SmartRouter is the documented same-chain quote
+    // path. The unified SDK can call the older findPath service, which may
+    // return 404 even while SmartRouter is healthy. Use SmartRouter first.
     try {
+      const direct = await this.rhea.quoteDirect(quoteRequest);
+      if (
+        BigInt(direct.amountOut) <= 0n ||
+        BigInt(direct.minAmountOut) <= 0n ||
+        BigInt(direct.minAmountOut) > BigInt(direct.amountOut)
+      ) {
+        throw new UserFacingError("RHEA returned an invalid quote; refresh and try again");
+      }
+      return {
+        tokenIn: request.tokenIn,
+        tokenOut: request.tokenOut,
+        amountIn: request.amountIn,
+        expectedOut: direct.amountOut,
+        minAmountOut: direct.minAmountOut,
+        router: "rhea-smart-router",
+        direct
+      };
+    } catch (directError) {
+      // Only use the unified SDK as a fallback for token-discovery misses.
+      // Do not hide SmartRouter outages, malformed responses, or HTTP errors.
+      if (!isRheaUnifiedTokenNotFound(directError)) throw directError;
       const quote = await this.rhea.quote(quoteRequest);
       if (
         !/^\d+$/.test(quote.estimatedOut) ||
@@ -49,27 +73,6 @@ export class RheaTradingEngine implements TradingEngine {
         minAmountOut: quote.minAmountOut,
         router: quote.route?.router,
         raw: quote
-      };
-    } catch (error) {
-      // Only fall back for the documented token-discovery miss. Do not hide
-      // authentication, rate-limit, outage, or malformed-response errors.
-      if (!isRheaUnifiedTokenNotFound(error)) throw error;
-      const direct = await this.rhea.quoteDirect(quoteRequest);
-      if (
-        BigInt(direct.amountOut) <= 0n ||
-        BigInt(direct.minAmountOut) <= 0n ||
-        BigInt(direct.minAmountOut) > BigInt(direct.amountOut)
-      ) {
-        throw new UserFacingError("RHEA returned an invalid quote; refresh and try again");
-      }
-      return {
-        tokenIn: request.tokenIn,
-        tokenOut: request.tokenOut,
-        amountIn: request.amountIn,
-        expectedOut: direct.amountOut,
-        minAmountOut: direct.minAmountOut,
-        router: "rhea-smart-router",
-        direct
       };
     }
   }
