@@ -96,6 +96,38 @@ export type NearlyLaunchPending = {
   startedAt: number;
 };
 
+/** Persisted record of a successfully completed NEARly launch. */
+export type NearlyLaunchHistoryEntry = {
+  txHash: string;
+  launch: LaunchRecord;
+  cost: LaunchCost;
+  devBuyNear: string;
+  completedAt: number;
+};
+
+const LAUNCH_HISTORY_KEY = "launch-history";
+const LAUNCH_HISTORY_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+const MAX_LAUNCH_HISTORY = 20;
+
+export async function saveNearlyLaunchHistory(userId: number, result: NearlyLaunchResult): Promise<void> {
+  const store = defaultStateStore();
+  const existing = await store.get<NearlyLaunchHistoryEntry[]>(userId, LAUNCH_HISTORY_KEY) ?? [];
+  const entry: NearlyLaunchHistoryEntry = {
+    txHash: result.txHash,
+    launch: result.launch,
+    cost: result.cost,
+    devBuyNear: result.devBuyNear,
+    completedAt: Date.now()
+  };
+  const history = [entry, ...existing.filter((item) => item.txHash !== entry.txHash)].slice(0, MAX_LAUNCH_HISTORY);
+  await store.set(userId, LAUNCH_HISTORY_KEY, history, LAUNCH_HISTORY_TTL_MS);
+}
+
+export async function getNearlyLaunchHistory(userId: number, limit = 10): Promise<NearlyLaunchHistoryEntry[]> {
+  const history = await defaultStateStore().get<NearlyLaunchHistoryEntry[]>(userId, LAUNCH_HISTORY_KEY) ?? [];
+  return history.slice(0, Math.max(1, Math.min(limit, MAX_LAUNCH_HISTORY)));
+}
+
 export type NearlyLaunchRecovery = "live" | "failed" | "processing" | "unknown" | "reverted";
 
 function cleanOptional(value: string | undefined): string | undefined {
