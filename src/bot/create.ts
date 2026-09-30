@@ -1,5 +1,6 @@
 import { Bot } from "grammy";
 import { createNearConnection } from "../near/client.js";
+import { withRpcFallback } from "../near/rpc.js";
 import { registerBotHandlers } from "./register.js";
 import { rateLimit } from "./rate-limit.js";
 
@@ -28,10 +29,9 @@ export function createBot(token: string): Bot {
   registerBotHandlers(bot);
 
   bot.command("health", async (ctx) => {
-    const near = createNearConnection();
-    const status = await near.provider.sendJsonRpc("status", {}) as {
-      sync_info: { latest_block_height: number };
-    };
+    const status = await withRpcFallback(async (provider) =>
+      provider.sendJsonRpc("status", {}) as Promise<{ sync_info: { latest_block_height: number } }>
+    );
     await ctx.reply(`🟢 Neyro online\nNEAR block: ${status.sync_info.latest_block_height}`);
   });
 
