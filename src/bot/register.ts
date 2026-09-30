@@ -909,7 +909,7 @@ export function registerBotHandlers(bot: Bot) {
         `First buy: ${escapeHtml(result.devBuyNear)} NEAR\n` +
         `Status: <b>LIVE</b>\n\n` +
         `🔗 <a href="https://nearblocks.io/txns/${result.txHash}">View launch transaction</a>\n` +
-        `🔗 <a href="https://nearly.trade/${encodeURIComponent(result.launch.token)}">Open on NEARly</a>`,
+        `🔗 <a href="https://nearly.trade/">Open NEARly</a>`,
         HTML
       );
     } catch (error) {
