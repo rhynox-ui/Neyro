@@ -484,8 +484,28 @@ export class TradingService {
       }
       return sent.txHash;
     } catch (error) {
-      console.error("Fee collection failed", { id, error });
-      await this.repository.recordEvent(userId, id, { type: "fee_uncollected", details }).catch(() => {});
+      // A timeout after broadcast is not proof that the fee failed. Reconcile
+      // the journaled fee transaction before deciding what to record; otherwise
+      // a successfully landed fee would be invisible to the fee reconciler.
+      await feeSigner.reconcile().catch((reconcileError) => {
+        console.warn("Fee transaction reconciliation failed", { id, reconcileError });
+      });
+      const sent = feeSigner.sent[0];
+      if (sent?.result === "executed") {
+        await this.repository.recordEvent(userId, id, {
+          type: "fee_collected",
+          txHash: sent.txHash,
+          details: { ...details, reconciled: true }
+        }).catch(() => {});
+        return sent.txHash;
+      }
+
+      await this.repository.recordEvent(userId, id, {
+        type: "fee_uncollected",
+        txHash: sent?.txHash,
+        details: { ...details, result: sent?.result ?? "unknown" }
+      }).catch(() => {});
+      console.error("Fee collection failed", { id, error, feeTxHash: sent?.txHash, feeResult: sent?.result });
       return undefined;
     }
   }
