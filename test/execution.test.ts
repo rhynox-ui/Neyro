@@ -49,6 +49,35 @@ function fakeAccount(steps: Step[], log: string[]): Account {
 const call = { type: "FunctionCall", params: { methodName: "ft_transfer_call", args: { amount: "1" }, gas: "30000000000000", deposit: "1" } };
 const tx = (receiverId: string): NearTransaction => ({ receiverId, actions: [call] } as unknown as NearTransaction);
 
+test("NEAR action parser rejects oversized or control-character method names", async () => {
+  const { parseWalletAction } = await import("../src/near/actions.js");
+  assert.throws(
+    () => parseWalletAction({
+      type: "FunctionCall",
+      params: { methodName: "bad\u0000method", args: {}, gas: "1", deposit: "0" }
+    }),
+    /Invalid NEAR action methodName/
+  );
+  assert.throws(
+    () => parseWalletAction({
+      type: "FunctionCall",
+      params: { methodName: "x".repeat(129), args: {}, gas: "1", deposit: "0" }
+    }),
+    /Invalid NEAR action methodName/
+  );
+});
+
+test("NEAR action parser bounds remote argument payloads", async () => {
+  const { parseWalletAction } = await import("../src/near/actions.js");
+  assert.throws(
+    () => parseWalletAction({
+      type: "FunctionCall",
+      params: { methodName: "ft_transfer_call", args: { msg: "x".repeat(129_000) }, gas: "1", deposit: "0" }
+    }),
+    /args are too large/
+  );
+});
+
 test("signer journals each hash before broadcast and confirms executed batches", async () => {
   const log: string[] = [];
   const signer = new NearAccountSigner(fakeAccount([{ outcome: success }, { outcome: success }], log), {
