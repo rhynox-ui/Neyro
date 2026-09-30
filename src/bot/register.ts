@@ -918,8 +918,6 @@ export function registerBotHandlers(bot: Bot) {
         `Cost: ${formatNear(BigInt(result.cost.total))} NEAR\n` +
         `Pair: <b>${escapeHtml(launchQuoteLabel(result.launch.quote))}</b>\n` +
         `First buy: ${result.launch.quote === NEARLY_WNEAR ? `${escapeHtml(result.devBuyNear)} NEAR` : "Not available for this pair"}\n` +
-
-        `First buy: ${escapeHtml(result.devBuyNear)} NEAR\n` +
         `Status: <b>LIVE</b>\n\n` +
         `🔗 <a href="https://nearblocks.io/txns/${result.txHash}">View launch transaction</a>\n` +
         `🔗 <a href="https://nearly.trade/">Open NEARly</a>`,
