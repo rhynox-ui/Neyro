@@ -1026,31 +1026,37 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  // Accept a Telegram photo as the on-chain launch logo. Telegram photo messages
-  // are preferred because users do not need to host the image themselves.
-  // The handler below selects the smallest Telegram rendition that fits NEARly's 16 KB on-chain logo limit.
-
-  // Pick the largest Telegram rendition that remains within NEARly's 16 KB limit.
+  // Accept a Telegram photo as the on-chain launch logo.
+  // NEARly's public launcher normalizes logos to at most 320x320 before storing
+  // them on-chain. Avoid larger Telegram renditions because they can fit the
+  // 16 KB metadata limit while still pushing the factory over its 300 TGas budget.
   pm.on("message:photo", async (ctx) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
     if (!wizard || wizard.step !== "icon") return;
     await deleteIncoming(ctx);
     try {
-      const photos = [...ctx.message.photo].sort((a, b) => (a.file_size ?? 0) - (b.file_size ?? 0));
+      const photos = [...ctx.message.photo]
+        .filter((photo) => Math.max(photo.width, photo.height) <= 320)
+        .sort((a, b) => (b.width * b.height) - (a.width * a.height));
+      // Telegram normally includes a 320px rendition. If it does not, fall back
+      // to the smallest available rendition rather than selecting a huge image.
+      const candidates = photos.length > 0
+        ? photos
+        : [...ctx.message.photo].sort((a, b) => (a.width * a.height) - (b.width * b.height));
       let selected: string | undefined;
       let selectedFileId: string | undefined;
-      for (const photo of photos) {
+      for (const photo of candidates) {
         const file = await ctx.api.getFile(photo.file_id);
         if (!file.file_path) continue;
         const response = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
         if (!response.ok) continue;
         const bytes = new Uint8Array(await response.arrayBuffer());
         const dataUri = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
-        // The factory limits the stored icon string, not the decoded image.
-        // Pick the largest Telegram rendition whose actual on-chain string fits.
+        // The factory limits the stored icon string to 16 KiB.
         if (new TextEncoder().encode(dataUri).byteLength <= 16 * 1024) {
           selected = dataUri;
           selectedFileId = photo.file_id;
+          break;
         }
       }
       if (!selected || !selectedFileId) throw new UserFacingError("That photo is too large for NEARly's 16 KB on-chain logo limit. Send a smaller image.");
