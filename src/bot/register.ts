@@ -130,7 +130,7 @@ export function renderNearlyLaunchReview(input: NearlyLaunchInput, accountId: st
     `Name: <b>${escapeHtml(input.name ?? "")}</b>`,
     `Symbol: <b>${escapeHtml(input.symbol ?? "")}</b>`,
     `Description: ${escapeHtml(input.description ?? "—")}`,
-    `First buy: ${escapeHtml(input.devBuyNear ?? "0")} NEAR`,
+    `First buy: ${escapeHtml(input.devBuyNear ?? "0")} ${escapeHtml(launchQuoteLabel(input.quote))}`,
     `Website: ${escapeHtml(input.website ?? "—")}`,
     `X: ${escapeHtml(input.twitter ?? "—")}`,
     `Telegram: ${escapeHtml(input.telegram ?? "—")}`,
@@ -825,9 +825,14 @@ export function registerBotHandlers(bot: Bot) {
       return;
     }
     const quote = ctx.match[1] === "nearly" ? NEARLY_TOKEN : NEARLY_WNEAR;
-    await defaultStateStore().set(ctx.from.id, "launch-wizard", { ...wizard, quote, step: "website" }, 30 * 60 * 1000);
+    await defaultStateStore().set(ctx.from.id, "launch-wizard", { ...wizard, quote, step: "devBuyNear" }, 30 * 60 * 1000);
     await ctx.answerCallbackQuery(`Pair: ${launchQuoteLabel(quote)}`);
-    await replyScreen(ctx, "launch", "Website URL, or <code>skip</code>.", HTML);
+    await replyScreen(
+      ctx,
+      "launch",
+      `Enter your optional <b>first buy</b> in ${launchQuoteLabel(quote)}, or send <code>0</code> for none.`,
+      HTML
+    );
   });
 
   pm.command("launch-status", async (ctx) => {
@@ -973,11 +978,7 @@ export function registerBotHandlers(bot: Bot) {
           return;
         case "description":
           if (value && value.length > 500) throw new UserFacingError("Description must be at most 500 characters.");
-          await save({ ...wizard, description: value, step: "devBuyNear" }, "Enter your optional <b>first buy</b> in NEAR, or send <code>0</code> for none.");
-          return;
-        case "devBuyNear":
-          if (!/^(?:0|\d+(?:\.\d+)?)$/.test(text)) throw new UserFacingError("Enter a valid NEAR amount such as 0, 0.05 or 0.1.");
-          await save({ ...wizard, devBuyNear: text === "0" ? undefined : text, step: "pair" });
+          await save({ ...wizard, description: value, step: "pair" });
           await replyScreen(ctx, "launch", "Choose the <b>launch pair</b>.", {
             ...HTML,
             reply_markup: new InlineKeyboard()
@@ -990,9 +991,15 @@ export function registerBotHandlers(bot: Bot) {
             throw new UserFacingError("Choose NEAR or NEARLY, or tap one of the pair buttons.");
           }
           await save(
-            { ...wizard, quote: text.toLowerCase() === "nearly" ? NEARLY_TOKEN : NEARLY_WNEAR, step: "website" },
-            "Website URL, or <code>skip</code>."
+            { ...wizard, quote: text.toLowerCase() === "nearly" ? NEARLY_TOKEN : NEARLY_WNEAR, step: "devBuyNear" },
+            `Enter your optional <b>first buy</b> in ${text.toLowerCase() === "nearly" ? "NEARLY" : "NEAR"}, or send <code>0</code> for none.`
           );
+          return;
+        case "devBuyNear":
+          if (!/^(?:0|\d+(?:\.\d+)?)$/.test(text)) {
+            throw new UserFacingError(`Enter a valid ${launchQuoteLabel(wizard.quote)} amount such as 0, 0.05 or 0.1.`);
+          }
+          await save({ ...wizard, devBuyNear: text === "0" ? undefined : text, step: "website" }, "Website URL, or <code>skip</code>.");
           return;
         case "website":
           if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("Website must be an HTTPS URL up to 200 characters.");
