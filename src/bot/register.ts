@@ -565,11 +565,11 @@ export function registerBotHandlers(bot: Bot) {
 
   pm.command("portfolio", showPortfolio);
 
-  pm.command("rhea-register", async (ctx) => {
+  pm.command("rhea_register", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
     const query = String(ctx.match ?? "").trim();
-    if (!query) return void await replyNotice(ctx, "Usage: /rhea-register <token-contract>");
+    if (!query) return void await replyNotice(ctx, "Usage: /rhea_register <token-contract>");
     try {
       const token = await tradingService.resolveToken(query);
       if (token.address === WRAPPED_NEAR) {
@@ -580,7 +580,7 @@ export function registerBotHandlers(bot: Bot) {
         return void await replyNotice(ctx, "✅ RHEA registration is already complete for this token.");
       }
       const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
-      await defaultStateStore().set(ctx.from.id, `rhea-register:${id}`, {
+      await defaultStateStore().set(ctx.from.id, `rhea_register:${id}`, {
         tokens: plan.tokens,
         requiredDeposit: plan.requiredDeposit.toString()
       }, 5 * 60 * 1000);
@@ -603,14 +603,14 @@ export function registerBotHandlers(bot: Bot) {
   pm.callbackQuery(/^rg:(confirm|cancel):([a-f0-9]{16})$/, async (ctx) => {
     const id = ctx.match[2]!;
     if (ctx.match[1] === "cancel") {
-      await defaultStateStore().delete(ctx.from.id, `rhea-register:${id}`);
+      await defaultStateStore().delete(ctx.from.id, `rhea_register:${id}`);
       await ctx.answerCallbackQuery("Cancelled");
       await ctx.editMessageText("❌ RHEA registration cancelled.", HTML);
       return;
     }
     await ctx.answerCallbackQuery("Registering…");
     try {
-      const pending = await defaultStateStore().take<{ tokens: string[]; requiredDeposit: string }>(ctx.from.id, `rhea-register:${id}`);
+      const pending = await defaultStateStore().take<{ tokens: string[]; requiredDeposit: string }>(ctx.from.id, `rhea_register:${id}`);
       if (!pending) throw new Error("RHEA registration confirmation expired");
       const wallet = await walletService.getWallet(ctx.from.id);
       if (!wallet) throw new Error("Wallet not found");
@@ -636,7 +636,7 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  pm.command("rhea-recovery", async (ctx) => {
+  pm.command("rhea_recovery", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
     try {
@@ -649,7 +649,7 @@ export function registerBotHandlers(bot: Bot) {
         "🛟 <b>RHEA recovery balances</b>\n\n" +
         "These are balances held inside RHEA AggregateDex, not your wallet balance.\n\n" +
         lines.join("\n") +
-        "\n\nUse <code>/rhea-withdraw &lt;token&gt;</code> to recover one.",
+        "\n\nUse <code>/rhea_withdraw &lt;token&gt;</code> to recover one.",
         HTML
       );
     } catch (error) {
@@ -658,12 +658,12 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  pm.command("rhea-withdraw", async (ctx) => {
+  pm.command("rhea_withdraw", async (ctx) => {
     const wallet = await requireWallet(ctx);
     if (!wallet) return;
     const token = String(ctx.match ?? "").trim().toLowerCase().replace(/^nep141:/, "");
     if (!token || !looksLikeContractId(token)) {
-      return void await replyNotice(ctx, "Usage: /rhea-withdraw <token-contract>");
+      return void await replyNotice(ctx, "Usage: /rhea_withdraw <token-contract>");
     }
     try {
       const balances = await getRheaInternalBalances(wallet.accountId);
@@ -851,7 +851,7 @@ export function registerBotHandlers(bot: Bot) {
     if (!await requireWallet(ctx)) return;
     await defaultStateStore().set(ctx.from.id, "launch-wizard", { step: "name" }, 30 * 60 * 1000);
     await replyScreen(ctx, "launch",
-      "🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nYou can upload a logo photo when asked.\n\nSend /launch-cancel anytime to stop.",
+      "🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nYou can upload a logo photo when asked.\n\nSend /launch_cancel anytime to stop.",
       HTML
     );
   });
@@ -880,7 +880,7 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  pm.command("launch-status", async (ctx) => {
+  pm.command("launch_status", async (ctx) => {
     const userId = ctx.from.id;
     const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
     if (!pending) {
@@ -917,7 +917,7 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  pm.command("launch-history", async (ctx) => {
+  pm.command("launch_history", async (ctx) => {
     const history = await getNearlyLaunchHistory(ctx.from.id, 20);
     await ctx.reply(renderNearlyLaunchHistory(history), {
       ...HTML,
@@ -925,13 +925,13 @@ export function registerBotHandlers(bot: Bot) {
     });
   });
 
-  pm.command("launch-cancel", async (ctx) => {
+  pm.command("launch_cancel", async (ctx) => {
     const userId = ctx.from.id;
     await defaultStateStore().delete(userId, "launch-wizard");
     await defaultStateStore().delete(userId, "launch-executing");
     if (await defaultStateStore().get(userId, "launch-pending")) {
       return void await ctx.reply(
-        "❌ <b>Launch flow cancelled locally.</b>\n\nThe previous on-chain transaction is still pending and cannot be cancelled by Neyro. Use /launch-status to reconcile it before starting another launch.",
+        "❌ <b>Launch flow cancelled locally.</b>\n\nThe previous on-chain transaction is still pending and cannot be cancelled by Neyro. Use /launch_status to reconcile it before starting another launch.",
         { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Check status", "launch:status").text("📜 Previous launches", "launch:history") }
       );
     }
@@ -948,7 +948,7 @@ export function registerBotHandlers(bot: Bot) {
     await ctx.answerCallbackQuery();
     if (!await requireWallet(ctx)) return;
     await defaultStateStore().set(ctx.from.id, "launch-wizard", { step: "name" }, 30 * 60 * 1000);
-    await ctx.reply("🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nSend /launch-cancel anytime to stop.", HTML);
+    await ctx.reply("🚀 <b>Launch a token on NEARly</b>\n\nEnter the token <b>name</b> (1–32 characters).\n\nSend /launch_cancel anytime to stop.", HTML);
   });
 
   pm.callbackQuery("launch:status", async (ctx) => {
