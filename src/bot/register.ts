@@ -422,9 +422,12 @@ export function registerBotHandlers(bot: Bot) {
     if (ctx.message?.text?.startsWith("/")) await deleteIncoming(ctx);
   });
 
-  pm.command("start", async (ctx) => {
+  const showMainMenu = async (ctx: Context) => {
     await replyScreen(ctx, "menu", "⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
-  });
+  };
+
+  pm.command("start", showMainMenu);
+  pm.command("help", showMainMenu);
 
   async function showWallet(ctx: Context, edit = false, note?: string) {
     const telegramUserId = ctx.from!.id;
