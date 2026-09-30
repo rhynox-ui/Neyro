@@ -22,6 +22,21 @@ test("on-chain results settle the trade", () => {
   assert.deepEqual(decideResolution([executed, reverted], 0), { status: "reverted", failure: "E68: slippage error" });
 });
 
+test("mixed executed/reverted batches are partial", () => {
+  assert.deepEqual(
+    decideResolution([executed, reverted], 0),
+    { status: "partial" }
+  );
+});
+
+test("a reverted transaction does not settle while another hash is unknown", () => {
+  assert.equal(decideResolution([reverted, unknown], TX_VALIDITY_MS - 1), undefined);
+  assert.deepEqual(
+    decideResolution([reverted, unknown], TX_VALIDITY_MS),
+    { status: "partial" }
+  );
+});
+
 test("unseen hashes wait until the transaction can no longer land", () => {
   assert.equal(decideResolution([unknown], TX_VALIDITY_MS - 1), undefined);
   assert.deepEqual(decideResolution([unknown], TX_VALIDITY_MS), { status: "failed" });
