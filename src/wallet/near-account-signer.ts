@@ -28,6 +28,8 @@ export type SignerJournal = {
   transform?(transactions: PlannedTransaction[]): PlannedTransaction[];
   beforeBroadcast?(txHash: string, receiverId: string): Promise<void>;
   allowedReceivers?: readonly string[];
+  /** Optional final invariant applied after transforms and before signing. */
+  validateTransaction?(transaction: PlannedTransaction): void;
 };
 
 export const RHEA_AGGREGATED_DEX = "aggregatedex.near";
@@ -139,6 +141,7 @@ export class NearAccountSigner implements NearTransactionSigner {
       if (this.journal.allowedReceivers || this.extraAllowedReceivers.size > 0) {
         assertAllowedNearReceiver(transaction.receiverId, this.allowedReceivers());
       }
+      this.journal.validateTransaction?.(transaction);
 
       const signed = await this.account.createSignedTransaction({
         receiverId: transaction.receiverId,
