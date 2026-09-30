@@ -8,6 +8,7 @@ import { NearAccountSigner } from "../wallet/near-account-signer.js";
 import { looksLikeContractId } from "../near/tokens.js";
 
 const WRAPPED_NEAR = "wrap.near";
+const NEARLY_INLINE_ICON_GAS_SAFE_BYTES = 6 * 1024;
 import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import { TradingService } from "../trading/service.js";
 import { PortfolioService, type PortfolioAsset } from "../portfolio/service.js";
@@ -1046,13 +1047,21 @@ export function registerBotHandlers(bot: Bot) {
         if (!response.ok) continue;
         const bytes = new Uint8Array(await response.arrayBuffer());
         const dataUri = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
-        if (new TextEncoder().encode(dataUri).byteLength <= NEARLY_INLINE_ICON_MAX_BYTES) {
+        // NEARly accepts inline logos up to 16 KB, but the launch function is
+        // capped at 300 TGas. Large base64 data URIs can consume the entire
+        // prepaid gas budget before the pool is created. Keep bot uploads well
+        // below the protocol's hard size limit so launches remain executable.
+        if (new TextEncoder().encode(dataUri).byteLength <= NEARLY_INLINE_ICON_GAS_SAFE_BYTES) {
           selected = dataUri;
           selectedFileId = photo.file_id;
           break;
         }
       }
-      if (!selected || !selectedFileId) throw new UserFacingError("That photo is too large for NEARly launch gas safety. Send a smaller image.");
+      if (!selected || !selectedFileId) {
+        throw new UserFacingError(
+          "That photo is too large for a safe NEARly launch. Send a smaller/compressed image (under 6 KB as stored), or send an HTTPS/IPFS logo URL."
+        );
+      }
       const ready: LaunchWizard = { ...wizard, icon: selected, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
       const wallet = await requireWallet(ctx);
@@ -1084,8 +1093,10 @@ export function registerBotHandlers(bot: Bot) {
       if (!response.ok) throw new UserFacingError("Couldn't download that image from Telegram.");
       const bytes = new Uint8Array(await response.arrayBuffer());
       const dataUri = `data:${document.mime_type.toLowerCase()};base64,${Buffer.from(bytes).toString("base64")}`;
-      if (new TextEncoder().encode(dataUri).byteLength > NEARLY_INLINE_ICON_MAX_BYTES) {
-        throw new UserFacingError("That image is too large for NEARly launch gas safety. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
+      if (new TextEncoder().encode(dataUri).byteLength > NEARLY_INLINE_ICON_GAS_SAFE_BYTES) {
+        throw new UserFacingError(
+          "That image is too large for a safe NEARly launch. Send a smaller/compressed image (under 6 KB as stored), or send an HTTPS/IPFS logo URL."
+        );
       }
       const ready: LaunchWizard = { ...wizard, icon: dataUri, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
