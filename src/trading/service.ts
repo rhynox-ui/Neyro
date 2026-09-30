@@ -280,7 +280,7 @@ export class TradingService {
     // Ceiling keeps the fee conversion from rounding down below the intended
     // USD value. Then convert USD to yoctoNEAR with the same fixed precision.
     const nativeNumerator = tokenUsdNumerator * 10n ** 24n;
-    const nativeDenominator = tokenUsdDenominator * nearPriceScaled / PRICE_SCALE;
+    const nativeDenominator = tokenUsdDenominator * nearPriceScaled;
     if (nativeDenominator <= 0n) return undefined;
     const nativeUnits = (nativeNumerator + nativeDenominator - 1n) / nativeDenominator;
     if (nativeUnits <= 0n) return undefined;
