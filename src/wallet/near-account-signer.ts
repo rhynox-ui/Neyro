@@ -241,9 +241,13 @@ export class NearAccountSigner implements NearTransactionSigner {
 
   async waitForTransactions(
     txHashes: string[],
-    _options: { signal?: AbortSignal }
+    options: { signal?: AbortSignal }
   ): Promise<{ status: "confirmed" | "failed"; raw?: unknown }> {
     if (txHashes.length === 0) return { status: "failed" };
+
+    isAbort(options.signal);
+    await this.reconcile();
+    isAbort(options.signal);
 
     const records = txHashes.map((hash) =>
       this.sentTransactions.find((item) => item.txHash === hash)
