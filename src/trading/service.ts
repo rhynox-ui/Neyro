@@ -17,7 +17,7 @@ import {
 } from "./repository.js";
 import { assessFill, classifyBatch, estimatePriceImpact, normalizePriceImpact, quoteDeadline, userFacingExecutionFailure } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
-import { computeFee, feeActions, feeReceiver, tokenFeeToNative, type FeePlan } from "./fee.js";
+import { computeFee, feeActions, feeReceiver, formatNativeFee, tokenFeeToNative, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
 import { nearUsdFromDcl } from "../market/dcl.js";
@@ -523,5 +523,5 @@ export class TradingService {
 
 /** Protocol fees are always displayed and charged in native NEAR. */
 function feeDisplay(_request: TradeRequest, fee: FeePlan): string {
-  return formatUnits(fee.amount, 24) + " NEAR";
+  return formatNativeFee(fee.amount);
 }
