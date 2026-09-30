@@ -828,7 +828,7 @@ export function registerBotHandlers(bot: Bot) {
         await defaultStateStore().delete(userId, "launch-pending");
         await defaultStateStore().delete(userId, "launch-executing");
         return void await ctx.reply(
-          `✅ <b>NEARly launch recovered</b>\\n\\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\\nTransaction: ${code(pending.txHash)}\\nStatus: <b>LIVE</b>`,
+          `✅ <b>NEARly launch recovered</b>\n\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\nTransaction: ${code(pending.txHash)}\nStatus: <b>LIVE</b>`,
           HTML
         );
       }
@@ -836,17 +836,17 @@ export function registerBotHandlers(bot: Bot) {
         await defaultStateStore().delete(userId, "launch-pending");
         await defaultStateStore().delete(userId, "launch-executing");
         return void await ctx.reply(
-          `↩️ <b>NEARly launch did not complete</b>\\n\\nTransaction: ${code(pending.txHash)}\\nYou can start a new launch with /launch.`,
+          `↩️ <b>NEARly launch did not complete</b>\n\nTransaction: ${code(pending.txHash)}\nYou can start a new launch with /launch.`,
           HTML
         );
       }
       return void await ctx.reply(
-        `⏳ <b>NEARly launch is still pending</b>\\n\\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\\nTransaction: ${code(pending.txHash)}\\n\\n<b>Do not retry.</b> Check /launch-status again after the transaction is indexed.`,
+        `⏳ <b>NEARly launch is still pending</b>\n\nSymbol: <b>${escapeHtml(pending.symbol)}</b>\nTransaction: ${code(pending.txHash)}\n\n<b>Do not retry.</b> Check /launch-status again after the transaction is indexed.`,
         HTML
       );
     } catch (error) {
       console.error("NEARly launch recovery error:", error);
-      await ctx.reply(`⏳ Launch status is not confirmed yet. <b>Do not retry.</b>\\nTransaction: ${code(pending.txHash)}`, HTML);
+      await ctx.reply(`⏳ Launch status is not confirmed yet. <b>Do not retry.</b>\nTransaction: ${code(pending.txHash)}`, HTML);
     }
   });
 
