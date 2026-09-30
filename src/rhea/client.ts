@@ -332,7 +332,7 @@ function stringField(record: Record<string, unknown> | null, ...keys: string[]):
 
 function normalizeRouteTokens(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => {
+  const tokens = value.map((item) => {
     if (typeof item === "string") return stripAssetPrefix(item);
     if (item && typeof item === "object") {
       const record = item as Record<string, unknown>;
@@ -342,7 +342,7 @@ function normalizeRouteTokens(value: unknown): string[] {
     }
     return "";
   }).filter(Boolean);
-  return [...new Set(out)];
+  return [...new Set(tokens)];
 }
 
 function cleanRheaText(text: string): string {
