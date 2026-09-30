@@ -26,7 +26,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
+import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -1027,9 +1027,9 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   // Accept a Telegram photo as the on-chain launch logo.
-  // NEARly's public launcher normalizes logos to at most 320x320 before storing
-  // them on-chain. Avoid larger Telegram renditions because they can fit the
-  // 16 KB metadata limit while still pushing the factory over its 300 TGas budget.
+  // NEARly launch execution has a hard 300 TGas function-call ceiling. Inline
+  // image processing/storage can consume substantially more gas than a URL,
+  // so use Telegram's smallest rendition that fits our explicit gas-safety cap.
   pm.on("message:photo", async (ctx) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
     if (!wizard || wizard.step !== "icon") return;
@@ -1053,13 +1053,13 @@ export function registerBotHandlers(bot: Bot) {
         const bytes = new Uint8Array(await response.arrayBuffer());
         const dataUri = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
         // The factory limits the stored icon string to 16 KiB.
-        if (new TextEncoder().encode(dataUri).byteLength <= 8 * 1024) {
+        if (new TextEncoder().encode(dataUri).byteLength <= NEARLY_INLINE_ICON_MAX_BYTES) {
           selected = dataUri;
           selectedFileId = photo.file_id;
           break;
         }
       }
-      if (!selected || !selectedFileId) throw new UserFacingError("That photo is too large for NEARly's 16 KB on-chain logo limit; Neyro uses an 8 KB gas-safety ceiling. Send a smaller image.");
+      if (!selected || !selectedFileId) throw new UserFacingError("That photo is too large for NEARly launch gas safety. Send a smaller image.");
       const ready: LaunchWizard = { ...wizard, icon: selected, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
       const wallet = await requireWallet(ctx);
