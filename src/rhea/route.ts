@@ -1,6 +1,8 @@
 function normalizeTokenList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim().toLowerCase().replace(/^nep141:/, ""));
 }
 
 export function extractRheaRouteTokens(rawQuote: unknown, fallbackTokens: readonly string[]): string[] {
@@ -15,5 +17,5 @@ export function extractRheaRouteTokens(rawQuote: unknown, fallbackTokens: readon
       if (tokens.length > 0) return [...new Set(tokens.map((token) => token.trim()).filter(Boolean))];
     }
   }
-  return [...new Set(fallbackTokens.map((token) => token.trim()).filter(Boolean))];
+  return [...new Set(fallbackTokens.map((token) => token.trim().toLowerCase().replace(/^nep141:/, "")).filter(Boolean))];
 }
