@@ -199,6 +199,10 @@ export class NearAccountSigner implements NearTransactionSigner {
     if (transactions.length === 0) return { txHashes: [], raw: [] };
 
     for (const transaction of transactions) {
+      assertAllowedNearReceiver(transaction.receiverId, [
+        RHEA_AGGREGATED_DEX,
+        ...transactions.map((item) => item.receiverId)
+      ]);
       for (const action of transaction.actions) {
         const parsed = parseWalletAction(action);
         if (
@@ -206,6 +210,21 @@ export class NearAccountSigner implements NearTransactionSigner {
           !["tokens_storage_deposit", "storage_deposit"].includes(parsed.params.methodName)
         ) {
           throw new Error("NEAR registration execution blocked: unexpected action");
+        }
+        const args = parsed.params.args;
+        if (parsed.params.methodName === "storage_deposit") {
+          if (typeof args.account_id !== "string" || !args.account_id.trim()) {
+            throw new Error("NEAR registration execution blocked: invalid account_id");
+          }
+          if (args.registration_only !== true) {
+            throw new Error("NEAR registration execution blocked: registration_only must be true");
+          }
+        } else if (
+          typeof args.user !== "string" ||
+          !Array.isArray(args.tokens) ||
+          args.tokens.some((token) => typeof token !== "string" || !token.trim())
+        ) {
+          throw new Error("NEAR registration execution blocked: invalid token registration arguments");
         }
       }
     }
