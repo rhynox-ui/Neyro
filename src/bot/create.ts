@@ -9,6 +9,7 @@ export const BOT_COMMANDS = [
   { command: "balance", description: "NEAR balance" },
   { command: "portfolio", description: "Token holdings" },
   { command: "new", description: "Newest NEARly launches" },
+  { command: "launch", description: "Launch a token on NEARly" },
   { command: "withdraw", description: "Send NEAR or tokens out: /withdraw <amount|all> <token> <to>" },
   { command: "rhea-register", description: "Register a token for RHEA swaps" },
   { command: "rhea-recovery", description: "Check RHEA internal balances" },
