@@ -3,6 +3,16 @@ import type { SentTransaction } from "../wallet/near-account-signer.js";
 
 export type BatchOutcome = "executed" | "reverted" | "partial" | "unknown" | "failed";
 
+/** Converts on-chain swap failures into safe, actionable Telegram text. */
+export function userFacingExecutionFailure(failure?: string): string | undefined {
+  if (!failure) return undefined;
+  const text = failure.replace(/[\\u0000-\\u001f]+/g, " ").slice(0, 500);
+  if (/E204\\s*:\\s*slippage error/i.test(text) || /slippage error/i.test(text)) {
+    return "RHEA rejected the swap because the market moved beyond your slippage tolerance. No tokens were exchanged and no protocol fee was charged. Refresh the quote and retry.";
+  }
+  return "The swap was rejected on chain. No tokens were exchanged and no protocol fee was charged.";
+}
+
 /**
  * Classifies what actually happened on chain for a transaction batch,
  * independently of whatever error the SDK raised.
