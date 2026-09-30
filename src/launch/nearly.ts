@@ -266,6 +266,14 @@ function iconByteLength(icon: string | undefined): number {
   return Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
 }
 
+/**
+ * NEARly's quote_launch expects icon_bytes to include the UTF-8 byte length
+ * of the icon value plus the name, symbol and description text.
+ */
+export function launchQuoteBytes(input: Pick<NearlyLaunchInput, "name" | "symbol" | "description" | "icon">): number {
+  const text = input.name + input.symbol + (input.description ?? "");
+  return iconByteLength(input.icon) + new TextEncoder().encode(text).byteLength;
+}
 function launchArgs(input: ReturnType<typeof validateInput>, devBuyYocto: bigint): Record<string, unknown> {
   const links = {
     ...(input.website ? { website: input.website } : {}),
@@ -388,7 +396,7 @@ export async function launchNearlyToken(
   const clean = validateInput(input);
   const quotes = await getNearlyQuotes();
   const quote = validateQuote(clean.quote, quotes);
-  const iconBytes = iconByteLength(clean.icon);
+  const iconBytes = launchQuoteBytes(clean);
 
   const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
   if (pending) {
