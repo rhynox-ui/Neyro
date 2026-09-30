@@ -16,8 +16,8 @@ export const NEARLY_WNEAR = "wrap.near";
 export const NEARLY_TOKEN = "nearly-993927.nearlytrade.near";
 export const NEARLY_DEFAULT_QUOTE = NEARLY_WNEAR;
 const LAUNCH_GAS = 300_000_000_000_000n;
-/** Keep inline Telegram logos small enough to avoid NEARly launch gas exhaustion. */
-export const NEARLY_INLINE_ICON_MAX_BYTES = 4 * 1024;
+/** NEARly's factory limit is measured on the stored UTF-8 icon string. */
+export const NEARLY_INLINE_ICON_MAX_BYTES = 16 * 1024;
 const QUOTE_CACHE_MS = 30_000;
 
 export type NearlyQuote = {
@@ -567,7 +567,7 @@ export async function launchNearlyToken(
       sent = { txHashes: [record.txHash], raw: [] };
     } else if (record.result === "reverted") {
       throw new UserFacingError(
-        `NEARly launch transaction ${record.txHash} was reverted. No retry was submitted.`
+        `NEARly launch transaction ${record.txHash} reverted: ${record.failure ?? "execution failed"}. No retry was submitted.`
       );
     } else if (record.result === "rejected") {
       await defaultStateStore().delete(userId, "launch-pending");
