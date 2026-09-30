@@ -26,7 +26,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry } from "../launch/nearly.js";
+import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -125,7 +125,7 @@ function launchSkip(value: string): string | undefined {
   return !v || v === "-" || v.toLowerCase() === "skip" ? undefined : v;
 }
 
-export function renderNearlyLaunchSuccess(result: Pick<import("../launch/nearly.js").NearlyLaunchResult, "txHash" | "launch" | "cost" | "devBuyNear">): string {
+export function renderNearlyLaunchSuccess(result: Pick<NearlyLaunchResult, "txHash" | "launch" | "cost" | "devBuyNear">): string {
   return (
     "✅ <b>Token launched on NEARly</b>\n\n" +
     `Name: <b>${escapeHtml(result.launch.name)}</b>\n` +
