@@ -157,7 +157,7 @@ async function handleSetup(request: Request, env: Env): Promise<Response> {
   const bot = await getBot();
   const webhookUrl = `${url.origin}/webhook`;
   await bot.api.setWebhook(webhookUrl, {
-    ...(config.TELEGRAM_WEBHOOK_SECRET ? { secret_token: config.TELEGRAM_WEBHOOK_SECRET } : {}),
+    ...(env.TELEGRAM_WEBHOOK_SECRET ? { secret_token: env.TELEGRAM_WEBHOOK_SECRET } : {}),
     allowed_updates: ["message", "callback_query"],
     drop_pending_updates: false
   });
