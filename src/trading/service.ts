@@ -384,7 +384,7 @@ export class TradingService {
             tokenIn: request.side === "buy" ? WRAPPED_NEAR : contractOf(request.tokenIn),
             tokenOut: request.side === "buy" ? contractOf(request.tokenOut) : WRAPPED_NEAR,
             amountIn: BigInt(request.amountIn),
-            maxOutput: request.side === "sell" ? BigInt(quote.expectedOut) : undefined,
+            maxOutput: request.side === "sell" ? BigInt(trade.quote.expectedOut) : undefined,
             dexContracts: DEX_CONTRACTS
           });
           return transactions;
