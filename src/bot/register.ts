@@ -969,6 +969,36 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
+  // Also accept an image sent as a Telegram document/file.
+  pm.on("message:document", async (ctx, next) => {
+    const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
+    const document = ctx.message.document;
+    if (!wizard || wizard.step !== "icon" || !document.mime_type?.startsWith("image/")) return next();
+    await deleteIncoming(ctx);
+    try {
+      const file = await ctx.api.getFile(document.file_id);
+      if (!file.file_path) throw new UserFacingError("Telegram did not provide the uploaded image.");
+      const response = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
+      if (!response.ok) throw new UserFacingError("Couldn't download that image from Telegram.");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > 16 * 1024) {
+        throw new UserFacingError("That image is over NEARly's 16 KB on-chain logo limit. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
+      }
+      const mime = document.mime_type.toLowerCase();
+      const ready: LaunchWizard = { ...wizard, icon: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`, step: "review" };
+      await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
+      const wallet = await requireWallet(ctx);
+      if (!wallet) return;
+      await replyScreen(ctx, "launch", renderNearlyLaunchReview(ready, wallet.accountId), {
+        ...HTML,
+        reply_markup: new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel")
+      });
+    } catch (error) {
+      console.error("NEARly launch logo document error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't process that logo")}`);
+    }
+  });
+
   pm.on("message:text", async (ctx, next) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
     if (!wizard) return next();
