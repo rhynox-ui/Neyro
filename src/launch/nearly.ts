@@ -16,6 +16,8 @@ export const NEARLY_WNEAR = "wrap.near";
 export const NEARLY_TOKEN = "nearly-993927.nearlytrade.near";
 export const NEARLY_DEFAULT_QUOTE = NEARLY_WNEAR;
 const LAUNCH_GAS = 300_000_000_000_000n;
+/** Keep inline Telegram logos small enough to avoid NEARly launch gas exhaustion. */
+export const NEARLY_INLINE_ICON_MAX_BYTES = 4 * 1024;
 const QUOTE_CACHE_MS = 30_000;
 
 export type NearlyQuote = {
@@ -165,11 +167,11 @@ function validateIcon(value: string | undefined): string | undefined {
     // NEARly's factory measures the stored Rust String in bytes, including
     // the data:image/ prefix and base64 text. Checking decoded image bytes
     // here is insufficient because base64 expands the stored representation.
-    if (new TextEncoder().encode(v).byteLength > 8 * 1024) {
-      throw new UserFacingError("Logo is too large for NEARly's 16 KB on-chain metadata limit; Neyro uses an 8 KB gas-safety ceiling. Send a smaller image.");
+    if (new TextEncoder().encode(v).byteLength > NEARLY_INLINE_ICON_MAX_BYTES) {
+      throw new UserFacingError("Logo is too large for NEARly launch gas safety. Send a smaller image.");
     }
   } else if (new TextEncoder().encode(v).byteLength > 8 * 1024) {
-    throw new UserFacingError("Logo URL is too large for NEARly's 16 KB metadata limit; Neyro uses an 8 KB gas-safety ceiling");
+    throw new UserFacingError("Logo URL is too large for NEARly's 16 KB metadata limit");
   }
   return v;
 }
