@@ -240,7 +240,7 @@ async function waitForLaunch(symbol: string, creator: string): Promise<LaunchRec
   throw new UserFacingError("Launch transaction confirmed, but NEARly has not indexed the new launch yet. No duplicate launch was submitted.");
 }
 
-async function recoverNearlyLaunch(pending: NearlyLaunchPending): Promise<NearlyLaunchRecovery> {
+export async function recoverNearlyLaunch(pending: NearlyLaunchPending): Promise<NearlyLaunchRecovery> {
   const status = await withRpcFallback((provider) => lookupTransaction(provider, pending.txHash, pending.creator)).catch(() => null);
   if (!status) return "unknown";
   if (status.result === "reverted") return "reverted";
