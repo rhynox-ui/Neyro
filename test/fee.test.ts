@@ -41,7 +41,7 @@ test("sell fee conversion stays exact for large token base-unit amounts", () => 
 });
 
 test("fee cap stays accurate for very low-priced high-supply tokens", () => {
-  const result = computeFee(1_000_000_000_000_000_000_000_000n, 18, 0.000000001, 100, 60);
+  const result = computeFee(1_000_000_000_000_000_000_000_000_000_000_000n, 18, 0.000000001, 100, 60);
   assert.deepEqual(result, { fee: 60_000_000_000n * 10n ** 18n, capped: true });
 });
 
