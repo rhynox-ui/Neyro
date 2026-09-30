@@ -1035,14 +1035,8 @@ export function registerBotHandlers(bot: Bot) {
     if (!wizard || wizard.step !== "icon") return;
     await deleteIncoming(ctx);
     try {
-      const photos = [...ctx.message.photo]
-        .filter((photo) => Math.max(photo.width, photo.height) <= 320)
-        .sort((a, b) => (b.width * b.height) - (a.width * a.height));
-      // Telegram normally includes a 320px rendition. If it does not, fall back
-      // to the smallest available rendition rather than selecting a huge image.
-      const candidates = photos.length > 0
-        ? photos
-        : [...ctx.message.photo].sort((a, b) => (a.width * a.height) - (b.width * b.height));
+      const candidates = [...ctx.message.photo]
+        .sort((a, b) => (a.width * a.height) - (b.width * b.height));
       let selected: string | undefined;
       let selectedFileId: string | undefined;
       for (const photo of candidates) {
@@ -1052,7 +1046,6 @@ export function registerBotHandlers(bot: Bot) {
         if (!response.ok) continue;
         const bytes = new Uint8Array(await response.arrayBuffer());
         const dataUri = `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
-        // The factory limits the stored icon string to 16 KiB.
         if (new TextEncoder().encode(dataUri).byteLength <= NEARLY_INLINE_ICON_MAX_BYTES) {
           selected = dataUri;
           selectedFileId = photo.file_id;
@@ -1091,8 +1084,8 @@ export function registerBotHandlers(bot: Bot) {
       if (!response.ok) throw new UserFacingError("Couldn't download that image from Telegram.");
       const bytes = new Uint8Array(await response.arrayBuffer());
       const dataUri = `data:${document.mime_type.toLowerCase()};base64,${Buffer.from(bytes).toString("base64")}`;
-      if (new TextEncoder().encode(dataUri).byteLength > 8 * 1024) {
-        throw new UserFacingError("That image is too large for NEARly's 16 KB on-chain logo limit; Neyro uses an 8 KB gas-safety ceiling. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
+      if (new TextEncoder().encode(dataUri).byteLength > NEARLY_INLINE_ICON_MAX_BYTES) {
+        throw new UserFacingError("That image is too large for NEARly launch gas safety. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
       }
       const ready: LaunchWizard = { ...wizard, icon: dataUri, step: "review" };
       await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
