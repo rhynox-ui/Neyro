@@ -200,6 +200,12 @@ export class RheaClient {
   }
 
   static directTransactions(request: RheaQuoteRequest, quote: DirectRheaNearQuote): NearTransaction[] {
+    if (Date.now() >= quote.expiresAt) {
+      throw new UserFacingError("RHEA SmartRouter quote expired; refresh the trade and try again");
+    }
+    if (BigInt(quote.amountIn) !== BigInt(request.amountIn)) {
+      throw new UserFacingError("RHEA SmartRouter quote input no longer matches the approved trade");
+    }
     const msg = JSON.stringify({ msg: quote.msg, signature: quote.signature });
     const transfer = {
       type: "FunctionCall" as const,
