@@ -32,10 +32,18 @@ export function computeFee(
   if (priceUsd === null || !Number.isFinite(priceUsd) || priceUsd <= 0) return null;
 
   const pctFee = (amount * BigInt(bps)) / 10_000n;
-  // Cap in base units: (capUsd / price) tokens, with 9 decimal places of
-  // precision, then scaled to the token's decimals.
-  const capUnitsScaled = BigInt(Math.floor((capUsd / priceUsd) * 1e9));
-  const cap = (capUnitsScaled * 10n ** BigInt(decimals)) / 1_000_000_000n;
+  // Keep the USD cap in fixed-point integers too. This avoids silently
+  // rounding huge token-unit caps when a meme token has a very low price.
+  const SCALE = 1_000_000_000n;
+  const priceScaledNumber = Math.round(priceUsd * Number(SCALE));
+  const capScaledNumber = Math.round(capUsd * Number(SCALE));
+  if (
+    !Number.isSafeInteger(priceScaledNumber) || priceScaledNumber <= 0 ||
+    !Number.isSafeInteger(capScaledNumber) || capScaledNumber <= 0
+  ) return null;
+  const priceScaled = BigInt(priceScaledNumber);
+  const capScaled = BigInt(capScaledNumber);
+  const cap = (capScaled * 10n ** BigInt(decimals)) / priceScaled;
   return pctFee > cap ? { fee: cap, capped: true } : { fee: pctFee, capped: false };
 }
 
