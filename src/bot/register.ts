@@ -994,7 +994,7 @@ export function registerBotHandlers(bot: Bot) {
   const editLaunchReview = async (ctx: Context, text: string) => {
     const message = ctx.callbackQuery?.message;
     if (message && "photo" in message && message.photo) {
-      await ctx.editMessageCaption(text, HTML);
+      await ctx.editMessageCaption(text, { parse_mode: "HTML" });
     } else {
       await ctx.editMessageText(text, HTML);
     }
