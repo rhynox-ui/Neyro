@@ -77,6 +77,9 @@ function getBot(): Promise<Bot> {
     const app = await getApp();
     const bot = app.create.createBot(app.config.TELEGRAM_BOT_TOKEN);
     await bot.init();
+    // Keep Telegram's command menu synchronized on every Worker cold start,
+    // so newly deployed commands such as /launch do not remain stale.
+    await bot.api.setMyCommands(app.create.BOT_COMMANDS);
     return bot;
   })().catch((error) => {
     botPromise = undefined;
