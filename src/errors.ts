@@ -12,7 +12,7 @@ export class UserFacingError extends Error {
 export function userMessage(error: unknown, fallback: string): string {
   // Wrappers (e.g. the RHEA SDK's executor errors) keep ours as `cause`.
   for (let current: unknown = error, depth = 0; current && depth < 5; depth++) {
-    if (current instanceof UserFacingError) return current.message;
+    if (current instanceof UserFacingError || (current && typeof current === "object" && (current as { name?: unknown }).name === "UserFacingError" && typeof (current as { message?: unknown }).message === "string")) return (current as { message: string }).message;
     current = (current as { cause?: unknown }).cause;
   }
   if (error instanceof SwapSdkError) {
