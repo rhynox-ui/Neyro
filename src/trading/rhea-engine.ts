@@ -32,6 +32,15 @@ export class RheaTradingEngine implements TradingEngine {
     };
     try {
       const quote = await this.rhea.quote(quoteRequest);
+      if (
+        !/^\d+$/.test(quote.estimatedOut) ||
+        !/^\d+$/.test(quote.minAmountOut) ||
+        BigInt(quote.estimatedOut) <= 0n ||
+        BigInt(quote.minAmountOut) <= 0n ||
+        BigInt(quote.minAmountOut) > BigInt(quote.estimatedOut)
+      ) {
+        throw new UserFacingError("RHEA returned an invalid quote; refresh and try again");
+      }
       return {
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
@@ -46,6 +55,13 @@ export class RheaTradingEngine implements TradingEngine {
       // authentication, rate-limit, outage, or malformed-response errors.
       if (!isRheaUnifiedTokenNotFound(error)) throw error;
       const direct = await this.rhea.quoteDirect(quoteRequest);
+      if (
+        BigInt(direct.amountOut) <= 0n ||
+        BigInt(direct.minAmountOut) <= 0n ||
+        BigInt(direct.minAmountOut) > BigInt(direct.amountOut)
+      ) {
+        throw new UserFacingError("RHEA returned an invalid quote; refresh and try again");
+      }
       return {
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
