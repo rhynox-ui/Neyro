@@ -40,6 +40,11 @@ test("sell fee conversion stays exact for large token base-unit amounts", () => 
   assert.ok(converted !== null && converted > 0n);
 });
 
+test("fee cap stays accurate for very low-priced high-supply tokens", () => {
+  const result = computeFee(1_000_000_000_000_000_000_000_000n, 18, 0.000000001, 100, 60);
+  assert.deepEqual(result, { fee: 60_000_000_000n * 10n ** 18n, capped: true });
+});
+
 test("protocol fees are always native NEAR transfers", () => {
   const buy = feeActions(buyPlan)[0]!;
   assert.equal(buy.type, "Transfer");
