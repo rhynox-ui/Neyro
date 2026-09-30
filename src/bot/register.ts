@@ -932,7 +932,10 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  // Accept a Telegram photo as the on-chain launch logo.
+  // Accept a Telegram photo as the on-chain launch logo. Telegram photo messages
+  // are preferred because users do not need to host the image themselves.
+  // The handler below selects the smallest Telegram rendition that fits NEARly's 16 KB on-chain logo limit.
+
   // Pick the largest Telegram rendition that remains within NEARly's 16 KB limit.
   pm.on("message:photo", async (ctx) => {
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
@@ -962,6 +965,36 @@ export function registerBotHandlers(bot: Bot) {
       });
     } catch (error) {
       console.error("NEARly launch logo upload error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't process that logo")}`);
+    }
+  });
+
+  // Also accept an image sent as a Telegram document/file.
+  pm.on("message:document", async (ctx, next) => {
+    const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
+    const document = ctx.message.document;
+    if (!wizard || wizard.step !== "icon" || !document.mime_type?.startsWith("image/")) return next();
+    await deleteIncoming(ctx);
+    try {
+      const file = await ctx.api.getFile(document.file_id);
+      if (!file.file_path) throw new UserFacingError("Telegram did not provide the uploaded image.");
+      const response = await fetch(`https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
+      if (!response.ok) throw new UserFacingError("Couldn't download that image from Telegram.");
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > 16 * 1024) {
+        throw new UserFacingError("That image is over NEARly's 16 KB on-chain logo limit. Send a smaller/compressed image, or send an HTTPS/IPFS logo URL.");
+      }
+      const mime = document.mime_type.toLowerCase();
+      const ready: LaunchWizard = { ...wizard, icon: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`, step: "review" };
+      await defaultStateStore().set(ctx.from.id, "launch-wizard", ready, 30 * 60 * 1000);
+      const wallet = await requireWallet(ctx);
+      if (!wallet) return;
+      await replyScreen(ctx, "launch", renderNearlyLaunchReview(ready, wallet.accountId), {
+        ...HTML,
+        reply_markup: new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel")
+      });
+    } catch (error) {
+      console.error("NEARly launch logo document error:", error);
       await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't process that logo")}`);
     }
   });
@@ -1079,7 +1112,7 @@ export function registerBotHandlers(bot: Bot) {
           return;
         case "telegram":
           if (value && (!value.startsWith("https://") || value.length > 200)) throw new UserFacingError("Telegram must be an HTTPS URL up to 200 characters.");
-          await save({ ...wizard, telegram: value, step: "icon" }, "Send a <b>photo</b> for the logo, or send an HTTPS/IPFS logo URL, or <code>skip</code>.");
+          await save({ ...wizard, telegram: value, step: "icon" }, "🖼️ Send a <b>photo</b> for the logo (recommended), send an HTTPS/IPFS logo URL, or <code>skip</code>. You do <b>not</b> need to host the image yourself.");
           return;
         case "icon":
           if (value && !(value.startsWith("https://") || value.startsWith("ipfs://"))) throw new UserFacingError("Logo must be an HTTPS or IPFS URL.");
