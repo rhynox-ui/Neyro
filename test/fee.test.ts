@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeFee, feeActions, feeReceiver, type FeePlan } from "../src/trading/fee.js";
+import { computeFee, feeActions, feeReceiver, tokenFeeToNative, type FeePlan } from "../src/trading/fee.js";
 import { assessFill } from "../src/trading/outcome.js";
 
 process.env.TELEGRAM_BOT_TOKEN ??= "test-token";
@@ -27,6 +27,19 @@ test("no USD price means the cap can't be enforced, so no fee is planned", () =>
 });
 
 const buyPlan: FeePlan = { side: "buy", treasury: "fees.neyro.near", contractId: "near", amount: "1000", capped: false };
+test("sell fee conversion stays exact for large token base-unit amounts", () => {
+  const tokenFee = 120_000n * 10n ** 6n; // $60 at $0.0005/token
+  assert.equal(
+    tokenFeeToNative(tokenFee, 6, 0.0005, 3),
+    20n * NEAR
+  );
+
+  // The input is intentionally larger than Number.MAX_SAFE_INTEGER.
+  const hugeFee = 9_000_000_000_000_000_001n;
+  const converted = tokenFeeToNative(hugeFee, 18, 0.123456789, 3.21);
+  assert.ok(converted !== null && converted > 0n);
+});
+
 test("protocol fees are always native NEAR transfers", () => {
   const buy = feeActions(buyPlan)[0]!;
   assert.equal(buy.type, "Transfer");
