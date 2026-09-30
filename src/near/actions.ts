@@ -43,10 +43,19 @@ export function parseWalletAction(raw: unknown): WalletAction {
 
   if (kind === "functioncall" && params) {
     const methodName = params.methodName;
-    if (typeof methodName !== "string" || !methodName) throw new Error("Invalid NEAR action methodName");
+    if (
+      typeof methodName !== "string" ||
+      !methodName ||
+      methodName.length > 128 ||
+      /[\u0000-\u001f\u007f]/.test(methodName)
+    ) throw new Error("Invalid NEAR action methodName");
     let args = params.args ?? {};
     if (typeof args === "string") args = JSON.parse(args);
     if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Invalid NEAR action args");
+    const serializedArgs = JSON.stringify(args);
+    if (serializedArgs === undefined || serializedArgs.length > 128_000) {
+      throw new Error("NEAR action args are too large");
+    }
     const gas = decimal(params.gas ?? "30000000000000", "gas");
     if (BigInt(gas) > MAX_GAS) throw new Error("NEAR action gas exceeds 300 TGas");
     return {
