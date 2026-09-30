@@ -1,3 +1,4 @@
+import { formatUnits } from "@rhea-finance/cross-chain-aggregation-dex";
 import type { WalletAction } from "../near/actions.js";
 
 
@@ -45,6 +46,11 @@ export function computeFee(
   const capScaled = BigInt(capScaledNumber);
   const cap = (capScaled * 10n ** BigInt(decimals)) / priceScaled;
   return pctFee > cap ? { fee: cap, capped: true } : { fee: pctFee, capped: false };
+}
+
+/** Display the protocol fee in the asset actually collected: native NEAR. */
+export function formatNativeFee(amountYoctoNear: string): string {
+  return `${formatUnits(amountYoctoNear, 24)} NEAR`;
 }
 
 export function feeReceiver(plan: FeePlan): string {
