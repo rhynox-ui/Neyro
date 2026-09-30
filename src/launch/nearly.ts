@@ -155,17 +155,17 @@ function quoteSymbol(raw: Record<string, unknown>, accountId: string): string {
 }
 
 function parseQuotes(raw: unknown): NearlyQuote[] {
-  const source = Array.isArray(raw)
+  const source: unknown[] | null = Array.isArray(raw)
     ? raw
     : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).quotes)
-      ? (raw as Record<string, unknown>).quotes
+      ? (raw as Record<string, unknown>).quotes as unknown[]
       : raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).pairs)
-        ? (raw as Record<string, unknown>).pairs
+        ? (raw as Record<string, unknown>).pairs as unknown[]
         : null;
 
   if (!source) throw new UserFacingError("NEARly returned an invalid pair list");
 
-  const quotes = source.flatMap((item) => {
+  const quotes = source.flatMap((item: unknown) => {
     if (typeof item === "string") {
       return [{ accountId: item, symbol: KNOWN_QUOTE_SYMBOLS[item] ?? item.split(".")[0]!.toUpperCase(), decimals: item === NEARLY_TOKEN ? 18 : 24 }];
     }
