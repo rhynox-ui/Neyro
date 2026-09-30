@@ -210,11 +210,21 @@ function parseQuotes(raw: unknown): NearlyQuote[] {
   if (source.length === 0) throw new UserFacingError("NEARly returned an invalid pair list");
 
   const quotes = source.flatMap(({ key, value }: { key?: string; value: unknown }) => {
+    // near-sdk serializes Vec<(AccountId, QuoteAsset)> as tuple arrays:
+    // [["wrap.near", { decimals, ... }], ...]. Also accept object-shaped
+    // responses so this stays compatible with older/newer factory versions.
+    if (Array.isArray(value) && value.length === 2 && typeof value[0] === "string") {
+      const accountId = value[0].trim();
+      const rawItem = value[1];
+      if (!accountId || !rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) return [];
+      const item = rawItem as Record<string, unknown>;
+      return [{ accountId, symbol: quoteSymbol(item, accountId), decimals: quoteDecimalsValue(item) }];
+    }
     if (typeof value === "string") {
       const accountId = value;
       return [{ accountId, symbol: KNOWN_QUOTE_SYMBOLS[accountId] ?? accountId.split(".")[0]!.toUpperCase(), decimals: accountId === NEARLY_TOKEN ? 18 : 24 }];
     }
-    if (!value || typeof value !== "object") return [];
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
     const rawItem = value as Record<string, unknown>;
     const accountId = quoteAccount(rawItem) ?? (key && key.includes(".") ? key : undefined);
     if (!accountId) return [];
