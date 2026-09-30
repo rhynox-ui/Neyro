@@ -991,13 +991,6 @@ export function registerBotHandlers(bot: Bot) {
           return;
         case "description": {
           if (value && value.length > 500) throw new UserFacingError("Description must be at most 500 characters.");
-          let quotes: readonly NearlyQuote[];
-          try {
-            quotes = await getNearlyQuotes(true);
-          } catch (error) {
-            console.error("NEARly pair discovery error:", error);
-            throw new UserFacingError("NEARly pair list is temporarily unavailable. Please try again in a moment.");
-          }
           const state: LaunchWizard = { ...wizard, description: value, step: "tax" };
           await save(state, [
             "Optional tax configuration.",
@@ -1010,12 +1003,6 @@ export function registerBotHandlers(bot: Bot) {
             "",
             "Format: buy% sell% [creator% burn% holders%]"
           ].join("\n"));
-          return;
-          quotes.forEach((quote, index) => {
-            if (index > 0 && index % 2 === 0) keyboard.row();
-            keyboard.text(`${index === 0 && quote.accountId === NEARLY_WNEAR ? "Ⓝ " : ""}${quote.symbol}`, `launch:pair:${index}`);
-          });
-          await replyScreen(ctx, "launch", "Choose the <b>launch pair</b>.", { ...HTML, reply_markup: keyboard });
           return;
         }
         case "tax": {
