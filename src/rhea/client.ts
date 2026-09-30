@@ -132,7 +132,7 @@ export class RheaClient {
     } catch (error) {
       throw new UserFacingError(`RHEA SmartRouter request failed: ${cleanRheaText(error instanceof Error ? error.message : "network error")}`);
     }
-    const contentLength = response.headers.get("content-length");
+    const contentLength = response.headers?.get?.("content-length");
     if (contentLength && /^\d+$/.test(contentLength) && Number(contentLength) > 1_000_000) {
       throw new UserFacingError("RHEA SmartRouter response is too large");
     }
