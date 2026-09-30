@@ -17,7 +17,7 @@ import {
 } from "./repository.js";
 import { assessFill, classifyBatch, estimatePriceImpact, normalizePriceImpact, quoteDeadline } from "./outcome.js";
 import { config, FEE_BPS, TRADING_ENABLED } from "../config.js";
-import { computeFee, feeActions, feeReceiver, type FeePlan } from "./fee.js";
+import { computeFee, feeActions, feeReceiver, tokenFeeToNative, type FeePlan } from "./fee.js";
 import { assertSwapMatchesIntent, DEFAULT_DEX_CONTRACTS } from "./policy.js";
 import { fetchNearMarket } from "../market/dexscreener.js";
 import { nearUsdFromDcl } from "../market/dcl.js";
@@ -260,30 +260,13 @@ export class TradingService {
       return undefined;
     }
 
-    // Keep the fee conversion integer-safe. A token balance can exceed
-    // Number.MAX_SAFE_INTEGER in base units, especially for high-supply meme
-    // tokens. Convert both USD prices to fixed-point integers before doing
-    // the token -> USD -> yoctoNEAR calculation.
-    const PRICE_SCALE = 1_000_000_000n;
-    const priceToScaled = (price: number): bigint | null => {
-      if (!Number.isFinite(price) || price <= 0) return null;
-      const scaled = Math.round(price * Number(PRICE_SCALE));
-      return Number.isSafeInteger(scaled) && scaled > 0 ? BigInt(scaled) : null;
-    };
-    const tokenPriceScaled = priceToScaled(tokenPrice ?? 0);
-    const nearPriceScaled = priceToScaled(nearPrice);
-    if (!tokenPriceScaled || !nearPriceScaled) return undefined;
-
-    const tokenDecimals = tokenIn.decimals ?? 0;
-    const tokenUsdNumerator = computed.fee * tokenPriceScaled;
-    const tokenUsdDenominator = 10n ** BigInt(tokenDecimals) * PRICE_SCALE;
-    // Ceiling keeps the fee conversion from rounding down below the intended
-    // USD value. Then convert USD to yoctoNEAR with the same fixed precision.
-    const nativeNumerator = tokenUsdNumerator * 10n ** 24n;
-    const nativeDenominator = tokenUsdDenominator * nearPriceScaled;
-    if (nativeDenominator <= 0n) return undefined;
-    const nativeUnits = (nativeNumerator + nativeDenominator - 1n) / nativeDenominator;
-    if (nativeUnits <= 0n) return undefined;
+    const nativeUnits = tokenFeeToNative(
+      computed.fee,
+      tokenIn.decimals ?? 0,
+      tokenPrice ?? 0,
+      nearPrice
+    );
+    if (!nativeUnits || nativeUnits <= 0n) return undefined;
 
     return {
       side,
