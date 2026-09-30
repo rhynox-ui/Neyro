@@ -12,6 +12,10 @@ import { UserFacingError } from "../errors.js";
 
 export const NEARLY_FACTORY = "nearlytrade.near";
 export const NEARLY_WNEAR = "wrap.near";
+/** NEARLY's current native token. */
+export const NEARLY_TOKEN = "nearly-993927.nearlytrade.near";
+export const NEARLY_DEFAULT_QUOTE = NEARLY_WNEAR;
+export const NEARLY_SUPPORTED_QUOTES = [NEARLY_WNEAR, NEARLY_TOKEN] as const;
 const LAUNCH_GAS = 300_000_000_000_000n;
 const LAUNCH_TTL_MS = 60_000;
 const POLL_MS = 2_000;
@@ -47,6 +51,8 @@ export type NearlyLaunchInput = {
   twitter?: string;
   telegram?: string;
   devBuyNear?: string;
+  /** Quote asset used for the RHEA launch pair. */
+  quote?: string;
 };
 
 export type NearlyLaunchResult = {
@@ -89,12 +95,28 @@ function validateHttpsUrl(value: string | undefined, field: string): string | un
 function validateIcon(value: string | undefined): string | undefined {
   const v = cleanOptional(value);
   if (!v) return undefined;
-  if (!(v.startsWith("https://") || v.startsWith("ipfs://"))) {
-    throw new UserFacingError("Logo must be an https:// or ipfs:// URL");
+  if (!(v.startsWith("https://") || v.startsWith("ipfs://") || v.startsWith("data:image/"))) {
+    throw new UserFacingError("Logo must be an HTTPS, IPFS, or uploaded image");
   }
-  const bytes = new TextEncoder().encode(v).byteLength;
-  if (bytes > 16 * 1024) throw new UserFacingError("Logo URL is too large for NEARly's 16 KB metadata limit");
+  if (v.startsWith("data:image/")) {
+    const comma = v.indexOf(",");
+    if (comma < 0) throw new UserFacingError("Uploaded logo data is invalid");
+    const base64 = v.slice(comma + 1);
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new UserFacingError("Uploaded logo data is invalid");
+    const bytes = Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+    if (bytes > 16 * 1024) throw new UserFacingError("Logo is too large for NEARly's 16 KB metadata limit");
+  } else if (v.length > 16 * 1024) {
+    throw new UserFacingError("Logo URL is too large for NEARly's 16 KB metadata limit");
+  }
   return v;
+}
+
+function validateQuote(value: string | undefined): string {
+  const quote = cleanOptional(value) ?? NEARLY_DEFAULT_QUOTE;
+  if (!(NEARLY_SUPPORTED_QUOTES as readonly string[]).includes(quote)) {
+    throw new UserFacingError("That NEARly launch pair is not currently supported by Neyro");
+  }
+  return quote;
 }
 
 function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInput, "name" | "symbol">> & Omit<NearlyLaunchInput, "name" | "symbol"> {
@@ -110,11 +132,13 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
   const website = validateHttpsUrl(input.website, "Website");
   const twitter = validateHttpsUrl(input.twitter, "X");
   const telegram = validateHttpsUrl(input.telegram, "Telegram");
+  const quote = validateQuote(input.quote);
 
   return {
     ...input,
     name,
     symbol,
+    quote,
     ...(description ? { description } : {}),
     ...(icon ? { icon } : {}),
     ...(website ? { website } : {}),
@@ -136,7 +160,7 @@ function launchArgs(input: ReturnType<typeof validateInput>, devBuyYocto: bigint
     description: input.description ?? null,
     links,
     dev_buy: devBuyYocto.toString(),
-    quote: NEARLY_WNEAR
+    quote: input.quote ?? NEARLY_DEFAULT_QUOTE
   };
 }
 
@@ -181,65 +205,43 @@ function parseLaunch(raw: unknown): LaunchRecord | null {
     name: typeof r.name === "string" ? r.name : r.symbol,
     symbol: r.symbol,
     step: r.step,
-    inflight: r.inflight === true,
-    quote: typeof r.quote === "string" ? r.quote : "",
-    total_supply: typeof r.total_supply === "string" ? r.total_supply : "",
-    pool_id: typeof r.pool_id === "string" ? r.pool_id : ""
+    inflight: r.inflight ?? false,
+    quote: r.quote ?? NEARLY_WNEAR,
+    total_supply: r.total_supply ?? "0",
+    pool_id: r.pool_id ?? ""
   };
-}
-
-export async function getNearlyLaunchBySymbol(symbol: string): Promise<LaunchRecord | null> {
-  return parseLaunch(await view("get_launch_by_symbol", { symbol }));
-}
-
-async function getLaunchBySymbol(symbol: string): Promise<LaunchRecord | null> {
-  return getNearlyLaunchBySymbol(symbol);
-}
-
-export async function recoverNearlyLaunch(pending: NearlyLaunchPending): Promise<NearlyLaunchRecovery> {
-  const tx = await lookupTransaction(createFailoverProvider(), pending.txHash, pending.creator);
-  if (tx.result === "reverted") return "reverted";
-  if (tx.result === "unknown") return "unknown";
-
-  const launch = await getNearlyLaunchBySymbol(pending.symbol);
-  if (!launch || launch.creator !== pending.creator || launch.symbol !== pending.symbol) return "processing";
-  if (launch.step === "Failed") return "failed";
-  if (isCompletedLaunch(launch, pending.symbol, pending.creator)) return "live";
-  return "processing";
-}
-
-function isCompletedLaunch(launch: LaunchRecord, symbol: string, creator: string): boolean {
-  return launch.symbol === symbol &&
-    launch.creator === creator &&
-    launch.step === "Done" &&
-    !launch.inflight &&
-    launch.quote === NEARLY_WNEAR &&
-    launch.token.trim().length > 0 &&
-    launch.pool_id.trim().length > 0 &&
-    launch.total_supply.trim().length > 0;
 }
 
 async function waitForLaunch(symbol: string, creator: string): Promise<LaunchRecord> {
   const deadline = Date.now() + LAUNCH_TTL_MS;
-  let last: LaunchRecord | null = null;
   while (Date.now() < deadline) {
-    last = await getLaunchBySymbol(symbol);
-    if (last && isCompletedLaunch(last, symbol, creator)) return last;
-    if (last && last.creator === creator) {
-      if (last.step === "Failed") {
-        throw new UserFacingError(
-          `NEARly launch ${last.id} was created but its on-chain launch pipeline failed. No automatic retry was performed. Use the NEARly launch recovery flow for launch #${last.id}.`
-        );
-      }
+    const raw = await view<unknown>("get_launches", { from_index: 0, limit: 50 });
+    if (Array.isArray(raw)) {
+      const match = raw
+        .map((item) => parseLaunch(item))
+        .find((item) => item?.creator === creator && item.symbol === symbol && item.step === "Done");
+      if (match) return match;
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
-  if (last && last.creator === creator) {
-    throw new UserFacingError(
-      `Launch transaction confirmed, but NEARly launch #${last.id} is still processing (step: ${last.step}). No duplicate launch was submitted. Check the launch again later.`
-    );
-  }
   throw new UserFacingError("Launch transaction confirmed, but NEARly has not indexed the new launch yet. No duplicate launch was submitted.");
+}
+
+async function recoverNearlyLaunch(pending: NearlyLaunchPending): Promise<NearlyLaunchRecovery> {
+  const status = await withRpcFallback((provider) => lookupTransaction(provider, pending.txHash, pending.creator)).catch(() => null);
+  if (!status) return "unknown";
+  if (status.result === "reverted") return "reverted";
+  if (status.result === "unknown") return "unknown";
+  for (let i = 0; i < 3; i++) {
+    const raw = await view<unknown>("get_launches", { from_index: 0, limit: 50 }).catch(() => null);
+    if (Array.isArray(raw)) {
+      const match = raw.map((item) => parseLaunch(item)).find((item) => item?.creator === pending.creator && item.symbol === pending.symbol);
+      if (match?.step === "Done") return "live";
+      if (match?.inflight) return "processing";
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+  return "unknown";
 }
 
 export async function launchNearlyToken(
@@ -341,9 +343,6 @@ export async function launchNearlyToken(
   try {
     sent = await signer.signAndSendTransactions([tx], {});
   } catch (error) {
-    // The transaction may have been broadcast even when the RPC response was
-    // lost. Reconcile before telling the user to retry: a retry could create
-    // a second real token.
     await signer.reconcile();
     const record = signer.sent.at(-1);
     if (!record || record.receiverId !== NEARLY_FACTORY) throw error;
@@ -375,4 +374,14 @@ export async function launchNearlyToken(
     cost,
     devBuyNear: formatUnits(devBuy.toString(), 24)
   };
+}
+
+export function launchQuoteLabel(quote: string | undefined): string {
+  switch (quote) {
+    case NEARLY_TOKEN:
+      return "NEARLY";
+    case NEARLY_WNEAR:
+    default:
+      return "NEAR";
+  }
 }
