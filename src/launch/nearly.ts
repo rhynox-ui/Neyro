@@ -270,6 +270,7 @@ export async function launchNearlyToken(
   if (!wallet) throw new UserFacingError("Create a Neyro wallet first with /wallet");
 
   const clean = validateInput(input);
+  const quote = clean.quote ?? NEARLY_DEFAULT_QUOTE;
   const iconBytes = iconByteLength(clean.icon);
 
   const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
@@ -297,7 +298,7 @@ export async function launchNearlyToken(
       throw new UserFacingError("First buy must be a positive NEAR amount");
     }
     try {
-      devBuy = BigInt(parseUnits(requested, quoteDecimals(clean.quote)));
+      devBuy = BigInt(parseUnits(requested, quoteDecimals(quote)));
       if (devBuy <= 0n) throw new Error("non-positive");
     } catch {
       throw new UserFacingError("First buy has too many decimal places");
@@ -310,7 +311,7 @@ export async function launchNearlyToken(
     : (() => { throw new UserFacingError("NEARly returned an invalid first-buy cap"); })();
   if (devBuy > cap) {
     throw new UserFacingError(
-      `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), quoteDecimals(clean.quote))} ${clean.quote === NEARLY_TOKEN ? "NEARLY" : "NEAR"}. Lower the first buy and retry.`
+      `First buy exceeds NEARly's current cap of ${formatUnits(cap.toString(), quoteDecimals(clean.quote))} ${quote === NEARLY_TOKEN ? "NEARLY" : "NEAR"}. Lower the first buy and retry.`
     );
   }
 
