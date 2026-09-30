@@ -171,6 +171,39 @@ export class WithdrawService {
       : [plan.asset.contractId];
     const signer = new NearAccountSigner(account, {
       allowedReceivers,
+      validateTransaction: (tx) => {
+        if (tx.receiverId.trim().toLowerCase().replace(/^nep141:/, "") !== (plan.asset.kind === "near" ? plan.to : plan.asset.contractId)) {
+          throw new UserFacingError("Withdrawal receiver changed unexpectedly");
+        }
+        if (plan.asset.kind === "near") {
+          if (tx.actions.length !== 1 || tx.actions[0]?.type !== "Transfer") {
+            throw new UserFacingError("Withdrawal produced an unexpected NEAR transfer");
+          }
+          if (BigInt(tx.actions[0].params.deposit) !== plan.amount) {
+            throw new UserFacingError("Withdrawal amount changed unexpectedly");
+          }
+          return;
+        }
+        for (const action of tx.actions) {
+          if (action.type !== "FunctionCall") throw new UserFacingError("Withdrawal contains an unexpected action");
+          if (action.params.methodName === "storage_deposit") {
+            const args = action.params.args as Record<string, unknown>;
+            if (args.account_id !== plan.to || args.registration_only !== true) {
+              throw new UserFacingError("Withdrawal registration target changed unexpectedly");
+            }
+          } else if (action.params.methodName === "ft_transfer") {
+            const args = action.params.args as Record<string, unknown>;
+            if (args.receiver_id !== plan.to || args.amount !== plan.amount.toString()) {
+              throw new UserFacingError("Withdrawal transfer target or amount changed unexpectedly");
+            }
+          } else {
+            throw new UserFacingError("Withdrawal contains an unauthorized token method");
+          }
+        }
+        if (!tx.actions.some((action) => action.type === "FunctionCall" && action.params.methodName === "ft_transfer")) {
+          throw new UserFacingError("Withdrawal contains no token transfer");
+        }
+      },
       transform: (transactions) => {
         if (transactions.length !== 1) throw new UserFacingError("Withdrawal produced an unexpected transaction batch");
         const tx = transactions[0];
