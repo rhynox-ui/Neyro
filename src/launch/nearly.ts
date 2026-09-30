@@ -95,15 +95,20 @@ function validateInput(input: NearlyLaunchInput): Required<Pick<NearlyLaunchInpu
   }
   const description = cleanOptional(input.description);
   if (description && description.length > 500) throw new UserFacingError("Description must be at most 500 characters");
+  const icon = validateIcon(input.icon);
+  const website = validateHttpsUrl(input.website, "Website");
+  const twitter = validateHttpsUrl(input.twitter, "X");
+  const telegram = validateHttpsUrl(input.telegram, "Telegram");
+
   return {
     ...input,
     name,
     symbol,
     ...(description ? { description } : {}),
-    ...(validateIcon(input.icon) ? { icon: validateIcon(input.icon) } : {}),
-    ...(validateHttpsUrl(input.website, "Website") ? { website: validateHttpsUrl(input.website, "Website") } : {}),
-    ...(validateHttpsUrl(input.twitter, "X") ? { twitter: validateHttpsUrl(input.twitter, "X") } : {}),
-    ...(validateHttpsUrl(input.telegram, "Telegram") ? { telegram: validateHttpsUrl(input.telegram, "Telegram") } : {})
+    ...(icon ? { icon } : {}),
+    ...(website ? { website } : {}),
+    ...(twitter ? { twitter } : {}),
+    ...(telegram ? { telegram } : {})
   };
 }
 
@@ -263,7 +268,31 @@ export async function launchNearlyToken(
     ]
   };
 
-  const sent = await signer.signAndSendTransactions([tx], {});
+  let sent: Awaited<ReturnType<NearAccountSigner["signAndSendTransactions"]>>;
+  try {
+    sent = await signer.signAndSendTransactions([tx], {});
+  } catch (error) {
+    // The transaction may have been broadcast even when the RPC response was
+    // lost. Reconcile before telling the user to retry: a retry could create
+    // a second real token.
+    await signer.reconcile();
+    const record = signer.sent.at(-1);
+    if (!record || record.receiverId !== NEARLY_FACTORY) throw error;
+    if (record.result === "executed") {
+      sent = { txHashes: [record.txHash], raw: [] };
+    } else if (record.result === "reverted") {
+      throw new UserFacingError(
+        `NEARly launch transaction ${record.txHash} was reverted. No retry was submitted.`
+      );
+    } else if (record.result === "rejected") {
+      throw error;
+    } else {
+      throw new UserFacingError(
+        `NEARly launch submission is uncertain (transaction ${record.txHash}). Do not retry yet; check the transaction before submitting another launch.`
+      );
+    }
+  }
+
   if (sent.txHashes.length !== 1) {
     throw new UserFacingError("NEARly launch did not produce a transaction hash; no duplicate launch was submitted.");
   }
