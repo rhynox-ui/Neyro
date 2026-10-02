@@ -816,9 +816,9 @@ export function MintView({ accountId }: { accountId: string }) {
     <section className="grid terminal-page">
       <div className="card hero full">
         <div>
-          <span className="eyebrow">NEAR MAINNET / TOKEN</span>
-          <h2>Mint</h2>
-          <p>Create a fresh developer-owned token. Set the identity, supply, logo, authority policy and optional tax configuration. NEARly remains a separate launch mechanism.</p>
+          <span className="eyebrow">NEAR MAINNET / TOKEN CREATION</span>
+          <h2>Create a fresh token</h2>
+          <p>Mint here means creating a brand-new developer-owned token contract. It does not mean issuing more supply into an existing token. Set the identity, initial supply, logo, authority policy and optional tax configuration.</p>
         </div>
         <div className="hero-state"><span className="status-dot" /><span>Fresh token deployment</span></div>
       </div>
@@ -878,7 +878,7 @@ export function MintView({ accountId }: { accountId: string }) {
       </div>
 
       <div className="card create-token-review">
-        <div className="section-head"><div><span className="eyebrow">03 / REVIEW</span><h3>Mint preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
+        <div className="section-head"><div><span className="eyebrow">03 / REVIEW</span><h3>Token creation preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
         <div className="mint-review-list">
           <div><span>Name</span><strong>{name || "—"}</strong></div>
           <div><span>Symbol</span><strong>{symbol || "—"}</strong></div>
@@ -892,8 +892,8 @@ export function MintView({ accountId }: { accountId: string }) {
           <div><span>Metadata authority</span><strong>{keepMetadataAuthority ? "Mutable" : "Immutable"}</strong></div>
           <div><span>Tax</span><strong>{taxEnabled ? ("Buy " + buyTax + "% · Sell " + sellTax + "%") : "Disabled"}</strong></div>
         </div>
-        <div className="mint-interface-warning"><strong>Fresh-token deployment is intentionally gated.</strong><span>Neyro does not currently have a verified generic token-mint/factory contract address and interface in this web branch. No guessed contract call is exposed here.</span></div>
-        <button className="mint-submit" type="button" disabled={!ready}>Mint token — factory not connected</button>
+        <div className="mint-interface-warning"><strong>Fresh-token creation is intentionally gated.</strong><span>Neyro does not currently have a verified mainnet token-factory/deployment interface for this product. No guessed contract call is exposed here.</span></div>
+        <button className="mint-submit" type="button" disabled={!ready}>Create token — verified factory required</button>
       </div>
     </section>
   );
