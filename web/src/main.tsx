@@ -7,6 +7,11 @@ import { createMyNearWalletConnector } from "./wallet/selector";
 import type { WebWalletConnector } from "./wallet/connector";
 import { allocateRecipientsDetailed, type ValidRecipient } from "./airdrop-core";
 import { executeAirdrop, reconcileCampaign } from "./execution/executor";
+import {
+  executeRecipientRegistration,
+  reconcileRecipientRegistration,
+  type RegistrationSession
+} from "./execution/registration";
 import { IndexedDbCampaignStore } from "./campaign/storage";
 import type { Campaign } from "./campaign/model";
 import { campaignResultsCsv } from "./campaign/export";
@@ -272,6 +277,8 @@ function App() {
   const [message, setMessage] = useState("Upload a recipient file to build the campaign.");
   const [preflight, setPreflight] = useState<CampaignPreflight | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
+  const [registrationBusy, setRegistrationBusy] = useState(false);
+  const [registrationSession, setRegistrationSession] = useState<RegistrationSession | null>(null);
   const [executionBusy, setExecutionBusy] = useState(false);
   const [executionCampaign, setExecutionCampaign] = useState<Campaign | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -299,6 +306,10 @@ function App() {
     () => senders.split(/\r?\n/).map((v) => v.trim().toLowerCase()).filter(Boolean),
     [senders]
   );
+
+  function syncRegistration(nextSession: RegistrationSession) {
+    setRegistrationSession(nextSession);
+  }
 
   function syncCampaign(nextCampaign: Campaign) {
     setExecutionCampaign(nextCampaign);
@@ -403,6 +414,66 @@ function App() {
       setMessage(error instanceof Error ? error.message : "Sender preflight failed");
     } finally {
       setPreflightBusy(false);
+    }
+  }
+
+  async function registerRecipients() {
+    if (!wallet || !accountId) {
+      setMessage("Connect the browser wallet before registering recipients.");
+      return;
+    }
+    if (!preflight?.recipientRegistration?.notRegisteredRecipients.length) {
+      setMessage("No unregistered recipients were found in the latest preflight.");
+      return;
+    }
+
+    setRegistrationBusy(true);
+    setMessage("Reading the token's NEP-145 storage bounds…");
+    try {
+      const session = await executeRecipientRegistration({
+        tokenContract: token.trim().toLowerCase(),
+        payerId: accountId,
+        recipientIds: preflight.recipientRegistration.notRegisteredRecipients,
+        wallet,
+        rpc: new NearRpcClient(),
+        store: campaignStore
+      });
+      syncRegistration(session);
+      setMessage(
+        session.status === "completed"
+          ? "Recipient registration completed. Run preflight again before starting the airdrop."
+          : "Recipient registration paused safely. Reconcile before retrying."
+      );
+      if (session.status === "completed") {
+        setPreflight(null);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Recipient registration stopped safely.");
+    } finally {
+      setRegistrationBusy(false);
+    }
+  }
+
+  async function reconcileRegistration() {
+    if (!registrationSession) return;
+    setRegistrationBusy(true);
+    setMessage(`Reconciling registration session ${registrationSession.id}…`);
+    try {
+      const session = await reconcileRecipientRegistration(
+        registrationSession.id,
+        campaignStore,
+        new NearRpcClient()
+      );
+      syncRegistration(session);
+      setMessage(
+        session.status === "completed"
+          ? "Registration reconciliation confirmed completion. Run preflight again."
+          : "Registration reconciliation finished. Review the registration batches."
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Registration reconciliation failed.");
+    } finally {
+      setRegistrationBusy(false);
     }
   }
 
