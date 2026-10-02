@@ -411,21 +411,28 @@ async function requireWallet(ctx: Context) {
 
 function renderCreatorFees(summary: CreatorFeeSummary): { text: string; keyboard: InlineKeyboard } {
   const near = formatUnits(summary.nearAmount, 24);
+  const nearClaimable = BigInt(summary.nearAmount) > 0n;
+  const launchClaimable = summary.positions.length > 0;
   const lines = [
     "💰 <b>NEARly creator fees</b>",
     "",
     `Wallet: ${code(summary.accountId)}`,
-    `💰 <b>Available now: ${escapeHtml(near)} NEAR</b>`,
-    BigInt(summary.nearAmount) > 0n
-      ? "✅ Your available NEAR fees can be claimed below."
-      : "ℹ️ No NEAR creator fees are available right now.",
-    ""
+    `💰 <b>Claimable now: ${escapeHtml(near)} NEAR</b>`,
+    nearClaimable
+      ? "✅ Your NEAR creator balance is ready to withdraw."
+      : "ℹ️ No NEAR creator balance is waiting to withdraw.",
+    "",
+    launchClaimable
+      ? `📦 <b>${summary.positions.length}</b> per-launch fee position${summary.positions.length === 1 ? "" : "s"} can also be claimed.`
+      : "📦 No per-launch token or pair-asset fees are currently claimable.",
+    "",
+    "🔄 <b>Automatic payout:</b> NEARly collects and pays creator fees about hourly.",
+    "The balance above is the authoritative amount currently credited to your creator balance.",
+    "Neyro does not guess lifetime earned or uncollected pool fees from estimates."
   ];
 
-  if (summary.positions.length === 0) {
-    lines.push("No per-launch token/pair fees are currently claimable.");
-  } else {
-    lines.push("<b>Per-launch fees</b>");
+  if (summary.positions.length > 0) {
+    lines.push("", "<b>Per-launch claimable fees</b>");
     for (const position of summary.positions.slice(0, 30)) {
       const amount = formatCreatorFee(position);
       const asset = position.kind === "token" ? position.symbol : launchQuoteLabel(position.quote);
@@ -440,14 +447,12 @@ function renderCreatorFees(summary: CreatorFeeSummary): { text: string; keyboard
 
   lines.push(
     "",
-    "NEARly automatically collects pool fees about hourly. This screen shows fees already credited to your creator balance; it never assumes an uncollected pool balance is claimable.",
-    "",
     "Claims are sent directly to the active wallet by nearlytrade.near."
   );
 
   const keyboard = new InlineKeyboard();
-  if (BigInt(summary.nearAmount) > 0n) keyboard.text("💰 Claim available NEAR", "fees:near");
-  keyboard.row();
+  if (nearClaimable) keyboard.text(`💰 Claim ${escapeHtml(near)} NEAR`, "fees:near");
+  if (nearClaimable) keyboard.row();
   for (const position of summary.positions.slice(0, 30)) {
     keyboard.text(
       `Claim ${position.symbol} ${position.kind === "token" ? "token" : launchQuoteLabel(position.quote)}`,
