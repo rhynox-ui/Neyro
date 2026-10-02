@@ -40,7 +40,8 @@ stream instead of parsing a giant JSON object tree.
 
 - Verified generic Mint deployment through a Neyro token factory/implementation.
 - Verified contract-specific Lock/Unlock execution.
-- Production-scale recipient registration handling for large airdrops.
+- In-terminal recipient registration execution using the token's verified NEP-145 storage bounds.
+- Production-scale memory-bounded planning for large airdrops.
 - Verified liquidity creation/management flows.
 - Verified trade execution and Developer transaction-builder flows.
 - Explicit relayer/sponsorship integration if a real sponsor account/provider is selected.
@@ -50,8 +51,8 @@ Every execution path must remain isolated from Telegram code and must use verifi
 
 ## Audit status — 2026-10-02
 
-The web terminal CI is passing on the current branch. The production Pages build is configured from this branch and the stable project subdomain remains unchanged.
+The web terminal CI is passing on the current branch (Web Terminal CI #357 and repository CI #577 for the latest audit checkpoint). The production Pages build is configured from this branch and the stable project subdomain remains unchanged.
 
 The current product surface is intentionally non-custodial, but generic Mint execution is still gated until the token factory/implementation is deployed and its exact interface is verified. Tax, freeze, metadata and mint-authority controls are therefore configuration-only until that implementation exists.
 
-Bulk transfer execution is wired and safety-tested, but million-wallet production readiness still requires recipient-registration handling and memory-bounded planning.
+Bulk transfer execution is wired and safety-tested. Recipient NEP-145 registration is now checked before execution and unregistered/unknown recipients are blocked. In-terminal registration itself and million-wallet memory-bounded planning remain release gates.
