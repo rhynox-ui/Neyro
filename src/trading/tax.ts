@@ -11,11 +11,13 @@ export function assertTaxBps(bps: number): number {
 /** Tokens actually received after a buy tax is applied to the Rhea output. */
 export function applyBuyTax(amount: bigint, taxBps: number): bigint {
   assertTaxBps(taxBps);
+  if (amount < 0n) throw new Error("Tax amount cannot be negative");
   return (amount * BigInt(10_000 - taxBps)) / 10_000n;
 }
 
 /** Tokens that reach Rhea after a sell tax is taken from the wallet transfer. */
 export function applySellTax(amount: bigint, taxBps: number): bigint {
   assertTaxBps(taxBps);
+  if (amount < 0n) throw new Error("Tax amount cannot be negative");
   return (amount * BigInt(10_000 - taxBps)) / 10_000n;
 }
