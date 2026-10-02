@@ -1042,3 +1042,14 @@ The fresh-token transaction remains gated until Neyro has a verified generic tok
 The Lock route now has a professional locker-oriented interface with a modern calendar/date-time selector for the unlock schedule. The calendar supports month navigation, disabled past dates, Today selection, and time selection.
 
 The interface is still execution-gated because the web branch does not have a verified generic token-locker contract/interface. It must not imply that a locker was created or that token balances/lockers exist when no live protocol data has been loaded.
+
+
+## 2026-10-02 — Mint creation options
+
+The Mint UI now includes:
+- token logo upload with PNG/JPG/WEBP validation and a 2 MB client-side limit;
+- description and metadata reference fields;
+- mint-authority policy selection: retain authority or request revocation after initial supply;
+- optional buy/sell tax configuration.
+
+These are configuration surfaces only until the generic token implementation/factory is verified. Mint-authority revocation and buy/sell tax are implementation-specific and are not claimed as NEP-141 capabilities. No unverified transaction method is exposed.
