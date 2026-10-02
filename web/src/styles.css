@@ -600,3 +600,180 @@ html[data-theme="light"] .swap-settings-popover {
     max-width: none;
   }
 }
+
+
+/* 2026-10-02 light theme */
+html[data-theme="light"] {
+  color: #18202a;
+  background: #f5f7fa;
+}
+html[data-theme="light"] body {
+  color: #18202a;
+  background: #f5f7fa;
+}
+html[data-theme="light"] .shell { background: #f5f7fa; }
+html[data-theme="light"] .sidebar {
+  background: #ffffff;
+  border-right-color: #e2e6eb;
+}
+html[data-theme="light"] .brand-mark {
+  background: #f1f4f7;
+  border-color: #dce1e7;
+  box-shadow: none;
+}
+html[data-theme="light"] .brand small,
+html[data-theme="light"] .nav-label,
+html[data-theme="light"] .wallet-box span,
+html[data-theme="light"] label,
+html[data-theme="light"] .eyebrow {
+  color: #687382;
+}
+html[data-theme="light"] .nav { color: #667180; }
+html[data-theme="light"] .nav:hover {
+  color: #26303c;
+  background: #f1f3f6;
+}
+html[data-theme="light"] .nav.active {
+  color: #17202b;
+  background: #e9edf2;
+}
+html[data-theme="light"] .nav-dot { background: #b9c1cb; }
+html[data-theme="light"] .nav.active .nav-dot { background: #596575; }
+
+html[data-theme="light"] .wallet-box,
+html[data-theme="light"] .account-pill {
+  background: #f8f9fb;
+  border-color: #dfe4e9;
+}
+html[data-theme="light"] .wallet-box strong { color: #26313d; }
+html[data-theme="light"] .wallet-box small,
+html[data-theme="light"] footer,
+html[data-theme="light"] .muted,
+html[data-theme="light"] .message,
+html[data-theme="light"] small {
+  color: #687382;
+}
+
+html[data-theme="light"] header { border-bottom-color: #e1e5ea; }
+html[data-theme="light"] h1,
+html[data-theme="light"] h2,
+html[data-theme="light"] h3,
+html[data-theme="light"] .brand strong {
+  color: #18202a;
+}
+html[data-theme="light"] .card {
+  background: #ffffff;
+  border-color: #e1e5ea;
+}
+html[data-theme="light"] .hero p,
+html[data-theme="light"] .module-placeholder p {
+  color: #697584;
+}
+html[data-theme="light"] .hero-state { color: #667180; }
+
+html[data-theme="light"] .token-meta span {
+  background: #f7f8fa;
+  border-color: #e1e5ea;
+  color: #5f6a78;
+}
+html[data-theme="light"] .account-pill { color: #4e5a68; }
+html[data-theme="light"] .status-dot { background: #b3bbc5; }
+html[data-theme="light"] .status-dot.live { background: #5d9b78; }
+
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] textarea {
+  color: #1d2732;
+  background: #fbfcfd;
+  border-color: #d8dee5;
+}
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder {
+  color: #98a1ad;
+}
+html[data-theme="light"] input:focus,
+html[data-theme="light"] textarea:focus,
+html[data-theme="light"] select:focus {
+  border-color: #9aa6b4;
+  background: #ffffff;
+}
+html[data-theme="light"] input[readonly] { color: #667180; }
+html[data-theme="light"] option {
+  color: #1d2732;
+  background: #ffffff;
+}
+html[data-theme="light"] .form-grid small { color: #74808e; }
+
+html[data-theme="light"] button:not(.nav) {
+  color: #4c5968;
+  background: #f0f2f5;
+  border-color: #d7dde4;
+}
+html[data-theme="light"] button:not(.nav):hover:not(:disabled) {
+  color: #18202a;
+  background: #e7ebef;
+}
+html[data-theme="light"] button.primary {
+  color: #ffffff;
+  background: #202a36;
+  border-color: #202a36;
+}
+html[data-theme="light"] button.primary:hover:not(:disabled) {
+  color: #ffffff;
+  background: #111923;
+}
+html[data-theme="light"] .theme-toggle {
+  color: #27323e;
+  background: #ffffff;
+  border-color: #d7dde4;
+}
+html[data-theme="light"] .theme-toggle:hover:not(:disabled) {
+  background: #eef1f4;
+}
+
+html[data-theme="light"] .drop {
+  border-color: #cbd2da;
+}
+html[data-theme="light"] .drop:hover {
+  border-color: #aab4c0;
+  background: #f6f8fa;
+}
+html[data-theme="light"] .drop span { color: #7c8794; }
+html[data-theme="light"] .progress { background: #e3e7eb; }
+html[data-theme="light"] .progress div { background: #5e6977; }
+
+html[data-theme="light"] .stats .stat,
+html[data-theme="light"] .table-wrap {
+  background: #ffffff;
+}
+html[data-theme="light"] th,
+html[data-theme="light"] td {
+  border-bottom-color: #e6e9ed;
+}
+html[data-theme="light"] th { color: #6b7684; }
+html[data-theme="light"] td { color: #3e4a58; }
+html[data-theme="light"] .overview-list > div {
+  border-bottom-color: #e6e9ed;
+}
+html[data-theme="light"] .overview-list span { color: #697584; }
+html[data-theme="light"] .overview-list strong { color: #2f3a47; }
+
+html[data-theme="light"] .code-output {
+  color: #344150;
+  background: #f7f8fa;
+  border-color: #dfe4e9;
+}
+html[data-theme="light"] .live-label { color: #4d8c69; }
+html[data-theme="light"] .ready { color: #4d8c69; }
+html[data-theme="light"] .warning { color: #9a6b2f; }
+html[data-theme="light"] .message.success { color: #43825f; }
+html[data-theme="light"] .tax-total { color: #697584; }
+html[data-theme="light"] .tax-total strong { color: #2d3946; }
+
+html[data-theme="light"] .swap-shell,
+html[data-theme="light"] .swap-card,
+html[data-theme="light"] .swap-panel,
+html[data-theme="light"] .route-card,
+html[data-theme="light"] .swap-settings {
+  color: #18202a;
+}
