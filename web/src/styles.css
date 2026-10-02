@@ -211,3 +211,19 @@ footer { padding: 18px 2px 6px; }
   .section-head { align-items: flex-start; }
   .section-head > button { flex: 0 0 auto; }
 }
+
+
+.overview { padding-top: 18px; }
+.overview-list { display: grid; gap: 0; margin-top: 12px; }
+.overview-list > div {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 9px 0; border-bottom: 1px solid #171c24;
+}
+.overview-list > div:last-child { border-bottom: 0; }
+.overview-list span { color: #626b79; font-size: 11px; }
+.overview-list strong { color: #c8ced7; font-size: 11px; font-weight: 500; text-align: right; }
+
+@media (max-width: 650px) {
+  .overview { padding-top: 12px; }
+  .overview-list > div { gap: 10px; }
+}
