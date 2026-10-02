@@ -340,7 +340,9 @@ function launchArgs(input: ReturnType<typeof validateInput>, devBuyYocto: bigint
     links,
     ...(devBuyYocto > 0n ? { dev_buy: devBuyYocto.toString() } : {}),
     ...(input.quote && input.quote !== NEARLY_WNEAR ? { quote: input.quote } : {}),
-    creator_share_bps: 7000,
+    // Omit creator_share_bps so the factory's current creator_fee_share_bps
+    // default is used. This avoids freezing Neyro to a future-stale protocol
+    // parameter while remaining compatible with the launchpad contract.
     ...(input.tax ? {
       tax: {
         buy_bps: input.tax.buyBps,
