@@ -13,10 +13,16 @@ export type CampaignStatus =
   | "completed"
   | "failed";
 
+export type CampaignRecipient = {
+  wallet: string;
+  amountBase: string;
+};
+
 export type CampaignBatch = {
   id: string;
   senderId: string;
   recipientWallets: string[];
+  recipients: CampaignRecipient[];
   totalAmount: string;
   actionCount: number;
   status: BatchStatus;
