@@ -523,3 +523,56 @@ html[data-theme="light"] .status-dot.live { background: #238653; }
   .swap-amount, .swap-output { font-size: 26px !important; }
   .swap-route-grid { grid-template-columns: 1fr; }
 }
+
+
+/* Swap interaction polish */
+.swap-card-top .icon-button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.swap-settings-popover {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -2px 0 14px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.swap-settings-popover > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+.swap-settings-popover small {
+  color: var(--muted);
+  max-width: 260px;
+}
+.swap-custom-slippage {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 82px;
+}
+.swap-custom-slippage input {
+  width: 64px;
+  text-align: right;
+}
+.swap-custom-slippage span {
+  color: var(--muted);
+  font-weight: 700;
+}
+html[data-theme="light"] .swap-settings-popover {
+  background: #fff;
+}
+@media (max-width: 640px) {
+  .swap-settings-popover {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .swap-settings-popover small {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}
