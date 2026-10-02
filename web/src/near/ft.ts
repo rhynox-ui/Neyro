@@ -17,6 +17,10 @@ export type StorageBalance = {
 
 const ZERO_STORAGE = "0";
 
+function isStorageMethodUnavailable(error: unknown): boolean {
+  return error instanceof Error && /method\\s+(?:not found|does not exist)|unknown method|unknown function|not a function/i.test(error.message);
+}
+
 export async function getFtMetadata(
   rpc: NearRpcClient,
   tokenContract: string
@@ -68,7 +72,7 @@ export async function getStorageBalance(
   } catch (error) {
     // Some older/non-NEP-145 tokens do not expose storage_balance_of.
     // The caller must treat this as "unknown", not as registered.
-    if (error instanceof Error && /method|does not exist|unknown/i.test(error.message)) {
+    if (isStorageMethodUnavailable(error)) {
       return null;
     }
     throw error;
