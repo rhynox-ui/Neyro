@@ -369,6 +369,66 @@ function App() {
     }
   }
 
+  async function resumeCampaign() {
+    if (!wallet || !executionCampaign) {
+      setMessage("Connect the browser wallet before resuming a campaign.");
+      return;
+    }
+
+    setExecutionBusy(true);
+    setMessage(`Resuming campaign ${executionCampaign.id} from persisted state…`);
+
+    try {
+      const grouped = new Map<string, ValidRecipient[]>();
+      for (const batch of executionCampaign.batches) {
+        const recipients = grouped.get(batch.senderId) ?? [];
+        for (const recipient of batch.recipients) {
+          recipients.push({
+            line: 0,
+            wallet: recipient.wallet,
+            amountBase: BigInt(recipient.amountBase)
+          });
+        }
+        grouped.set(batch.senderId, recipients);
+      }
+
+      const allocations = [...grouped.entries()].map(([senderId, recipients]) => ({
+        senderId,
+        recipients,
+        totalAmount: recipients.reduce((sum, recipient) => sum + recipient.amountBase, 0n)
+      }));
+
+      const result = await executeAirdrop({
+        tokenContract: executionCampaign.tokenContract,
+        decimals: executionCampaign.decimals,
+        allocations,
+        sourceFingerprint: executionCampaign.sourceFingerprint,
+        wallet,
+        rpc: new NearRpcClient(),
+        store: campaignStore,
+        onProgress: ({ campaign, batch }) => {
+          setExecutionCampaign({ ...campaign, batches: campaign.batches.map((item) => ({ ...item })) });
+          setMessage(
+            batch.status === "success"
+              ? `Confirmed batch ${batch.id}.`
+              : `Batch ${batch.id}: ${batch.status}.`
+          );
+        }
+      });
+
+      setExecutionCampaign(result.campaign);
+      setMessage(
+        result.campaign.status === "completed"
+          ? "Persisted campaign completed successfully."
+          : "Campaign execution paused safely."
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Campaign resume stopped safely.");
+    } finally {
+      setExecutionBusy(false);
+    }
+  }
+
   async function startAirdrop() {
     if (!wallet || !accountId) {
       setMessage("Connect the browser wallet before starting execution.");
@@ -688,6 +748,14 @@ function App() {
                     <div className="row-title">
                       <div><span className="eyebrow">EXECUTION</span><h3>Campaign progress</h3></div>
                       <div className="header-actions">
+                        {executionCampaign.status !== "completed" &&
+                          !executionCampaign.batches.some((batch) =>
+                            batch.status === "unknown" || batch.status === "submitted"
+                          ) && (
+                            <button onClick={() => void resumeCampaign()} disabled={executionBusy || !wallet}>
+                              {executionBusy ? "Working…" : "Resume"}
+                            </button>
+                          )}
                         {(executionCampaign.status === "paused" ||
                           executionCampaign.batches.some((batch) =>
                             batch.status === "unknown" || batch.status === "submitted"
