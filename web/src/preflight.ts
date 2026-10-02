@@ -17,6 +17,7 @@ export type RecipientRegistrationPreflight = {
   registered: number;
   notRegistered: number;
   unsupported: number;
+  notRegisteredRecipients: string[];
   sampleNotRegistered: string[];
 };
 
@@ -96,6 +97,7 @@ async function preflightRecipientRegistration(
   let notRegistered = 0;
   let unsupported = 0;
   const sampleNotRegistered: string[] = [];
+  const notRegisteredRecipients: string[] = [];
 
   for (let offset = 0; offset < uniqueRecipients.length; offset += concurrency) {
     const chunk = uniqueRecipients.slice(offset, offset + concurrency);
@@ -110,6 +112,7 @@ async function preflightRecipientRegistration(
         registered += 1;
       } else if (state === "not-registered") {
         notRegistered += 1;
+        notRegisteredRecipients.push(chunk[index]);
         if (sampleNotRegistered.length < 12) {
           sampleNotRegistered.push(chunk[index]);
         }
@@ -124,6 +127,7 @@ async function preflightRecipientRegistration(
     registered,
     notRegistered,
     unsupported,
+    notRegisteredRecipients,
     sampleNotRegistered
   };
 }
