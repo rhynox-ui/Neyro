@@ -969,3 +969,16 @@ These patterns are not presented as verified capabilities. The user must verify 
 Amounts are converted to exact base units with `bigint`. The transaction preview shows the contract, method, recipient, amount, attached deposit and gas before browser signing.
 
 The connected wallet remains the only signer. NEARly-specific fixed-supply behavior is kept inside the NEARly launch/burn surfaces and does not gate generic NEAR token development.
+
+## 33. 2026-10-02 — Mint tool workflow correction
+
+The Mint surface was rebuilt around the actual token-tool use case rather than NEARly launch behavior.
+
+- Mint is for additional supply on an already deployed token whose signer controls the token's mint authority.
+- The page now exposes the mint workflow immediately: token contract, recipient, amount, live supply before/after, mint method, transaction settings and a final signing action.
+- The page does not claim that NEP-141 defines minting. NEP-141 standardizes the fungible-token surface; mint authority and method remain contract-specific.
+- Common mint(receiver_id, amount) and mint(account_id, amount) patterns are presets only and must match the token's actual contract.
+- NEARly remains a separate launch surface; its fixed-supply launch model must not constrain normal NEP-141 token tooling.
+- The next infrastructure requirement for Neyro's own generic token-creation flow is a verified Neyro token factory/implementation with an explicit mint-authority model. The UI must not invent a factory address or contract method until that on-chain interface is deployed and verified.
+
+Research basis: NEP-141, NEAR's official FT examples, NEAR factory examples, Smithii's NEAR Token Creator/Manager, and Smithii's NEAR liquidity tooling.
