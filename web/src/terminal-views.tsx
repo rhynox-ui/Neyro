@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { Campaign } from "./campaign/model";
 import { NearRpcClient } from "./near/rpc";
+import type { WebWalletConnector } from "./wallet/connector";
+import { getNearlyLaunchQuotes, launchNearlyToken, quoteNearlyLaunch, NEARLY_WNEAR, type LaunchForm, type NearlyQuoteAsset, type LaunchCost } from "./protocol/nearly";
 
 function formatNear(yocto: string): string {
   const value = BigInt(yocto);
@@ -487,4 +489,276 @@ export function TerminalModuleView({
       <p>{copy.body}</p>
     </section>
   );
+}
+
+
+export function NearlyLaunchView({
+  accountId,
+  wallet
+}: {
+  accountId: string;
+  wallet: WebWalletConnector | null;
+}) {
+  const emptyForm: LaunchForm = {
+    name: "",
+    symbol: "",
+    description: "",
+    icon: "",
+    website: "",
+    twitter: "",
+    telegram: "",
+    quote: NEARLY_WNEAR,
+    devBuyNear: "0",
+    buyBps: 0,
+    sellBps: 0,
+    creatorBps: 10000,
+    burnBps: 0,
+    holdersBps: 0
+  };
+  const [form, setForm] = useState<LaunchForm>(emptyForm);
+  const [quotes, setQuotes] = useState<NearlyQuoteAsset[]>([]);
+  const [cost, setCost] = useState<LaunchCost | null>(null);
+  const [txHash, setTxHash] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loadingPairs, setLoadingPairs] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingPairs(true);
+    getNearlyLaunchQuotes()
+      .then((items) => { if (!cancelled) setQuotes(items); })
+      .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load NEARly pairs."); })
+      .finally(() => { if (!cancelled) setLoadingPairs(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  function patch<K extends keyof LaunchForm>(key: K, value: LaunchForm[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+    setCost(null);
+    setTxHash("");
+    setMessage("");
+    setError("");
+  }
+
+  async function quote() {
+    setBusy(true); setError(""); setMessage(""); setTxHash("");
+    try {
+      const next = await quoteNearlyLaunch(form);
+      setCost(next);
+      setMessage("Live NEARly launch cost loaded from the factory.");
+    } catch (cause) {
+      setCost(null);
+      setError(cause instanceof Error ? cause.message : "Launch quote failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function launch() {
+    if (!wallet) { setError("Connect your browser wallet first."); return; }
+    setBusy(true); setError(""); setMessage(""); setTxHash("");
+    try {
+      const result = await launchNearlyToken(form, accountId, wallet);
+      setCost(result.cost);
+      setTxHash(result.txHash);
+      setMessage("Launch transaction submitted. Check the transaction before submitting another launch.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Launch failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const updateTax = (key: "buyBps" | "sellBps", percent: string) => {
+    const parsed = Number(percent);
+    patch(key, Number.isFinite(parsed) ? Math.round(parsed * 100) : 0);
+  };
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero full">
+        <div>
+          <span className="eyebrow">LAUNCH / NEARLY</span>
+          <h2>Launch a token directly from the browser wallet.</h2>
+          <p>Pairs and launch costs are read live from the NEARly factory. The launch transaction is signed by the connected account; Neyro does not custody the wallet.</p>
+        </div>
+        <div className="hero-state"><span className={accountId ? "status-dot live" : "status-dot"} /><span>{accountId ? shortId(accountId) : "Connect wallet"}</span></div>
+      </div>
+
+      <div className="card">
+        <div className="section-head"><div><span className="eyebrow">TOKEN</span><h3>Identity</h3></div></div>
+        <div className="form-grid">
+          <div><label>Name</label><input value={form.name} onChange={(e) => patch("name", e.target.value)} placeholder="Token name" /></div>
+          <div><label>Symbol</label><input value={form.symbol} onChange={(e) => patch("symbol", e.target.value.toUpperCase())} placeholder="TICKER" /></div>
+          <div className="full-field"><label>Description</label><textarea rows={3} value={form.description} onChange={(e) => patch("description", e.target.value)} placeholder="Optional description" /></div>
+          <div className="full-field"><label>Logo URL or uploaded image</label><input value={form.icon} onChange={(e) => patch("icon", e.target.value)} placeholder="https://… or ipfs://…" /></div>
+          <div><label>Website</label><input value={form.website} onChange={(e) => patch("website", e.target.value)} placeholder="https://…" /></div>
+          <div><label>X</label><input value={form.twitter} onChange={(e) => patch("twitter", e.target.value)} placeholder="https://x.com/…" /></div>
+          <div><label>Telegram</label><input value={form.telegram} onChange={(e) => patch("telegram", e.target.value)} placeholder="https://t.me/…" /></div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="section-head"><div><span className="eyebrow">PAIR & FIRST BUY</span><h3>Launch settings</h3></div></div>
+        <div className="form-grid">
+          <div className="full-field">
+            <label>Launch pair</label>
+            <select value={form.quote} onChange={(e) => patch("quote", e.target.value)}>
+              {loadingPairs && <option value={form.quote}>Loading live pairs…</option>}
+              {quotes.map((q) => <option key={q.accountId} value={q.accountId}>{q.symbol} · {q.accountId}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>First buy (NEAR)</label>
+            <input inputMode="decimal" value={form.devBuyNear} onChange={(e) => patch("devBuyNear", e.target.value)} placeholder="0" />
+            <small>Native first buy is used by the factory only for the NEAR pair.</small>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="section-head"><div><span className="eyebrow">OPTIONAL TAX</span><h3>Buy / sell tax</h3></div></div>
+        <div className="form-grid">
+          <div><label>Buy tax (%)</label><input inputMode="decimal" min="0" max="4" step="0.01" value={form.buyBps / 100} onChange={(e) => updateTax("buyBps", e.target.value)} /></div>
+          <div><label>Sell tax (%)</label><input inputMode="decimal" min="0" max="4" step="0.01" value={form.sellBps / 100} onChange={(e) => updateTax("sellBps", e.target.value)} /></div>
+          {(form.buyBps || form.sellBps) > 0 && (
+            <>
+              <div><label>Creator share (%)</label><input inputMode="decimal" value={form.creatorBps / 100} onChange={(e) => patch("creatorBps", Math.round(Number(e.target.value || 0) * 100))} /></div>
+              <div><label>Burn share (%)</label><input inputMode="decimal" value={form.burnBps / 100} onChange={(e) => patch("burnBps", Math.round(Number(e.target.value || 0) * 100))} /></div>
+              <div><label>Holders share (%)</label><input inputMode="decimal" value={form.holdersBps / 100} onChange={(e) => patch("holdersBps", Math.round(Number(e.target.value || 0) * 100))} /></div>
+              <div className="tax-total"><span>Distribution</span><strong>{((form.creatorBps + form.burnBps + form.holdersBps) / 100).toFixed(2)}%</strong></div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="card full">
+        <div className="row-title">
+          <div><span className="eyebrow">FACTORY QUOTE</span><h3>{cost ? "Live launch cost" : "Quote before signing"}</h3></div>
+          <button onClick={() => void quote()} disabled={busy}>{busy ? "Reading…" : "Get launch cost"}</button>
+        </div>
+        {cost && (
+          <div className="overview-list">
+            <div><span>Launch fee</span><strong>{formatNear(cost.launch_fee)}</strong></div>
+            <div><span>Token storage</span><strong>{formatNear(cost.token_storage)}</strong></div>
+            <div><span>Pool creation</span><strong>{formatNear(cost.pool_create)}</strong></div>
+            <div><span>DCL storage</span><strong>{formatNear(cost.dcl_storage)}</strong></div>
+            <div><span>First buy</span><strong>{formatNear(cost.dev_buy)}</strong></div>
+            <div><span>Total</span><strong>{formatNear(cost.total)}</strong></div>
+          </div>
+        )}
+        <div className="action-row">
+          <button className="primary" onClick={() => void launch()} disabled={busy || !accountId}>{busy ? "Working…" : "Launch token"}</button>
+        </div>
+        {txHash && <p className="message success">Submitted: <span className="mono-value">{txHash}</span></p>}
+        {message && <p className="message">{message}</p>}
+        {error && <p className="message warning">{error}</p>}
+      </div>
+    </section>
+  );
+}
+
+export function SwapView({
+  accountId,
+  wallet
+}: {
+  accountId: string;
+  wallet: WebWalletConnector | null;
+}) {
+  const [fromToken, setFromToken] = useState("wrap.near");
+  const [toToken, setToToken] = useState("");
+  const [amount, setAmount] = useState("");
+  const [slippage, setSlippage] = useState("1");
+  const [quote, setQuote] = useState<{amountIn:string;amountOut:string;minAmountOut:string;msg:string;signature:string;expiresAt:number}|null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  async function getQuote() {
+    if (!accountId) throw new Error("Connect wallet first");
+    const value=amount.trim();
+    if(!/^\d+(?:\.\d+)?$/.test(value) || Number(value)<=0) throw new Error("Enter a valid amount");
+    const target=toToken.trim().toLowerCase();
+    if(!target) throw new Error("Enter the output token contract");
+    const decimals=await new NearRpcClient().viewFunction<{decimals:number}>(target,"ft_metadata",{}).catch(()=>({decimals:24}));
+    const base=toBase(value,decimals.decimals);
+    const bps=Math.round(Number(slippage)*100);
+    if(!Number.isInteger(bps)||bps<0||bps>1000) throw new Error("Slippage must be between 0% and 10%");
+    const url=new URL("https://smartx.rhea.finance/swapMultiDexPath");
+    url.searchParams.set("amountIn",base.toString());
+    url.searchParams.set("tokenIn",fromToken==="near"?"wrap.near":fromToken);
+    url.searchParams.set("tokenOut",target);
+    url.searchParams.set("slippage",String(bps/10000));
+    url.searchParams.set("user",accountId);
+    url.searchParams.set("receiveUser",accountId);
+    url.searchParams.set("skipUnwrapNativeToken","false");
+    const response=await fetch(url,{headers:{Accept:"application/json"}});
+    const body=await response.json().catch(()=>null) as Record<string,unknown>|null;
+    if(!response.ok) throw new Error("RHEA quote HTTP "+response.status);
+    const data=(body?.result_data && typeof body.result_data==="object"?body.result_data:body) as Record<string,unknown>;
+    const amountIn=String(data?.amount_in??data?.amountIn??"");
+    const amountOut=String(data?.amount_out??data?.amountOut??"");
+    const minAmountOut=String(data?.min_amount_out??data?.minAmountOut??"");
+    const msg=String(data?.msg??"");
+    const signature=String(data?.signature??"");
+    if(!/^\d+$/.test(amountIn)||BigInt(amountIn)!==base) throw new Error("RHEA returned an invalid input amount");
+    if(!/^\d+$/.test(amountOut)||BigInt(amountOut)<=0n) throw new Error("RHEA returned no executable output");
+    const minimum=/^\d+$/.test(minAmountOut)?minAmountOut:((BigInt(amountOut)*BigInt(10000-bps))/10000n).toString();
+    if(BigInt(minimum)<=0n||BigInt(minimum)>BigInt(amountOut)||!msg||!signature) throw new Error("RHEA returned an incomplete executable route");
+    setQuote({amountIn,amountOut,minAmountOut:minimum,msg,signature,expiresAt:Date.now()+45000});
+  }
+
+  async function runQuote() {
+    setBusy(true); setError(""); setNotice("");
+    try { await getQuote(); setNotice("Live RHEA route loaded. No fabricated quote data."); }
+    catch(cause){setQuote(null);setError(cause instanceof Error?cause.message:"Quote failed.");}
+    finally{setBusy(false);}
+  }
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero full">
+        <div>
+          <span className="eyebrow">TRADE / RHEA</span>
+          <h2>Live swap routing from RHEA SmartRouter.</h2>
+          <p>Enter a NEAR or NEP-141 token contract. Quotes are fetched at request time and expire quickly.</p>
+        </div>
+        <div className="hero-state"><span className={accountId ? "status-dot live" : "status-dot"} /><span>{accountId ? shortId(accountId) : "Connect wallet"}</span></div>
+      </div>
+      <div className="card">
+        <div className="form-grid">
+          <div><label>Input token</label><input value={fromToken} onChange={(e)=>setFromToken(e.target.value.trim().toLowerCase())} placeholder="wrap.near" /></div>
+          <div><label>Output token contract</label><input value={toToken} onChange={(e)=>setToToken(e.target.value.trim().toLowerCase())} placeholder="token.near" /></div>
+          <div><label>Amount</label><input inputMode="decimal" value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="0.0" /></div>
+          <div><label>Slippage (%)</label><input inputMode="decimal" value={slippage} onChange={(e)=>setSlippage(e.target.value)} /></div>
+        </div>
+        <div className="action-row"><button className="primary" onClick={()=>void runQuote()} disabled={busy}>{busy?"Routing…":"Get quote"}</button></div>
+        {error && <p className="message warning">{error}</p>}
+        {notice && <p className="message">{notice}</p>}
+      </div>
+      {quote && (
+        <div className="card full">
+          <div className="row-title"><div><span className="eyebrow">ROUTE</span><h3>Executable quote</h3></div><span className="muted">{Math.max(0,Math.round((quote.expiresAt-Date.now())/1000))}s</span></div>
+          <div className="overview-list">
+            <div><span>Input</span><strong className="mono-value">{quote.amountIn}</strong></div>
+            <div><span>Expected output</span><strong className="mono-value">{quote.amountOut}</strong></div>
+            <div><span>Minimum output</span><strong className="mono-value">{quote.minAmountOut}</strong></div>
+            <div><span>Router</span><strong>RHEA SmartRouter</strong></div>
+          </div>
+          <p className="muted">Execution is intentionally not enabled yet for this quote path. The next execution step must persist the route and handle NEAR wrapping/registration safely.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function toBase(value:string, decimals:number):bigint {
+  if(!/^\d+(?:\.\d+)?$/.test(value) || decimals<0 || decimals>24) throw new Error("Invalid amount");
+  const [whole,fraction=""]=value.split(".");
+  if(fraction.length>decimals) throw new Error("Too many decimals");
+  const base=BigInt(whole)*10n**BigInt(decimals)+BigInt(fraction.padEnd(decimals,"0")||"0");
+  if(base<=0n) throw new Error("Amount must be greater than zero");
+  return base;
 }
