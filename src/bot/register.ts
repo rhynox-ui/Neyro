@@ -27,7 +27,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
+import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";\nimport { claimCreatorLaunchFees, claimCreatorNearFees, formatCreatorFee, type CreatorFeeSummary } from "../launch/fees.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -406,6 +406,67 @@ async function requireWallet(ctx: Context) {
   }
   return wallet;
 }
+
+function renderCreatorFees(summary: CreatorFeeSummary): { text: string; keyboard: InlineKeyboard } {
+  const near = formatUnits(summary.nearAmount, 24);
+  const lines = [
+    "💰 <b>NEARly creator fees</b>",
+    "",
+    `Wallet: ${code(summary.accountId)}`,
+    `Ⓝ NEAR claimable: <b>${escapeHtml(near)} NEAR</b>`,
+    ""
+  ];
+
+  if (summary.positions.length === 0) {
+    lines.push("No per-launch token/pair fees are currently claimable.");
+  } else {
+    lines.push("<b>Per-launch fees</b>");
+    for (const position of summary.positions.slice(0, 30)) {
+      const amount = formatCreatorFee(position);
+      const asset = position.kind === "token" ? position.symbol : launchQuoteLabel(position.quote);
+      lines.push(
+        `• <b>${escapeHtml(position.symbol)}</b> · ${escapeHtml(amount)} ${escapeHtml(asset)}`
+      );
+    }
+    if (summary.positions.length > 30) {
+      lines.push(`…and ${summary.positions.length - 30} more fee positions. Use /fees again after claiming the visible ones.`);
+    }
+  }
+
+  lines.push(
+    "",
+    "NEARly automatically collects pool fees about hourly. This screen shows fees already credited to your creator balance; it never assumes an uncollected pool balance is claimable.",
+    "",
+    "Claims are sent directly to the active wallet by nearlytrade.near."
+  );
+
+  const keyboard = new InlineKeyboard();
+  if (BigInt(summary.nearAmount) > 0n) keyboard.text("💰 Claim NEAR", "fees:near");
+  keyboard.row();
+  for (const position of summary.positions.slice(0, 30)) {
+    keyboard.text(
+      `Claim ${position.symbol} ${position.kind === "token" ? "token" : launchQuoteLabel(position.quote)}`,
+      `fees:claim:${position.kind}:${position.launchId}`
+    ).row();
+  }
+  keyboard.text("🔄 Refresh", "fees:refresh");
+  return { text: lines.join("\n"), keyboard };
+}
+
+async function showCreatorFees(ctx: Context): Promise<void> {
+  const wallet = await requireWallet(ctx);
+  if (!wallet) return;
+  try {
+    const summary = await getCreatorFeeSummary(wallet.accountId);
+    const rendered = renderCreatorFees(summary);
+    await replyScreen(ctx, "fees", rendered.text, { ...HTML, reply_markup: rendered.keyboard });
+  } catch (error) {
+    console.error("NEARly creator fee read error:", error);
+    await replyNotice(ctx, `❌ ${userMessage(error, "Creator fees are temporarily unavailable")}`);
+  }
+}
+
+const activeFeeClaims = new Set<string>();
 
 async function showPortfolio(ctx: Context) {
   const wallet = await requireWallet(ctx);
@@ -932,7 +993,7 @@ export function registerBotHandlers(bot: Bot) {
         await defaultStateStore().delete(userId, "launch-executing");
         return void await ctx.reply(
           `↩️ <b>NEARly launch did not complete</b>\n\nTransaction: ${code(pending.txHash)}\nYou can start a new launch with /launch.`,
-          { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") }
+          { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") }
         );
       }
       return void await ctx.reply(
@@ -945,11 +1006,15 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
+  pm.command("fees", async (ctx) => {
+    await showCreatorFees(ctx);
+  });
+
   pm.command("launch_history", async (ctx) => {
     const history = await getNearlyLaunchHistory(ctx.from.id, 20);
     await ctx.reply(renderNearlyLaunchHistory(history), {
       ...HTML,
-      reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start")
+      reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start")
     });
   });
 
@@ -985,7 +1050,7 @@ export function registerBotHandlers(bot: Bot) {
     const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
     if (!pending) {
       const history = await getNearlyLaunchHistory(userId, 10);
-      return void await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start") });
+      return void await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start") });
     }
     const status = await recoverNearlyLaunch(pending).catch(() => "unknown" as const);
     if (status === "live") {
@@ -996,7 +1061,7 @@ export function registerBotHandlers(bot: Bot) {
     if (status === "reverted" || status === "failed") {
       await defaultStateStore().delete(userId, "launch-pending");
       await defaultStateStore().delete(userId, "launch-executing");
-      return void await ctx.reply("↩️ <b>Previous launch did not complete.</b> You can start a new launch.", { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") });
+      return void await ctx.reply("↩️ <b>Previous launch did not complete.</b> You can start a new launch.", { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") });
     }
     return void await ctx.reply(`⏳ <b>Still pending</b>\nTransaction: ${code(pending.txHash)}\n\nDo not launch again yet.`, { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Refresh", "launch:status").text("❌ Cancel flow", "launch:pending-cancel") });
   });
@@ -1012,10 +1077,71 @@ export function registerBotHandlers(bot: Bot) {
     );
   });
 
+  pm.callbackQuery("fees:refresh", async (ctx) => {
+    await ctx.answerCallbackQuery("Refreshing…");
+    await showCreatorFees(ctx);
+  });
+
+  pm.callbackQuery("fees:near", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    const key = `${ctx.from.id}:near`;
+    if (activeFeeClaims.has(key)) {
+      await ctx.answerCallbackQuery("Claim already in progress…");
+      return;
+    }
+    activeFeeClaims.add(key);
+    try {
+      await ctx.answerCallbackQuery("Claiming NEAR fees…");
+      const txHash = await claimCreatorNearFees(walletService, ctx.from.id, wallet.accountId);
+      const summary = await getCreatorFeeSummary(wallet.accountId);
+      const rendered = renderCreatorFees(summary);
+      await ctx.editMessageText(
+        `✅ <b>NEAR creator fees claimed</b>\\n\\n${code(txHash)}\\n<a href="${explorerTx(txHash)}">View on NearBlocks</a>\\n\\n${rendered.text}`,
+        { ...HTML, reply_markup: rendered.keyboard }
+      );
+    } catch (error) {
+      console.error("NEARly NEAR fee claim error:", error);
+      await ctx.answerCallbackQuery({ text: "Claim failed", show_alert: false }).catch(() => {});
+      await ctx.reply(`❌ ${userMessage(error, "NEAR creator fee claim failed")}`, HTML);
+    } finally {
+      activeFeeClaims.delete(key);
+    }
+  });
+
+  pm.callbackQuery(/^fees:claim:(token|quote):(\\d+)$/, async (ctx) => {
+    const kind = ctx.match[1] as "token" | "quote";
+    const launchId = Number(ctx.match[2]);
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    const key = `${ctx.from.id}:${kind}:${launchId}`;
+    if (activeFeeClaims.has(key)) {
+      await ctx.answerCallbackQuery("Claim already in progress…");
+      return;
+    }
+    activeFeeClaims.add(key);
+    try {
+      await ctx.answerCallbackQuery("Claiming creator fees…");
+      const txHash = await claimCreatorLaunchFees(walletService, ctx.from.id, wallet.accountId, kind, launchId);
+      const summary = await getCreatorFeeSummary(wallet.accountId);
+      const rendered = renderCreatorFees(summary);
+      await ctx.editMessageText(
+        `✅ <b>Creator fees claimed</b>\\n\\nLaunch ID: <code>${launchId}</code>\\n${code(txHash)}\\n<a href="${explorerTx(txHash)}">View on NearBlocks</a>\\n\\n${rendered.text}`,
+        { ...HTML, reply_markup: rendered.keyboard }
+      );
+    } catch (error) {
+      console.error("NEARly creator fee claim error:", error);
+      await ctx.answerCallbackQuery({ text: "Claim failed", show_alert: false }).catch(() => {});
+      await ctx.reply(`❌ ${userMessage(error, "Creator fee claim failed")}`, HTML);
+    } finally {
+      activeFeeClaims.delete(key);
+    }
+  });
+
   pm.callbackQuery("launch:history", async (ctx) => {
     await ctx.answerCallbackQuery();
     const history = await getNearlyLaunchHistory(ctx.from.id, 20);
-    await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start") });
+    await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start") });
   });
 
   // Telegram photo reviews must be edited as captions, not as text messages.
