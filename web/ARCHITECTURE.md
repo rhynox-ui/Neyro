@@ -929,3 +929,13 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Create token links to the already implemented NEARly launch surface; no unverified token factory transaction was added.
 - No guessed token-operation contract methods were introduced.
 - No Telegram bot, Worker, wallet custody, or production signer code was modified.
+
+
+## 2026-10-02 — Token tools protocol pass
+
+- Create Token now explicitly routes to the implemented NEARly launch surface instead of pretending a generic token factory exists.
+- Mint is not exposed because NEARly launch tokens have a fixed 1B supply and no post-launch mint method.
+- Burn is a real browser-wallet operation for completed NEARly launch tokens: the web terminal verifies the token with `nearlytrade.near.get_launch_by_token`, reads `ft_metadata` and `ft_balance_of`, validates the exact base-unit amount, then signs the token's `burn` function call.
+- Lock/Unlock are not exposed as arbitrary token operations. NEARly's locker accounts hold launch liquidity positions and do not provide a general user-token lock/unlock workflow.
+- No generic unverified contract write was introduced.
+- No Telegram bot or Worker code was modified.
