@@ -804,10 +804,13 @@ export function TokenMintView({
         throw new Error("Wallet did not return a transaction hash. If the wallet redirected for signing, verify the transaction before retrying.");
       }
 
-      setTxHash(result.transactionHash);
-      setMessage("Mint transaction submitted. Refresh the token state after final execution.");
+      const submittedHash = result.transactionHash;
+      setTxHash(submittedHash);
+      setMessage("Mint transaction submitted. Refreshing live token state…");
       setAmount("");
       await verifyToken();
+      setTxHash(submittedHash);
+      setMessage("Mint transaction submitted. Verify final execution before treating the new supply as confirmed.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Mint transaction failed.");
     } finally {
@@ -949,7 +952,7 @@ export function TokenMintView({
           <div className="card mint-review-card">
             <div className="section-head">
               <div><span className="eyebrow">03 / REVIEW</span><h3>Transaction preview</h3></div>
-              <span className="muted">{profile === "custom" ? "Custom interface" : "Supported call template"}</span>
+              <span className="muted">{profile === "custom" ? "Custom interface" : "Call preset"}</span>
             </div>
             <div className="mint-review-list">
               <div><span>Contract</span><strong>{shortId(token.trim().toLowerCase())}</strong></div>
