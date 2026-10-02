@@ -1121,9 +1121,16 @@ function App() {
           <TerminalModuleView view={activeView} onNavigate={setActiveView} />
         )}
 
-        <footer>
-          Web terminal execution is isolated from the Telegram bot. No Telegram handlers, encrypted signer storage,
-          Telegram wallet services or Worker entrypoint are imported here.
+        <footer className="site-footer">
+          <div className="site-footer-copy">
+            <strong>Neyro</strong>
+            <span>NEAR trading, token launch and on-chain tools.</span>
+          </div>
+          <div className="site-footer-links" aria-label="Neyro links">
+            <a href="https://t.me/Testirhbot" target="_blank" rel="noreferrer">Telegram Bot</a>
+            <a href="https://x.com/Neyrotrade" target="_blank" rel="noreferrer">X / @Neyrotrade</a>
+          </div>
+          <small>Web terminal execution is isolated from Telegram signing.</small>
         </footer>
       </main>
     </div>
