@@ -785,6 +785,8 @@ export function MintView({ accountId }: { accountId: string }) {
   const [logoPreview, setLogoPreview] = useState("");
   const [logoName, setLogoName] = useState("");
   const [keepMintAuthority, setKeepMintAuthority] = useState(true);
+  const [keepFreezeAuthority, setKeepFreezeAuthority] = useState(false);
+  const [keepMetadataAuthority, setKeepMetadataAuthority] = useState(true);
   const [taxEnabled, setTaxEnabled] = useState(false);
   const [buyTax, setBuyTax] = useState("0");
   const [sellTax, setSellTax] = useState("0");
@@ -858,6 +860,14 @@ export function MintView({ accountId }: { accountId: string }) {
         </div>
         <div className="policy-note"><strong>{keepMintAuthority ? "Mintable token" : "Fixed-supply token"}</strong><span>Authority behavior depends on the verified token implementation. Neyro will not claim a revocation unless the deployed contract supports it.</span></div>
         <div className="policy-option">
+          <div><strong>Freeze authority</strong><span>{keepFreezeAuthority ? "Creator may freeze transfers where the implementation supports it." : "No freeze authority requested."}</span></div>
+          <button type="button" className={keepFreezeAuthority ? "toggle on" : "toggle"} onClick={() => setKeepFreezeAuthority((value) => !value)} aria-pressed={keepFreezeAuthority}><span /></button>
+        </div>
+        <div className="policy-option">
+          <div><strong>Metadata authority</strong><span>{keepMetadataAuthority ? "Creator can update mutable metadata." : "Metadata is intended to become immutable after creation."}</span></div>
+          <button type="button" className={keepMetadataAuthority ? "toggle on" : "toggle"} onClick={() => setKeepMetadataAuthority((value) => !value)} aria-pressed={keepMetadataAuthority}><span /></button>
+        </div>
+        <div className="policy-option">
           <div><strong>Token tax</strong><span>Optional buy/sell tax for implementations that support trading-tax configuration.</span></div>
           <button type="button" className={taxEnabled ? "toggle on" : "toggle"} onClick={() => setTaxEnabled((value) => !value)} aria-pressed={taxEnabled}><span /></button>
         </div>
@@ -875,9 +885,12 @@ export function MintView({ accountId }: { accountId: string }) {
           <div><span>Symbol</span><strong>{symbol || "—"}</strong></div>
           <div><span>Initial supply</span><strong>{supply || "—"} {symbol || ""}</strong></div>
           <div><span>Decimals</span><strong>{validDecimals ? decimals : "—"}</strong></div>
+          <div><span>Creator / owner</span><strong>{accountId || "Connect wallet"}</strong></div>
           <div><span>Recipient</span><strong>{recipient || "—"}</strong></div>
           <div><span>Logo</span><strong>{logoName || "Not uploaded"}</strong></div>
           <div><span>Mint authority</span><strong>{keepMintAuthority ? "Keep" : "Revoke after creation"}</strong></div>
+          <div><span>Freeze authority</span><strong>{keepFreezeAuthority ? "Keep" : "None"}</strong></div>
+          <div><span>Metadata authority</span><strong>{keepMetadataAuthority ? "Mutable" : "Immutable"}</strong></div>
           <div><span>Tax</span><strong>{taxEnabled ? ("Buy " + buyTax + "% · Sell " + sellTax + "%") : "Disabled"}</strong></div>
         </div>
         <div className="mint-interface-warning"><strong>Fresh-token deployment is intentionally gated.</strong><span>Neyro does not currently have a verified generic token-mint/factory contract address and interface in this web branch. No guessed contract call is exposed here.</span></div>
