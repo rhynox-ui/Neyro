@@ -55,7 +55,7 @@ test("wallet screen marks the active wallet and offers a new one below the cap",
   assert.match(text, /▫️ W1 · <code>aaaaaa…aaaa<\/code>\n +💰 0 NEAR \(not funded yet\)/);
   assert.match(text, /Balance: 1 NEAR \(~\$2\.50\)/);
   const rows = keyboard.inline_keyboard.map((row) => row.map((b) => (b as { callback_data: string }).callback_data));
-  assert.deepEqual(rows, [["w:use:0"], ["w:use:1"], ["w:refresh", "w:new"], ["w:export"]]);
+  assert.deepEqual(rows, [["w:use:0"], ["w:use:1"], ["w:refresh", "w:new"], ["w:export", "w:import"]]);
   assert.match((keyboard.inline_keyboard[1]![0] as { text: string }).text, /· 1 NEAR$/);
 
   const withWrapped = renderWalletScreen(wallets, [unfunded, balance], 5, 2.5, 5n * 10n ** 23n);
@@ -67,6 +67,22 @@ test("wallet screen marks the active wallet and offers a new one below the cap",
 
   const full = renderWalletScreen(Array.from({ length: 5 }, (_, i) => ({ accountId: `${i}`.repeat(64), active: i === 0 })), Array(5).fill(balance), 5);
   assert.ok(!full.keyboard.inline_keyboard.flat().some((b) => (b as { callback_data: string }).callback_data === "w:new"));
+});
+
+test("a private key can be imported into a new wallet", async () => {
+  const source = new WalletService(new InMemoryWalletRepository());
+  const original = await source.createWallet(8);
+  const exported = await source.exportPrivateKey(8);
+
+  const target = new WalletService(new InMemoryWalletRepository());
+  const imported = await target.importWallet(7, exported.privateKey);
+  assert.equal(imported.accountId, original.accountId);
+  assert.equal((await target.getWallet(7))!.accountId, original.accountId);
+
+  await assert.rejects(
+    target.importWallet(7, "not-a-near-private-key"),
+    UserFacingError
+  );
 });
 
 test("exported private key controls the active wallet and is shown hidden", async () => {
