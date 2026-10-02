@@ -13,7 +13,9 @@ export type DirectRheaNearQuote = {
   msg?: string;
   signature?: string;
   tokens: string[];
-  /** Authoritative Rhea DCL pool id for direct NEARly execution. */
+  /** Authoritative Rhea DCL pool path for direct NEARly execution. */
+  poolIds?: string[];
+  /** Backward-compatible single-pool field. */
   poolId?: string;
   receivedAt: number;
   expiresAt: number;
