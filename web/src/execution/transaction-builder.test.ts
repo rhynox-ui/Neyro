@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildTransferBatches } from "../airdrop/batch-builder";
-import { buildAirdropTransaction, buildNativeFeeTransfer } from "./transaction-builder";
+import {
+  buildAirdropTransaction,
+  buildNativeFeeTransfer,
+  buildStorageRegistrationTransaction,
+  MAX_STORAGE_REGISTRATION_ACTIONS,
+  STORAGE_DEPOSIT_GAS
+} from "./transaction-builder";
 
 describe("web transaction builder", () => {
   const batch = buildTransferBatches("sender.near", [
@@ -50,3 +56,34 @@ describe("web transaction builder", () => {
     expect(() => buildNativeFeeTransfer("user.near", "treasury.near", 0n)).toThrow();
   });
 });
+
+
+  it("builds bounded NEP-145 registration actions", () => {
+    const request = buildStorageRegistrationTransaction(
+      "payer.near",
+      "token.near",
+      ["alice.near", "bob.near"],
+      2350000000000000000000n
+    );
+
+    expect(request.actions).toHaveLength(2);
+    expect(request.actions[0]).toEqual({
+      type: "FunctionCall",
+      receiverId: "token.near",
+      methodName: "storage_deposit",
+      args: { account_id: "alice.near", registration_only: true },
+      gas: STORAGE_DEPOSIT_GAS,
+      deposit: 2350000000000000000000n
+    });
+  });
+
+  it("caps registration transactions before the NEAR gas limit", () => {
+    expect(() =>
+      buildStorageRegistrationTransaction(
+        "payer.near",
+        "token.near",
+        Array.from({ length: MAX_STORAGE_REGISTRATION_ACTIONS + 1 }, (_, i) => `user-${i}.near`),
+        1n
+      )
+    ).toThrow("registration batch cannot exceed");
+  });
