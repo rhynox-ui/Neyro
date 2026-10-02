@@ -762,3 +762,21 @@ Reference: https://github.com/near/wallet-selector/blob/main/packages/core/docs/
 Sender allocation now uses deterministic best-fit decreasing: larger recipient transfers are assigned first, with ties preserving source order, and each transfer selects the sender with the smallest remaining balance that can cover it. This reduces avoidable balance fragmentation compared with simple first-fit allocation.
 
 Aggregate balance remains only a necessary condition, not a proof that arbitrary recipient amounts can be partitioned across sender accounts. If the deterministic allocator cannot place a recipient, execution stops before signing. Exact optimal bin-packing is intentionally not claimed; million-wallet planning will need bounded-memory allocation semantics and explicit handling of unsatisfiable distributions.
+
+
+## 33. UI checkpoint — state-driven terminal surface
+
+The Web Terminal presentation was tightened after the first Cloudflare deployment review.
+
+Changes:
+- removed demo-looking token, sender and amount values from the visible form;
+- token decimals are now loaded from verified ft_metadata instead of presenting a hardcoded default;
+- token identity is shown from the live contract metadata after loading;
+- wallet connection state is shown from the actual browser wallet state;
+- removed unrelated Mint/Lock fee chips from the bulk-transfer surface;
+- reduced card, heading and navigation density;
+- redesigned the mobile navigation as a horizontal terminal navigation rather than shrinking the desktop sidebar;
+- added responsive header wallet controls;
+- preserved the existing real preflight, campaign persistence and execution path.
+
+The UI remains intentionally conservative: unsupported modules are not presented as functional trading/launch features, and no fabricated balances, transactions or campaign statistics are rendered.
