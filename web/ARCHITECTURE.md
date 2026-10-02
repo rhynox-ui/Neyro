@@ -1102,7 +1102,7 @@ The web terminal now has a dedicated NEP-145 recipient-registration execution pa
 
 This is intentionally separate from the Telegram bot and does not expose Telegram signer material to the browser.
 
-NEP-145 defines `storage_balance_bounds` as the source of the minimum/maximum storage amounts and `storage_deposit` as the payable registration method. citeturn0search0
+NEP-145 defines `storage_balance_bounds` as the source of the minimum/maximum storage amounts and `storage_deposit` as the payable registration method. 
 
 Remaining release work:
 - verify the flow against several real NEP-141 contracts on mainnet;
