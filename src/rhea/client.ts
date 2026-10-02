@@ -169,7 +169,7 @@ export class RheaClient {
     // pools even when SmartRouter has not indexed the launch yet, so use the
     // launch's authoritative 1% DCL pool as a bounded fallback. Never invent
     // a quote: the fallback must return a positive on-chain DCL quote.
-    if (BigInt(amountOut || "0") === 0n && tokens.length === 0) {
+    if (amountOut === "0" && tokens.length === 0) {
       const dcl = await this.nearlyDclQuote(request).catch(() => null);
       if (dcl) return dcl;
       throw new UserFacingError("RHEA has no executable route for this NEARly pool right now; refresh and try again");
