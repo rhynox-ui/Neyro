@@ -11,6 +11,7 @@ import { allocateRecipientsDetailed, type ValidRecipient } from "./airdrop-core"
 import { executeAirdrop, reconcileCampaign } from "./execution/executor";
 import { IndexedDbCampaignStore } from "./campaign/storage";
 import type { Campaign } from "./campaign/model";
+import { campaignResultsCsv } from "./campaign/export";
 
 type Row = {
   line: number;
@@ -509,6 +510,22 @@ function App() {
     }
   }
 
+  function exportCampaignResults() {
+    if (!executionCampaign) return;
+
+    const csv = campaignResultsCsv(executionCampaign);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `neyro-campaign-${executionCampaign.id}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setMessage(`Exported ${executionCampaign.recipientCount.toLocaleString()} campaign results.`);
+  }
+
   async function upload(file: File) {
     setBusy(true);
     setPlan(null);
@@ -748,6 +765,9 @@ function App() {
                     <div className="row-title">
                       <div><span className="eyebrow">EXECUTION</span><h3>Campaign progress</h3></div>
                       <div className="header-actions">
+                        <button onClick={exportCampaignResults} disabled={executionBusy}>
+                          Export CSV
+                        </button>
                         {executionCampaign.status !== "completed" &&
                           !executionCampaign.batches.some((batch) =>
                             batch.status === "unknown" || batch.status === "submitted"
