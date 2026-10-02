@@ -36,6 +36,10 @@ export type TxStatusResult = {
   receipts_outcome?: unknown[];
 };
 
+export type GasPriceResult = {
+  gas_price: string;
+};
+
 export const NEAR_RPC_URLS: Record<NearNetwork, string[]> = {
   mainnet: [
     "https://rpc.mainnet.near.org",
@@ -120,6 +124,14 @@ export class NearRpcClient {
     });
 
     return JSON.parse(decodeBase64(result.result)) as T;
+  }
+
+  async gasPrice(): Promise<bigint> {
+    const result = await this.request<GasPriceResult>("gas_price", [null]);
+    if (!/^\\d+$/.test(result.gas_price)) {
+      throw new Error("NEAR RPC returned invalid gas price");
+    }
+    return BigInt(result.gas_price);
   }
 
   async transactionStatus(
