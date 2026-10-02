@@ -864,3 +864,11 @@ This is a presentation-only reset around the existing execution boundary; Telegr
 ## Swap balance checkpoint
 
 The Swap screen now reads the connected account's live balance for the selected input asset. Native NEAR uses the account balance; NEP-141 assets use ft_metadata and ft_balance_of. The displayed token symbol and decimals come from live metadata, and a MAX control fills the exact live base-unit balance converted for display. Changing the input contract invalidates the quote. No balance, symbol, price, or execution state is hardcoded.
+
+
+## 2026-10-02 — Terminal readability checkpoint
+
+- Increased the terminal's sidebar/logo and primary navigation sizing so the Neyro brand and controls remain readable on smaller browser viewports.
+- Added responsive breakpoints at 900px and 640px for the terminal shell, sidebar, main content spacing and Swap surface.
+- Kept the conventional Swap layout, live quote/balance behavior and dark/light theme unchanged; this checkpoint is presentation-only.
+- No Telegram bot, Worker or signer code was modified.
