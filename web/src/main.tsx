@@ -8,7 +8,7 @@ import { preflightSenders, type CampaignPreflight } from "./preflight";
 import { createMyNearWalletConnector } from "./wallet/selector";
 import type { WebWalletConnector } from "./wallet/connector";
 import { allocateRecipientsDetailed, type ValidRecipient } from "./airdrop-core";
-import { executeAirdrop } from "./execution/executor";
+import { executeAirdrop, reconcileCampaign } from "./execution/executor";
 import { IndexedDbCampaignStore } from "./campaign/storage";
 import type { Campaign } from "./campaign/model";
 
