@@ -33,6 +33,10 @@ function rpcStub(): NearRpcClient {
       if (method === "storage_balance_of") return { total: "1" } as T;
       throw new Error(`unexpected view method: ${method} ${JSON.stringify(args)}`);
     },
+    viewAccount: async () => ({
+      amount: "1000000000000000000000000"
+    }),
+    gasPrice: async () => 100000000n,
     transactionStatus: async () => ({
       status: { SuccessValue: "" }
     })
