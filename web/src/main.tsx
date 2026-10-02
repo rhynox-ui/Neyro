@@ -280,6 +280,14 @@ function App() {
     [senders]
   );
 
+  function syncCampaign(nextCampaign: Campaign) {
+    setExecutionCampaign(nextCampaign);
+    setCampaigns((current) => {
+      const withoutCurrent = current.filter((campaign) => campaign.id !== nextCampaign.id);
+      return [...withoutCurrent, nextCampaign];
+    });
+  }
+
   async function loadTokenMetadata() {
     const contract = token.trim().toLowerCase();
     if (!contract) {
@@ -378,12 +386,12 @@ function App() {
         executionCampaign.id,
         campaignStore,
         new NearRpcClient(),
-        ({ campaign: nextCampaign }) => setExecutionCampaign({
+        ({ campaign: nextCampaign }) => syncCampaign({
           ...nextCampaign,
           batches: nextCampaign.batches.map((item) => ({ ...item }))
         })
       );
-      setExecutionCampaign(campaign);
+      syncCampaign(campaign);
       setMessage(
         campaign.status === "completed"
           ? "Campaign reconciliation confirmed completion."
@@ -434,7 +442,7 @@ function App() {
         rpc: new NearRpcClient(),
         store: campaignStore,
         onProgress: ({ campaign, batch }) => {
-          setExecutionCampaign({ ...campaign, batches: campaign.batches.map((item) => ({ ...item })) });
+          syncCampaign({ ...campaign, batches: campaign.batches.map((item) => ({ ...item })) });
           setMessage(
             batch.status === "success"
               ? `Confirmed batch ${batch.id}.`
@@ -443,7 +451,7 @@ function App() {
         }
       });
 
-      setExecutionCampaign(result.campaign);
+      syncCampaign(result.campaign);
       setMessage(
         result.campaign.status === "completed"
           ? "Persisted campaign completed successfully."
