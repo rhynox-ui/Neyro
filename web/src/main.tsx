@@ -19,6 +19,7 @@ import {
   PersistedTransactionsView,
   TerminalModuleView,
   TokenBurnView,
+  TokenLockView,
   CreateTokenView,
   NearlyLaunchView,
   SwapView
@@ -712,6 +713,8 @@ function App() {
           <PersistedTransactionsView campaigns={campaigns} />
         ) : activeView === "Burn" ? (
           <TokenBurnView accountId={accountId} wallet={wallet} />
+        ) : activeView === "Lock" ? (
+          <TokenLockView accountId={accountId} />
         ) : activeView === "Mint" ? (
           <CreateTokenView accountId={accountId} />
         ) : activeView === "Airdrop Campaigns" ? (
