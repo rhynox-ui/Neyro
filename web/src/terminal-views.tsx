@@ -675,6 +675,19 @@ export function SwapView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    if (!quote) {
+      setSecondsLeft(0);
+      return;
+    }
+    const update = () => setSecondsLeft(Math.max(0, Math.ceil((quote.expiresAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 500);
+    return () => window.clearInterval(timer);
+  }, [quote]);
 
   function switchTokens() {
     setFromToken(toToken || NEARLY_WNEAR);
@@ -768,7 +781,7 @@ export function SwapView({
         <div className="swap-card">
           <div className="swap-card-top">
             <span>Swap</span>
-            <button className="icon-button" type="button" aria-label="Swap settings">•••</button>
+            <button className={`icon-button${settingsOpen ? " active" : ""}`} type="button" aria-label="Swap settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>⚙</button>
           </div>
 
           <div className="swap-token-box">
@@ -814,8 +827,27 @@ export function SwapView({
                 aria-label="Output token contract"
               />
             </div>
-            <div className="swap-token-hint">{quote ? "Quoted output · expires in 45s" : "Enter the token contract to receive"}</div>
+            <div className="swap-token-hint">{quote ? (secondsLeft > 0 ? `Quoted output · expires in ${secondsLeft}s` : "Quote expired · refresh before signing") : "Enter the token contract to receive"}</div>
           </div>
+
+          {settingsOpen && (
+            <div className="swap-settings-popover">
+              <div>
+                <span className="eyebrow">SWAP SETTINGS</span>
+                <strong>Slippage tolerance</strong>
+              </div>
+              <div className="swap-custom-slippage">
+                <input
+                  inputMode="decimal"
+                  value={slippage}
+                  onChange={(e) => { setSlippage(e.target.value); setQuote(null); }}
+                  aria-label="Custom slippage percentage"
+                />
+                <span>%</span>
+              </div>
+              <small>Maximum allowed: 10%. A quote is invalidated whenever slippage changes.</small>
+            </div>
+          )}
 
           <div className="swap-settings-row">
             <div>
@@ -857,7 +889,7 @@ export function SwapView({
               <div><span>You'll pay</span><strong>{formatBaseValue(quote.amountIn, quote.inputDecimals)}</strong></div>
               <div><span>You'll receive</span><strong>{formatBaseValue(quote.amountOut, quote.outputDecimals)}</strong></div>
               <div><span>Minimum received</span><strong>{formatBaseValue(quote.minAmountOut, quote.outputDecimals)}</strong></div>
-              <div><span>Quote expiry</span><strong>45 seconds</strong></div>
+              <div><span>Quote expiry</span><strong>{secondsLeft > 0 ? `${secondsLeft}s` : "Expired"}</strong></div>
             </div>
             <button className="swap-review" type="button" disabled>
               Review & sign — execution coming next
