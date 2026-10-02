@@ -112,3 +112,32 @@ test("builds a two-pool DCL transaction path for NEARly pair launches", async ()
   assert.equal(transfer.gas, "250000000000000");
   assert.equal((txs[0]!.actions[0] as any).params.gas, "250000000000000");
 });
+
+test("accepts valid numeric RHEA direct quote amounts", async () => {
+  const { RheaTradingEngine } = await import("../src/trading/rhea-engine.js");
+  const fakeRhea = {
+    quoteDirect: async () => ({
+      kind: "rhea-dcl" as const,
+      amountIn: "100000000000000000000000",
+      amountOut: "2000000000000000000000000",
+      minAmountOut: "1980000000000000000000000",
+      tokens: ["wrap.near", "babyninu.nearlytrade.near"],
+      poolIds: ["babyninu.nearlytrade.near|wrap.near|10000"],
+      receivedAt: Date.now(),
+      expiresAt: Date.now() + 30_000
+    })
+  } as any;
+
+  const engine = new RheaTradingEngine(undefined, fakeRhea);
+  const quote = await engine.quote({
+    accountId: "alice.near",
+    side: "buy",
+    tokenIn: { chain: "near", address: "wrap.near", isNative: true, decimals: 24 } as never,
+    tokenOut: { chain: "near", address: "babyninu.nearlytrade.near", decimals: 18 } as never,
+    amountIn: "100000000000000000000000",
+    slippageBps: 100
+  });
+
+  assert.equal(quote.expectedOut, "2000000000000000000000000");
+  assert.equal(quote.minAmountOut, "1980000000000000000000000");
+});
