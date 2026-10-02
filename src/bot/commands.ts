@@ -1,5 +1,6 @@
 export const BOT_COMMANDS = [
   { command: "start", description: "Open the Neyro trading terminal" },
+  { command: "fees", description: "View available NEARly fees and claim them" },
   { command: "help", description: "Show all Neyro commands" },
   { command: "wallet", description: "Create or view your wallet" },
   { command: "import", description: "Import a NEAR wallet by private key" },
@@ -10,7 +11,6 @@ export const BOT_COMMANDS = [
   { command: "launch", description: "Launch a token on NEARly" },
   { command: "launch_status", description: "Check a pending NEARly launch" },
   { command: "launch_history", description: "View your previous NEARly launches" },
-  { command: "fees", description: "View and claim your NEARly creator fees" },
   { command: "launch_cancel", description: "Cancel an unfinished launch wizard" },
   { command: "withdraw", description: "Send NEAR or tokens out: /withdraw <amount|all> <token> <to>" },
   { command: "rhea_register", description: "Register a token for RHEA swaps" },
