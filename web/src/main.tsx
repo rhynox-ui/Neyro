@@ -11,7 +11,14 @@ import { IndexedDbCampaignStore } from "./campaign/storage";
 import type { Campaign } from "./campaign/model";
 import { campaignResultsCsv } from "./campaign/export";
 import { getFtMetadata, type FtMetadata } from "./near/ft";
-import { OverviewView, CampaignHistoryView } from "./terminal-views";
+import {
+  OverviewView,
+  CampaignHistoryView,
+  PortfolioView,
+  ContractInspectorView,
+  PersistedTransactionsView,
+  TerminalModuleView
+} from "./terminal-views";
 
 type Row = {
   line: number;
@@ -37,11 +44,13 @@ type NavGroup = {
 };
 
 const NAV_GROUPS: NavGroup[] = [
-  { label: "WORKSPACE", items: ["Overview", "Bulk Transfer"] },
-  { label: "HISTORY", items: ["Airdrop Campaigns"] }
+  { label: "WORKSPACE", items: ["Overview"] },
+  { label: "TRADE", items: ["Swap", "Portfolio", "Orders"] },
+  { label: "LAUNCH", items: ["Launch NEARly token", "Create token"] },
+  { label: "TOKEN TOOLS", items: ["Mint", "Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
+  { label: "DEVELOPER", items: ["Contract Inspector", "Contract Call", "Transaction Builder"] },
+  { label: "HISTORY", items: ["Transactions", "Airdrop Campaigns", "Token Operations"] }
 ];
-
-const IMPLEMENTED_VIEWS = new Set(["Overview", "Bulk Transfer", "Airdrop Campaigns"]);
 
 const ACCOUNT_ID =
   /^(?=.{2,64}$)(?:[a-z\d]+(?:[-_][a-z\d]+)*\.)*[a-z\d]+(?:[-_][a-z\d]+)*$/;
@@ -584,7 +593,6 @@ function App() {
   }
 
   const preview = plan?.rows.filter((row) => row.valid).slice(0, 12) ?? [];
-  const currentViewImplemented = IMPLEMENTED_VIEWS.has(activeView);
 
   return (
     <div className="shell">
@@ -653,12 +661,18 @@ function App() {
           </div>
         </header>
 
-        {!currentViewImplemented ? null : activeView === "Overview" ? (
+        {activeView === "Overview" ? (
           <OverviewView
             accountId={accountId}
             campaigns={campaigns}
             tokenSymbol={tokenMetadata?.symbol}
           />
+        ) : activeView === "Portfolio" ? (
+          <PortfolioView accountId={accountId} tokenContract={token} />
+        ) : activeView === "Contract Inspector" ? (
+          <ContractInspectorView />
+        ) : activeView === "Transactions" ? (
+          <PersistedTransactionsView campaigns={campaigns} />
         ) : activeView === "Airdrop Campaigns" ? (
           <CampaignHistoryView
             campaigns={campaigns}
@@ -668,11 +682,11 @@ function App() {
               setMessage(`Loaded campaign ${campaign.id} from local history.`);
             }}
           />
-        ) : (
+        ) : activeView === "Bulk Transfer" || activeView === "Airdrop" ? (
           <section className="grid">
             <div className="card hero">
               <div>
-                <span className="eyebrow">NEP-141 / BULK TRANSFER</span>
+                <span className="eyebrow">{activeView === "Airdrop" ? "NEP-141 / AIRDROP" : "NEP-141 / BULK TRANSFER"}</span>
                 <h2>Build and execute a multi-sender transfer.</h2>
                 <p>
                   Load a verified token, add senders and recipients, then run fresh preflight checks before the browser wallet is asked to sign.
@@ -727,7 +741,7 @@ function App() {
                 </div>
                 {senderList.length > 0 && <span className="live-label">On-chain balances</span>}
               </div>
-              <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={4} placeholder={"sender-one.near\nsender-two.near"} />
+              <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={4} placeholder={"Paste sender account IDs, one per line"} />
               <small>Fresh token, storage and NEAR balances are read before execution.</small>
             </div>
 
