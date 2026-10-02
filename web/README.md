@@ -38,10 +38,20 @@ stream instead of parsing a giant JSON object tree.
 
 ## Still to build
 
-- CSV success/failure export.
-- Verified contract-specific Mint/Burn/Lock/Unlock flows.
-- Verified NEARly launch and trading flows.
-- Verified Developer transaction-builder flows.
+- Verified generic Mint deployment through a Neyro token factory/implementation.
+- Verified contract-specific Lock/Unlock execution.
+- Production-scale recipient registration handling for large airdrops.
+- Verified liquidity creation/management flows.
+- Verified trade execution and Developer transaction-builder flows.
 - Explicit relayer/sponsorship integration if a real sponsor account/provider is selected.
 
 Every execution path must remain isolated from Telegram code and must use verified contract interfaces rather than mock/static protocol behavior.
+
+
+## Audit status — 2026-10-02
+
+The web terminal CI is passing on the current branch. The production Pages build is configured from this branch and the stable project subdomain remains unchanged.
+
+The current product surface is intentionally non-custodial, but generic Mint execution is still gated until the token factory/implementation is deployed and its exact interface is verified. Tax, freeze, metadata and mint-authority controls are therefore configuration-only until that implementation exists.
+
+Bulk transfer execution is wired and safety-tested, but million-wallet production readiness still requires recipient-registration handling and memory-bounded planning.
