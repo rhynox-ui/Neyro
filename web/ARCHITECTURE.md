@@ -734,3 +734,25 @@ The web terminal should move toward mainnet feature enablement in this order:
 
 When continuing this roadmap, work on the earliest incomplete stage unless a later-stage task is required to unblock it. Keep changes inside `web/` (plus the web CI workflow when necessary), update this roadmap/checkpoint after meaningful milestones, and never modify Telegram code to make a web feature work.
 
+## 31. Execution checkpoint — campaign result export
+
+The web terminal now exposes a persisted campaign CSV export at `web/src/campaign/export.ts`.
+
+The export is derived only from IndexedDB campaign state and includes one row per persisted recipient with:
+- campaign id;
+- batch id;
+- sender account;
+- exact base-unit amount;
+- batch status;
+- transaction hash when known;
+- error text when present.
+
+CSV values are escaped for commas, quotes and line breaks. The UI exposes **Export CSV** from the campaign execution panel.
+
+This is a result/export feature, not an execution shortcut. It does not create transactions, change campaign state, or retry batches.
+
+The current export iterates the persisted campaign object in memory. Million-wallet production readiness still requires a memory-bounded planner/persistence strategy; this export implementation must not be interpreted as proof of million-row scalability.
+
+The latest Wallet Selector documentation confirms that `getAccounts()` can expose multiple signed-in accounts and that `signAndSendTransaction` may return no outcome for browser wallets that redirect. The execution layer therefore continues to require explicit signer-account matching and treats missing transaction hashes as unresolved rather than successful.
+
+Reference: https://github.com/near/wallet-selector/blob/main/packages/core/docs/api/wallet.md
