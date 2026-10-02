@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import { formatTokenToolFee } from "./token-tools/fees";
 
 type Row = {
   line: number;
@@ -290,7 +291,10 @@ function App() {
                 calculate the exact token requirement and prepare resumable batches.
               </p>
             </div>
-            <span className="badge">100 max actions / batch</span>
+            <div className="tool-fees">
+              <span className="badge">Mint fee: {formatTokenToolFee("mint")}</span>
+              <span className="badge">Lock fee: {formatTokenToolFee("lock")}</span>
+            </div>
           </div>
 
           <div className="card">
