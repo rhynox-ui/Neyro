@@ -23,7 +23,11 @@ interface Env {
 }
 
 type QueueBatch = {
-  messages: readonly { body: Update; ack(): void }[];
+  messages: readonly {
+    body: Update;
+    ack(): void;
+    retry(options?: { delaySeconds?: number }): void;
+  }[];
 };
 
 const REQUIRED_SECRETS = ["TELEGRAM_BOT_TOKEN", "DATABASE_URL", "NEYRO_MASTER_KEY"] as const;
@@ -346,6 +350,8 @@ export default {
         await processUpdate(message.body, env);
       } catch (error) {
         console.error("Queued update failed:", { updateId: message.body.update_id, error });
+        message.retry({ delaySeconds: 5 });
+        continue;
       }
       message.ack();
     }
