@@ -131,6 +131,11 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext):
     return new Response("Invalid JSON", { status: 400 });
   }
 
+  if (process.env.NODE_ENV === "production" && !env.NEYRO_TELEGRAM_UPDATES) {
+    console.error("Telegram Queue binding is missing; refusing waitUntil fallback");
+    return new Response("Queue unavailable", { status: 503 });
+  }
+
   if (env.NEYRO_TELEGRAM_UPDATES) {
     try {
       await env.NEYRO_TELEGRAM_UPDATES.send(update);
