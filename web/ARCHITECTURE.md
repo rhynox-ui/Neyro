@@ -939,3 +939,11 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Lock/Unlock are not exposed as arbitrary token operations. NEARly's locker accounts hold launch liquidity positions and do not provide a general user-token lock/unlock workflow.
 - No generic unverified contract write was introduced.
 - No Telegram bot or Worker code was modified.
+
+
+## 2026-10-02 — Tablet/mobile layout correction
+
+- At widths up to 900px the terminal switches from a fixed sidebar layout to a compact top navigation with the existing section picker.
+- The wallet sidebar card is hidden at tablet/mobile widths so the actual terminal content gets the full viewport.
+- Tablet views use a single-column card grid; smaller screens stack module details and hero state cleanly.
+- This corrects the narrow 768px browser layout shown during the light-mode review.
