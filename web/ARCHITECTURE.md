@@ -780,3 +780,16 @@ Changes:
 - preserved the existing real preflight, campaign persistence and execution path.
 
 The UI remains intentionally conservative: unsupported modules are not presented as functional trading/launch features, and no fabricated balances, transactions or campaign statistics are rendered.
+
+
+## 2026-10-02 — Real overview/history checkpoint
+
+The terminal landing view is now state-driven instead of presenting an empty prototype shell:
+
+- Overview reads the connected browser wallet's live native NEAR balance from NEAR mainnet.
+- Overview campaign metrics come only from persisted IndexedDB campaign state.
+- Airdrop Campaigns lists locally persisted campaigns with real token contracts, recipient counts, batch counts, status and update time.
+- Opening a persisted campaign returns to the execution view without creating new mock state.
+- Campaign execution and reconciliation now synchronize the overview/history state in memory.
+- No private keys, Telegram wallet state, fabricated balances, fabricated transactions or fabricated campaign statistics are introduced by these views.
+- Protocol modules that are not verified remain disabled rather than being represented as functional.
