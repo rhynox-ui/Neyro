@@ -793,3 +793,19 @@ The terminal landing view is now state-driven instead of presenting an empty pro
 - Campaign execution and reconciliation now synchronize the overview/history state in memory.
 - No private keys, Telegram wallet state, fabricated balances, fabricated transactions or fabricated campaign statistics are introduced by these views.
 - Protocol modules that are not verified remain disabled rather than being represented as functional.
+
+
+## 2026-10-02 — Terminal layout reset
+
+The visible terminal shell was rebuilt to remove prototype/static presentation:
+
+- navigation now exposes only currently implemented web views instead of clickable placeholder modules;
+- removed the unused theme switcher from the production surface;
+- removed static token/sender demo values from form placeholders;
+- default amount is disabled until verified token metadata is loaded;
+- bulk-transfer hero and cards use compact terminal proportions;
+- desktop content width and sidebar width were reduced to eliminate excessive whitespace;
+- mobile rendering switches to a compact sticky navigation and single-column cards before the layout becomes cramped;
+- wallet state remains live and execution data remains sourced from chain/IndexedDB state.
+
+This is a presentation-only reset around the existing execution boundary; Telegram code and the underlying execution modules remain unchanged.
