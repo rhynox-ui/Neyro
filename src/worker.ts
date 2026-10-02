@@ -18,6 +18,8 @@ interface Env {
   TELEGRAM_WEBHOOK_SECRET?: string;
   SETUP_SECRET?: string;
   NEYRO_TELEGRAM_UPDATES?: UpdateQueue;
+  UPDATE_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  QUOTE_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }
 
 type QueueBatch = {
@@ -67,10 +69,18 @@ function getApp(): Promise<App> {
   return appPromise;
 }
 
-function getBot(): Promise<Bot> {
+function getBot(env?: Env): Promise<Bot> {
   botPromise ??= (async () => {
     const app = await getApp();
-    const bot = app.create.createBot(app.config.TELEGRAM_BOT_TOKEN);
+    const distributedRateLimiter = env?.UPDATE_RATE_LIMITER && env?.QUOTE_RATE_LIMITER
+      ? {
+          limit: ({ key }: { key: string }) =>
+            key.startsWith("q:")
+              ? env.QUOTE_RATE_LIMITER!.limit({ key })
+              : env.UPDATE_RATE_LIMITER!.limit({ key })
+        }
+      : undefined;
+    const bot = app.create.createBot(app.config.TELEGRAM_BOT_TOKEN, distributedRateLimiter);
     await bot.init();
     await bot.api.setMyCommands(app.create.BOT_COMMANDS);
     return bot;
@@ -81,8 +91,8 @@ function getBot(): Promise<Bot> {
   return botPromise;
 }
 
-async function processUpdate(update: Update): Promise<void> {
-  const bot = await getBot();
+async function processUpdate(update: Update, env?: Env): Promise<void> {
+  const bot = await getBot(env);
   await bot.handleUpdate(update);
 }
 
@@ -333,7 +343,7 @@ export default {
   async queue(batch: QueueBatch): Promise<void> {
     for (const message of batch.messages) {
       try {
-        await processUpdate(message.body);
+        await processUpdate(message.body, undefined);
       } catch (error) {
         console.error("Queued update failed:", { updateId: message.body.update_id, error });
       }
