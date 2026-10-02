@@ -3,7 +3,13 @@ import type { TradeQuote, TradeRequest } from "../domain/trading.js";
 import type { FeePlan } from "./fee.js";
 
 /** Everything needed to execute a confirmed quote; stored as JSON. */
-export type PendingPayload = { request: TradeRequest; quote: TradeQuote; fee?: FeePlan };
+export type PendingPayload = {
+  request: TradeRequest;
+  quote: TradeQuote;
+  fee?: FeePlan;
+  /** Original user-entered amount before any NEARly sell tax adjustment. */
+  feeBaseAmount: string;
+};
 
 export type ClaimResult =
   /** The trade moved from quoted to executing; only one caller can get this. */
