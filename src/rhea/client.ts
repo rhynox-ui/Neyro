@@ -303,7 +303,7 @@ export class RheaClient {
         return [
           {
             receiverId: "wrap.near",
-            actions: [{ methodName: "near_deposit", type: "FunctionCall" as const, params: { args: {}, gas: "180000000000000", deposit: quote.amountIn } }]
+            actions: [{ type: "FunctionCall" as const, params: { methodName: "near_deposit", args: {}, gas: "180000000000000", deposit: quote.amountIn } }]
           },
           { receiverId: "wrap.near", actions: [transfer] }
         ] as NearTransaction[];
