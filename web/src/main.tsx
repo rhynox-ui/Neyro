@@ -28,7 +28,8 @@ import {
   TokenLockView,
   MintView,
   NearlyLaunchView,
-  SwapView
+  SwapView,
+  DocsView
 } from "./terminal-views";
 
 type Row = {
@@ -60,6 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
   { label: "LAUNCH", items: ["Launch NEARly token"] },
   { label: "TOKEN", items: ["Mint / Create Token"] },
   { label: "TOKEN TOOLS", items: ["Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
+  { label: "RESOURCES", items: ["Docs"] },
 ];
 
 const ACCOUNT_ID =
@@ -820,7 +822,7 @@ function App() {
             campaigns={campaigns}
             tokenSymbol={tokenMetadata?.symbol}
           />
-        ) : activeView === "Portfolio" ? (
+        ) : activeView === "Docs" ? (\n          <DocsView />\n        ) : activeView === "Portfolio" ? (
           <PortfolioView accountId={accountId} tokenContract={token} />
         ) : activeView === "Swap" ? (
           <SwapView accountId={accountId} wallet={wallet} />
