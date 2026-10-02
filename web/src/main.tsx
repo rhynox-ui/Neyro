@@ -10,6 +10,7 @@ import { executeAirdrop, reconcileCampaign } from "./execution/executor";
 import {
   executeRecipientRegistration,
   reconcileRecipientRegistration,
+  registrationSessionId,
   type RegistrationSession
 } from "./execution/registration";
 import { IndexedDbCampaignStore } from "./campaign/storage";
@@ -448,6 +449,17 @@ function App() {
         setPreflight(null);
       }
     } catch (error) {
+      try {
+        const sessionId = await registrationSessionId(
+          token.trim().toLowerCase(),
+          accountId,
+          preflight.recipientRegistration.notRegisteredRecipients
+        );
+        const persisted = await campaignStore.getRegistration(sessionId);
+        if (persisted) syncRegistration(persisted);
+      } catch {
+        // Preserve the original execution error if the persisted session cannot be loaded.
+      }
       setMessage(error instanceof Error ? error.message : "Recipient registration stopped safely.");
     } finally {
       setRegistrationBusy(false);
