@@ -86,6 +86,47 @@ export class WalletService {
     return { accountId: saved.accountId, network: config.NEAR_NETWORK };
   }
 
+  /** Import an implicit NEAR wallet from an ed25519 private key. */
+  async importWallet(telegramUserId: number, privateKeyInput: string): Promise<WalletInfo> {
+    const privateKey = privateKeyInput.trim();
+    if (!privateKey.startsWith("ed25519:")) {
+      throw new UserFacingError("Invalid NEAR private key. Send the full ed25519:... private key.");
+    }
+
+    let keyPair: KeyPair;
+    try {
+      keyPair = KeyPair.fromString(privateKey as KeyPairString);
+    } catch {
+      throw new UserFacingError("Invalid NEAR private key. Check that you copied the complete ed25519:... key.");
+    }
+
+    const accountId = keyToImplicitAddress(keyPair.getPublicKey());
+    const existing = await this.repository.getByAccount(telegramUserId, accountId);
+    if (existing) {
+      await this.repository.setActive(telegramUserId, accountId);
+      return { accountId, network: config.NEAR_NETWORK };
+    }
+
+    const wallets = await this.repository.list(telegramUserId);
+    if (wallets.length >= MAX_WALLETS) {
+      throw new UserFacingError(`You already have ${MAX_WALLETS} wallets, the maximum`);
+    }
+
+    const stored: StoredWallet = {
+      telegramUserId,
+      accountId,
+      encryptedKey: encryptSecret(privateKey, requireMasterKey(), walletKeyContext(accountId))
+    };
+    await this.repository.save(stored);
+
+    const saved = await this.repository.getByAccount(telegramUserId, accountId);
+    if (!saved) {
+      throw new UserFacingError("That wallet could not be imported. It may already belong to another Neyro account.");
+    }
+
+    return { accountId: saved.accountId, network: config.NEAR_NETWORK };
+  }
+
   async listWallets(telegramUserId: number): Promise<WalletSummary[]> {
     return this.repository.list(telegramUserId);
   }
