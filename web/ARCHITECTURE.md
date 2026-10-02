@@ -880,3 +880,10 @@ The Swap screen now reads the connected account's live balance for the selected 
 - This protects the stable `neyro-terminal.pages.dev` entry document from retaining an older SPA shell after a new Git-integrated Pages deployment.
 - Hash deployment URLs remain immutable snapshots; the stable project URL is the intended continuously updated entry point.
 - No Telegram bot, Worker, wallet custody, or execution code was modified.
+
+
+## 2026-10-02 — Sidebar navigation cleanup
+
+- Removed the Developer and History groups from the visible Web Terminal sidebar.
+- Existing implementation modules remain in the codebase for the current execution/history architecture; this change only removes those navigation entries from the primary surface.
+- No Telegram bot, Worker, wallet custody, or execution code was modified.
