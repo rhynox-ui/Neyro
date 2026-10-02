@@ -121,14 +121,18 @@ async function getCreatorLaunches(accountId: string): Promise<RawLaunch[]> {
 }
 
 export async function getCreatorFeeSummary(accountId: string): Promise<CreatorFeeSummary> {
-  const [nearRaw, launches, quotes] = await Promise.all([
+  const [nearRaw, launches] = await Promise.all([
     view<unknown>("get_creator_fees", { account_id: accountId }),
-    getCreatorLaunches(accountId),
-    getNearlyQuotes()
+    getCreatorLaunches(accountId)
   ]);
 
   const nearAmount = decimalString(nearRaw, "creator fee balance");
-  const decimalsByQuote = new Map(quotes.map((quote) => [quote.accountId, quote.decimals]));
+  const nonNearQuotes = launches.filter((launch) => launch.quote !== NEARLY_WNEAR);
+  const decimalsByQuote = new Map(
+    nonNearQuotes.length === 0
+      ? []
+      : (await getNearlyQuotes()).map((quote) => [quote.accountId, quote.decimals] as const)
+  );
 
   const positions: CreatorFeePosition[] = [];
   for (const launch of launches) {
