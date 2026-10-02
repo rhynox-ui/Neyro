@@ -56,6 +56,7 @@ describe("sender preflight", () => {
       registered: 1,
       notRegistered: 1,
       unsupported: 0,
+      notRegisteredRecipients: ["unregistered.near"],
       sampleNotRegistered: ["unregistered.near"]
     });
   });
