@@ -5,6 +5,10 @@ import type { Context, NextFunction } from "grammy";
  * is per isolate, which still stops a single user flooding one instance
  * (every quote costs RHEA and RPC calls).
  */
+export interface DistributedRateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export class RateLimiter {
   private readonly hits = new Map<string, number[]>();
 
@@ -38,22 +42,45 @@ const quotes = new RateLimiter(12, 60_000);
 const QUOTE_CALLBACK = /^tp:exec$/;
 const QUOTE_COMMAND = /^\/(buy|sell)(@\w+)?\s+\S+\s+\S+/;
 
-export async function rateLimit(ctx: Context, next: NextFunction): Promise<void> {
-  const userId = ctx.from?.id;
-  if (!userId) return next();
+export function createRateLimitMiddleware(distributed?: DistributedRateLimiter) {
+  return async function rateLimit(ctx: Context, next: NextFunction): Promise<void> {
+    const userId = ctx.from?.id;
+    if (!userId) return next();
 
-  if (!updates.take(`u:${userId}`)) {
+    const updateKey = `u:${userId}`;
+    if (!updates.take(updateKey)) {
     if (ctx.callbackQuery) await ctx.answerCallbackQuery("Slow down a little.").catch(() => {});
-    return;
-  }
+      return;
+    }
 
-  const isQuote = QUOTE_CALLBACK.test(ctx.callbackQuery?.data ?? "") || QUOTE_COMMAND.test(ctx.message?.text ?? "");
-  if (isQuote && !quotes.take(`q:${userId}`)) {
-    const message = "Too many quotes in a minute. Please wait a moment.";
-    if (ctx.callbackQuery) await ctx.answerCallbackQuery(message).catch(() => {});
-    else await ctx.reply(message).catch(() => {});
-    return;
-  }
+    if (distributed) {
+      const remote = await distributed.limit({ key: updateKey }).catch(() => null);
+      if (remote && !remote.success) {
+        if (ctx.callbackQuery) await ctx.answerCallbackQuery("Slow down a little.").catch(() => {});
+        return;
+      }
+    }
 
-  return next();
+    const isQuote = QUOTE_CALLBACK.test(ctx.callbackQuery?.data ?? "") || QUOTE_COMMAND.test(ctx.message?.text ?? "");
+    if (isQuote) {
+      if (!quotes.take(`q:${userId}`)) {
+        const message = "Too many quotes in a minute. Please wait a moment.";
+        if (ctx.callbackQuery) await ctx.answerCallbackQuery(message).catch(() => {});
+        else await ctx.reply(message).catch(() => {});
+        return;
+      }
+      if (distributed) {
+        const remote = await distributed.limit({ key: `q:${userId}` }).catch(() => null);
+        if (remote && !remote.success) {
+          if (ctx.callbackQuery) await ctx.answerCallbackQuery(message).catch(() => {});
+          else await ctx.reply(message).catch(() => {});
+          return;
+        }
+      }
+    }
+
+    return next();
+  };
 }
+
+export const rateLimit = createRateLimitMiddleware();
