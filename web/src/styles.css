@@ -1416,3 +1416,28 @@ html[data-theme="light"] .burn-warning {
   .locker-load .primary { border-radius:0 0 10px 10px; }
   .locker-create,.locker-existing { min-height:0; }
 }
+
+
+/* Mint token creation controls */
+.logo-upload-row { display:flex; align-items:center; gap:10px; min-width:0; margin-top:6px; }
+.token-logo-preview { width:48px; height:48px; flex:0 0 48px; display:grid; place-items:center; overflow:hidden; border:1px solid #252d37; border-radius:10px; background:#10151b; color:#7f8997; font-size:11px; font-weight:800; }
+.token-logo-preview img { width:100%; height:100%; object-fit:cover; }
+.upload-button { position:relative; display:inline-flex; align-items:center; min-height:38px; padding:0 12px; border:1px solid #29313c; border-radius:7px; background:#11161d; color:#c4ccd6; font-size:11px; font-weight:700; cursor:pointer; text-transform:none; letter-spacing:0; }
+.upload-button:hover { background:#171d25; }
+.upload-button input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.upload-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#66717f; font-size:11px; }
+.policy-option { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 0; border-bottom:1px solid #1b222b; }
+.policy-option > div { display:grid; gap:4px; min-width:0; }
+.policy-option strong { color:#dce1e7; font-size:13px; }
+.policy-option span { color:#697381; font-size:11px; line-height:1.45; }
+.toggle { width:42px; height:24px; flex:0 0 42px; padding:3px; border:1px solid #2b333e; border-radius:999px; background:#11161d; }
+.toggle span { display:block; width:16px; height:16px; border-radius:50%; background:#687280; transition:transform .16s ease; }
+.toggle.on { background:#1b6f92; border-color:#277e9f; }
+.toggle.on span { background:#fff; transform:translateX(18px); }
+.policy-note { display:grid; gap:4px; margin:10px 0 2px; padding:10px 11px; border:1px solid #1d2630; border-radius:8px; background:#0c1015; }
+.policy-note strong { color:#bfc8d2; font-size:11px; }
+.policy-note span { color:#5f6977; font-size:10px; line-height:1.45; }
+.suffix-input { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
+.suffix-input input { min-width:0; border-radius:8px 0 0 8px; }
+.suffix-input span { min-height:42px; display:grid; place-items:center; padding:0 11px; border:1px solid #252d37; border-left:0; border-radius:0 8px 8px 0; background:#11161d; color:#737d8a; font-size:11px; }
+.tax-fields { margin-top:11px; }
