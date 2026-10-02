@@ -667,7 +667,7 @@ export function SwapView({
   accountId: string;
   wallet: WebWalletConnector | null;
 }) {
-  const [fromToken, setFromToken] = useState("wrap.near");
+  const [fromToken, setFromToken] = useState(NEARLY_WNEAR);
   const [toToken, setToToken] = useState("");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState("1");
@@ -676,82 +676,206 @@ export function SwapView({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  function switchTokens() {
+    setFromToken(toToken || NEARLY_WNEAR);
+    setToToken(fromToken === NEARLY_WNEAR ? "" : fromToken);
+    setQuote(null);
+    setNotice("");
+    setError("");
+  }
+
   async function getQuote() {
-    if (!accountId) throw new Error("Connect wallet first");
-    const value=amount.trim();
-    if(!/^\d+(?:\.\d+)?$/.test(value) || Number(value)<=0) throw new Error("Enter a valid amount");
-    const target=toToken.trim().toLowerCase();
-    if(!target) throw new Error("Enter the output token contract");
-    const decimals=await new NearRpcClient().viewFunction<{decimals:number}>(target,"ft_metadata",{}).catch(()=>({decimals:24}));
-    const base=toBase(value,decimals.decimals);
-    const bps=Math.round(Number(slippage)*100);
-    if(!Number.isInteger(bps)||bps<0||bps>1000) throw new Error("Slippage must be between 0% and 10%");
-    const url=new URL("https://smartx.rhea.finance/swapMultiDexPath");
-    url.searchParams.set("amountIn",base.toString());
-    url.searchParams.set("tokenIn",fromToken==="near"?"wrap.near":fromToken);
-    url.searchParams.set("tokenOut",target);
-    url.searchParams.set("slippage",String(bps/10000));
-    url.searchParams.set("user",accountId);
-    url.searchParams.set("receiveUser",accountId);
-    url.searchParams.set("skipUnwrapNativeToken","false");
-    const response=await fetch(url,{headers:{Accept:"application/json"}});
-    const body=await response.json().catch(()=>null) as Record<string,unknown>|null;
-    if(!response.ok) throw new Error("RHEA quote HTTP "+response.status);
-    const data=(body?.result_data && typeof body.result_data==="object"?body.result_data:body) as Record<string,unknown>;
-    const amountIn=String(data?.amount_in??data?.amountIn??"");
-    const amountOut=String(data?.amount_out??data?.amountOut??"");
-    const minAmountOut=String(data?.min_amount_out??data?.minAmountOut??"");
-    const msg=String(data?.msg??"");
-    const signature=String(data?.signature??"");
-    if(!/^\d+$/.test(amountIn)||BigInt(amountIn)!==base) throw new Error("RHEA returned an invalid input amount");
-    if(!/^\d+$/.test(amountOut)||BigInt(amountOut)<=0n) throw new Error("RHEA returned no executable output");
-    const minimum=/^\d+$/.test(minAmountOut)?minAmountOut:((BigInt(amountOut)*BigInt(10000-bps))/10000n).toString();
-    if(BigInt(minimum)<=0n||BigInt(minimum)>BigInt(amountOut)||!msg||!signature) throw new Error("RHEA returned an incomplete executable route");
-    setQuote({amountIn,amountOut,minAmountOut:minimum,msg,signature,expiresAt:Date.now()+45000});
+    if (!accountId) throw new Error("Connect your wallet to get a live route.");
+    const value = amount.trim();
+    if (!/^\d+(?:\.\d+)?$/.test(value) || Number(value) <= 0) throw new Error("Enter a valid amount.");
+    const target = toToken.trim().toLowerCase();
+    if (!target) throw new Error("Enter the output token contract.");
+    if (target === fromToken.trim().toLowerCase()) throw new Error("Choose two different tokens.");
+
+    const rpc = new NearRpcClient();
+    const decimals = await rpc.viewFunction<{decimals:number}>(target, "ft_metadata", {}).catch(() => ({decimals: 24}));
+    const base = toBase(value, decimals.decimals);
+    const bps = Math.round(Number(slippage) * 100);
+    if (!Number.isInteger(bps) || bps < 0 || bps > 1000) throw new Error("Slippage must be between 0% and 10%.");
+
+    const url = new URL("https://smartx.rhea.finance/swapMultiDexPath");
+    url.searchParams.set("amountIn", base.toString());
+    url.searchParams.set("tokenIn", fromToken === "near" ? NEARLY_WNEAR : fromToken);
+    url.searchParams.set("tokenOut", target);
+    url.searchParams.set("slippage", String(bps / 10000));
+    url.searchParams.set("user", accountId);
+    url.searchParams.set("receiveUser", accountId);
+    url.searchParams.set("skipUnwrapNativeToken", "false");
+
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    if (!response.ok) throw new Error("RHEA quote HTTP " + response.status);
+
+    const data = (body?.result_data && typeof body.result_data === "object" ? body.result_data : body) as Record<string, unknown>;
+    const amountIn = String(data?.amount_in ?? data?.amountIn ?? "");
+    const amountOut = String(data?.amount_out ?? data?.amountOut ?? "");
+    const minAmountOut = String(data?.min_amount_out ?? data?.minAmountOut ?? "");
+    const msg = String(data?.msg ?? "");
+    const signature = String(data?.signature ?? "");
+
+    if (!/^\d+$/.test(amountIn) || BigInt(amountIn) !== base) throw new Error("RHEA returned an invalid input amount.");
+    if (!/^\d+$/.test(amountOut) || BigInt(amountOut) <= 0n) throw new Error("RHEA returned no executable output.");
+    const minimum = /^\d+$/.test(minAmountOut)
+      ? minAmountOut
+      : (BigInt(amountOut) * BigInt(10000 - bps) / 10000n).toString();
+
+    if (BigInt(minimum) <= 0n || BigInt(minimum) > BigInt(amountOut) || !msg || !signature) {
+      throw new Error("RHEA returned an incomplete executable route.");
+    }
+
+    setQuote({ amountIn, amountOut, minAmountOut: minimum, msg, signature, expiresAt: Date.now() + 45000 });
   }
 
   async function runQuote() {
-    setBusy(true); setError(""); setNotice("");
-    try { await getQuote(); setNotice("Live RHEA route loaded. No fabricated quote data."); }
-    catch(cause){setQuote(null);setError(cause instanceof Error?cause.message:"Quote failed.");}
-    finally{setBusy(false);}
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await getQuote();
+      setNotice("Live RHEA route loaded. Review the route before signing.");
+    } catch (cause) {
+      setQuote(null);
+      setError(cause instanceof Error ? cause.message : "Quote failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <section className="grid terminal-page">
-      <div className="card hero full">
-        <div>
-          <span className="eyebrow">TRADE / RHEA</span>
-          <h2>Live swap routing from RHEA SmartRouter.</h2>
-          <p>Enter a NEAR or NEP-141 token contract. Quotes are fetched at request time and expire quickly.</p>
-        </div>
-        <div className="hero-state"><span className={accountId ? "status-dot live" : "status-dot"} /><span>{accountId ? shortId(accountId) : "Connect wallet"}</span></div>
-      </div>
-      <div className="card">
-        <div className="form-grid">
-          <div><label>Input token</label><input value={fromToken} onChange={(e)=>setFromToken(e.target.value.trim().toLowerCase())} placeholder="wrap.near" /></div>
-          <div><label>Output token contract</label><input value={toToken} onChange={(e)=>setToToken(e.target.value.trim().toLowerCase())} placeholder="token.near" /></div>
-          <div><label>Amount</label><input inputMode="decimal" value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="0.0" /></div>
-          <div><label>Slippage (%)</label><input inputMode="decimal" value={slippage} onChange={(e)=>setSlippage(e.target.value)} /></div>
-        </div>
-        <div className="action-row"><button className="primary" onClick={()=>void runQuote()} disabled={busy}>{busy?"Routing…":"Get quote"}</button></div>
-        {error && <p className="message warning">{error}</p>}
-        {notice && <p className="message">{notice}</p>}
-      </div>
-      {quote && (
-        <div className="card full">
-          <div className="row-title"><div><span className="eyebrow">ROUTE</span><h3>Executable quote</h3></div><span className="muted">{Math.max(0,Math.round((quote.expiresAt-Date.now())/1000))}s</span></div>
-          <div className="overview-list">
-            <div><span>Input</span><strong className="mono-value">{quote.amountIn}</strong></div>
-            <div><span>Expected output</span><strong className="mono-value">{quote.amountOut}</strong></div>
-            <div><span>Minimum output</span><strong className="mono-value">{quote.minAmountOut}</strong></div>
-            <div><span>Router</span><strong>RHEA SmartRouter</strong></div>
+    <section className="swap-page">
+      <div className="swap-shell">
+        <div className="swap-heading">
+          <div>
+            <span className="eyebrow">TRADE / RHEA</span>
+            <h2>Swap tokens</h2>
+            <p>Live routing through RHEA SmartRouter. Quotes are fetched when you request them.</p>
           </div>
-          <p className="muted">Execution is intentionally not enabled yet for this quote path. The next execution step must persist the route and handle NEAR wrapping/registration safely.</p>
+          <div className="swap-wallet-status">
+            <span className={accountId ? "status-dot live" : "status-dot"} />
+            <span>{accountId ? shortId(accountId) : "Wallet not connected"}</span>
+          </div>
         </div>
-      )}
+
+        <div className="swap-card">
+          <div className="swap-card-top">
+            <span>Swap</span>
+            <button className="icon-button" type="button" aria-label="Swap settings">•••</button>
+          </div>
+
+          <div className="swap-token-box">
+            <div className="swap-token-label">
+              <span>From</span>
+              <span>NEAR / NEP-141</span>
+            </div>
+            <div className="swap-token-row">
+              <input
+                className="swap-amount"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => { setAmount(e.target.value); setQuote(null); setNotice(""); }}
+                placeholder="0.00"
+              />
+              <input
+                className="swap-contract"
+                value={fromToken}
+                onChange={(e) => { setFromToken(e.target.value.trim().toLowerCase()); setQuote(null); }}
+                placeholder="wrap.near"
+                spellCheck={false}
+                aria-label="Input token contract"
+              />
+            </div>
+            <div className="swap-token-hint">Contract address · {fromToken || "not set"}</div>
+          </div>
+
+          <button className="swap-switch" type="button" onClick={switchTokens} aria-label="Switch tokens">↓</button>
+
+          <div className="swap-token-box">
+            <div className="swap-token-label">
+              <span>To</span>
+              <span>NEP-141</span>
+            </div>
+            <div className="swap-token-row">
+              <div className="swap-output">{quote ? quote.amountOut : "0.00"}</div>
+              <input
+                className="swap-contract"
+                value={toToken}
+                onChange={(e) => { setToToken(e.target.value.trim().toLowerCase()); setQuote(null); }}
+                placeholder="token.near"
+                spellCheck={false}
+                aria-label="Output token contract"
+              />
+            </div>
+            <div className="swap-token-hint">{quote ? "Quoted output · expires in 45s" : "Enter the token contract to receive"}</div>
+          </div>
+
+          <div className="swap-settings-row">
+            <div>
+              <span>Slippage tolerance</span>
+              <strong>{slippage}%</strong>
+            </div>
+            <div className="swap-slippage">
+              {["0.5", "1", "2"].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={slippage === value ? "selected" : ""}
+                  onClick={() => { setSlippage(value); setQuote(null); }}
+                >
+                  {value}%
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button className="swap-primary" type="button" onClick={() => void runQuote()} disabled={busy || !wallet}>
+            {busy ? "Finding best route…" : quote ? "Refresh quote" : accountId ? "Get quote" : "Connect wallet to swap"}
+          </button>
+
+          {error && <p className="message warning">{error}</p>}
+          {notice && <p className="message">{notice}</p>}
+        </div>
+
+        {quote && (
+          <div className="swap-route-card">
+            <div className="swap-route-head">
+              <div>
+                <span className="eyebrow">ROUTE</span>
+                <h3>RHEA SmartRouter</h3>
+              </div>
+              <span className="route-live">LIVE</span>
+            </div>
+            <div className="swap-route-grid">
+              <div><span>You'll pay</span><strong>{formatBaseValue(quote.amountIn)}</strong></div>
+              <div><span>You'll receive</span><strong>{formatBaseValue(quote.amountOut)}</strong></div>
+              <div><span>Minimum received</span><strong>{formatBaseValue(quote.minAmountOut)}</strong></div>
+              <div><span>Quote expiry</span><strong>45 seconds</strong></div>
+            </div>
+            <button className="swap-review" type="button" disabled>
+              Review & sign — execution coming next
+            </button>
+            <p className="message">The route is live and validated. Signing remains disabled until wrapping, token registration and multi-transaction reconciliation are fully persisted.</p>
+          </div>
+        )}
+      </div>
     </section>
   );
+}
+
+function formatBaseValue(value: string): string {
+  try {
+    const base = BigInt(value);
+    const divisor = 10n ** 24n;
+    const whole = base / divisor;
+    const fraction = (base % divisor).toString().padStart(24, "0").slice(0, 6).replace(/0+$/, "");
+    return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
+  } catch {
+    return value;
+  }
 }
 
 function toBase(value:string, decimals:number):bigint {
