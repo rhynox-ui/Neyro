@@ -23,6 +23,7 @@ import { fetchNearMarket } from "../market/dexscreener.js";
 import { nearUsdFromDcl } from "../market/dcl.js";
 import { fetchLaunchByToken, isNearlyToken, nearlyPriceUsd } from "../discovery/nearly.js";
 import { UserFacingError, userMessage } from "../errors.js";
+import { applySellTax } from "./tax.js";
 
 const WRAPPED_NEAR = "wrap.near";
 const DEFAULT_SLIPPAGE_BPS = 100;
@@ -165,7 +166,7 @@ export class TradingService {
       ? await fetchLaunchByToken(contractOf(tokenIn)).catch(() => null)
       : null;
     if (side === "sell" && nearlyLaunch?.tax?.sellBps) {
-      swapTotal = (swapTotal * BigInt(10_000 - nearlyLaunch.tax.sellBps)) / 10_000n;
+      swapTotal = applySellTax(swapTotal, nearlyLaunch.tax.sellBps);
       if (swapTotal <= 0n) throw new UserFacingError("The token sell tax leaves no amount to trade");
     }
 
@@ -189,7 +190,10 @@ export class TradingService {
       tokenIn,
       tokenOut,
       amountIn,
-      slippageBps
+      slippageBps,
+      ...(side === "buy" && nearlyLaunch?.tax?.buyBps
+        ? { outputTaxBps: nearlyLaunch.tax.buyBps }
+        : {})
     };
 
     const engine = new RheaTradingEngine();
