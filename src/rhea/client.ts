@@ -224,8 +224,8 @@ export class RheaClient {
 
     const inputToken = stripAssetPrefix(toApiAsset(request.fromToken).address);
     const outputToken = stripAssetPrefix(toApiAsset(request.toToken).address);
-    const inputDecimals = request.fromToken.decimals;
-    const outputDecimals = request.toToken.decimals;
+    const inputDecimals = request.fromToken.decimals ?? -1;
+    const outputDecimals = request.toToken.decimals ?? -1;
     if (!Number.isInteger(inputDecimals) || inputDecimals < 0 || inputDecimals > 64 ||
         !Number.isInteger(outputDecimals) || outputDecimals < 0 || outputDecimals > 64) {
       throw new UserFacingError("RHEA DCL token metadata is invalid; refresh the token and try again");
