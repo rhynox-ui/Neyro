@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { formatTokenToolFee } from "./token-tools/fees";
-import { TOKEN_TOOL_FEE_RECIPIENT } from "./token-tools/fee-recipient";
 import { NearRpcClient } from "./near/rpc";
 import { preflightSenders, type CampaignPreflight } from "./preflight";
 import { createMyNearWalletConnector } from "./wallet/selector";
@@ -12,6 +10,7 @@ import { executeAirdrop, reconcileCampaign } from "./execution/executor";
 import { IndexedDbCampaignStore } from "./campaign/storage";
 import type { Campaign } from "./campaign/model";
 import { campaignResultsCsv } from "./campaign/export";
+import { getFtMetadata, type FtMetadata } from "./near/ft";
 
 type Row = {
   line: number;
@@ -245,8 +244,10 @@ function App() {
   const [walletBusy, setWalletBusy] = useState(false);
 
   const [token, setToken] = useState("");
-  const [decimals, setDecimals] = useState("24");
+  const [decimals, setDecimals] = useState("");
   const [defaultAmount, setDefaultAmount] = useState("");
+  const [tokenMetadata, setTokenMetadata] = useState<FtMetadata | null>(null);
+  const [tokenMetadataBusy, setTokenMetadataBusy] = useState(false);
   const [senders, setSenders] = useState("");
   const [plan, setPlan] = useState<Plan | null>(null);
   const [fileName, setFileName] = useState("");
@@ -275,6 +276,28 @@ function App() {
     () => senders.split(/\r?\n/).map((v) => v.trim().toLowerCase()).filter(Boolean),
     [senders]
   );
+
+  async function loadTokenMetadata() {
+    const contract = token.trim().toLowerCase();
+    if (!contract) {
+      setMessage("Enter a token contract first.");
+      return;
+    }
+
+    setTokenMetadataBusy(true);
+    setTokenMetadata(null);
+    setPreflight(null);
+    try {
+      const metadata = await getFtMetadata(new NearRpcClient(), contract);
+      setTokenMetadata(metadata);
+      setDecimals(String(metadata.decimals));
+      setMessage(`${metadata.symbol} · ${metadata.name} loaded from NEAR mainnet.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load token metadata.");
+    } finally {
+      setTokenMetadataBusy(false);
+    }
+  }
 
   async function connectWallet() {
     setWalletBusy(true);
@@ -527,6 +550,11 @@ function App() {
   }
 
   async function upload(file: File) {
+    if (!Number.isInteger(Number(decimals)) || Number(decimals) < 0 || Number(decimals) > 24) {
+      setMessage("Load the token metadata first so Neyro can use the verified token decimals.");
+      return;
+    }
+
     setBusy(true);
     setPlan(null);
     setPreflight(null);
@@ -615,8 +643,18 @@ function App() {
             <h1>{activeView}</h1>
           </div>
           <div className="header-actions">
-            {accountId && <span className="account-pill">{accountId}</span>}
-            <span className="pill">{currentViewImplemented ? "Ready" : "Module foundation"}</span>
+            {accountId ? (
+              <>
+                <span className="account-pill">{accountId}</span>
+                <button onClick={() => void disconnectWallet()} disabled={walletBusy}>
+                  {walletBusy ? "Working…" : "Disconnect"}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => void connectWallet()} disabled={walletBusy}>
+                {walletBusy ? "Connecting…" : "Connect wallet"}
+              </button>
+            )}
           </div>
         </header>
 
@@ -633,33 +671,64 @@ function App() {
           <section className="grid">
             <div className="card hero">
               <div>
-                <span className="eyebrow">MULTI-SENDER</span>
-                <h2>Bulk send any NEP-141 token.</h2>
+                <span className="eyebrow">MULTI-SENDER TRANSFER</span>
+                <h2>Send one token to many accounts.</h2>
                 <p>
-                  Upload a large recipient list, validate it locally, remove duplicates,
-                  calculate the exact token requirement and prepare resumable batches.
+                  Load the token from NEAR, upload recipients, validate the campaign and review
+                  the real sender balances before anything reaches the wallet for signing.
                 </p>
               </div>
-              <div className="tool-fees">
-                <span className="badge">Mint fee: {formatTokenToolFee("mint")}</span>
-                <span className="badge">Lock fee: {formatTokenToolFee("lock")}</span>
-                <span className="badge">Fees → {TOKEN_TOOL_FEE_RECIPIENT}</span>
+              <div className="hero-state">
+                <span className={accountId ? "status-dot live" : "status-dot"} />
+                <span>{accountId ? "Wallet connected" : "Wallet not connected"}</span>
               </div>
             </div>
 
-            <div className="card">
-              <label>Token contract</label>
-              <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="token.near" />
+            <div className="card token-card">
+              <div className="section-head">
+                <div>
+                  <span className="eyebrow">TOKEN</span>
+                  <h3>{tokenMetadata ? `${tokenMetadata.symbol} · ${tokenMetadata.name}` : "Load a NEP-141 token"}</h3>
+                </div>
+                <button onClick={() => void loadTokenMetadata()} disabled={tokenMetadataBusy || !token.trim()}>
+                  {tokenMetadataBusy ? "Loading…" : "Load token"}
+                </button>
+              </div>
+              <input
+                value={token}
+                onChange={(e) => { setToken(e.target.value); setTokenMetadata(null); setDecimals(""); setPreflight(null); }}
+                placeholder="contract.near"
+                spellCheck={false}
+              />
               <div className="two">
-                <div><label>Decimals</label><input type="number" min="0" max="24" value={decimals} onChange={(e) => setDecimals(e.target.value)} /></div>
-                <div><label>Default amount</label><input value={defaultAmount} onChange={(e) => setDefaultAmount(e.target.value)} placeholder="1000" /></div>
+                <div>
+                  <label>Verified decimals</label>
+                  <input value={decimals} readOnly placeholder="—" />
+                </div>
+                <div>
+                  <label>Default amount <span className="optional">optional</span></label>
+                  <input value={defaultAmount} onChange={(e) => setDefaultAmount(e.target.value)} placeholder="Use file amount" />
+                </div>
               </div>
+              {tokenMetadata && (
+                <div className="token-meta">
+                  <span>{tokenMetadata.spec}</span>
+                  <span>{tokenMetadata.decimals} decimals</span>
+                  {tokenMetadata.reference && <span>metadata linked</span>}
+                </div>
+              )}
             </div>
 
             <div className="card">
-              <label>Sender pool</label>
-              <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={5} placeholder={"sender-a.near\nsender-b.near\nsender-c.near"} />
-              <small>Sender balances are read from NEAR before execution planning.</small>
+              <div className="section-head">
+                <div>
+                  <span className="eyebrow">SENDER POOL</span>
+                  <h3>{senderList.length ? `${senderList.length} sender${senderList.length === 1 ? "" : "s"} configured` : "Add signing accounts"}</h3>
+                </div>
+                {senderList.length > 0 && <span className="live-label">On-chain balances</span>}
+              </div>
+              <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={4} placeholder={"alice.near\nbob.near"} />
+              <small>Fresh token, storage and NEAR balances are read before execution.</small>
             </div>
 
             <div className="card full">
@@ -690,7 +759,7 @@ function App() {
                     <div><span className="eyebrow">CAMPAIGN TOTAL</span><h2>{formatBase(plan.total, Number(decimals))}</h2></div>
                     <span className={plan.invalid ? "warning" : "ready"}>{plan.invalid ? "Needs review" : "Ready"}</span>
                   </div>
-                  <p className="muted">Token: {token || "not specified"} · Sender accounts: {senderList.length}</p>
+                  <p className="muted">Token: {token || "—"} · Sender accounts: {senderList.length} · Decimals: {decimals || "—"}</p>
                 </div>
 
                 <div className="card full">
