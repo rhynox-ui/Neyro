@@ -19,7 +19,12 @@ export function buildAirdropTransaction(
     type: "FunctionCall",
     receiverId: tokenContract,
     methodName: action.methodName,
-    args: action.args,
+    // NEP-141 uses snake_case for the on-chain ft_transfer argument.
+    args: {
+      receiver_id: action.args.receiverId,
+      amount: action.args.amount,
+      ...(action.args.memo ? { memo: action.args.memo } : {})
+    },
     gas: action.gas,
     deposit: action.deposit
   }));
