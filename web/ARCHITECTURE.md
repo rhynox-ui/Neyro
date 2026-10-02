@@ -1024,3 +1024,15 @@ Verified checks:
 The latest selector typing correction is therefore CI-verified. This does not replace real-wallet/testnet execution testing; those remain release gates.
 
 Telegram bot and Worker code remain untouched.
+## 2026-10-02 — Product terminology correction: Mint creates a fresh token
+
+Neyro's product specification defines **Mint** as creation of a brand-new token, not increasing the supply of an already deployed token.
+
+The Web Terminal now reflects that terminology:
+- **Mint** is the fresh-token creation surface.
+- It collects token identity, decimals, initial supply, initial recipient and metadata reference.
+- **NEARly Launch** remains a separate launch mechanism.
+- There is no separate **Create token** navigation item.
+- The previous existing-token mint-call UI is no longer exposed as the Mint product surface.
+
+The fresh-token transaction remains gated until Neyro has a verified generic token implementation/factory and exact on-chain initialization interface. No guessed contract method or address was introduced.
