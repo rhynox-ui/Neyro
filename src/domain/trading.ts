@@ -38,6 +38,8 @@ export type TradeRequest = {
   tokenOut: AssetRef;
   amountIn: string;
   slippageBps: number;
+  /** Immutable NEARly buy tax applied after Rhea's pool min-output check. */
+  outputTaxBps?: number;
 };
 
 export interface TradingEngine {
