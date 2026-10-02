@@ -106,7 +106,16 @@ async function getCreatorLaunches(accountId: string): Promise<RawLaunch[]> {
       if (launch?.creator === accountId && launch.step === "Done") launches.push(launch);
     }
   }
-  return launches;
+  // get_launch is the documented source for per-launch creator fee fields.
+  // Keep the broad discovery query separate from fee-state reads so this
+  // feature does not depend on the shape of get_launches for fee accounting.
+  const detailed = [];
+  for (const launch of launches) {
+    const raw = await view<unknown>("get_launch", { launch_id: launch.id });
+    const detail = parseLaunch(raw);
+    if (detail && detail.creator === accountId && detail.step === "Done") detailed.push(detail);
+  }
+  return detailed;
 }
 
 export async function getCreatorFeeSummary(accountId: string): Promise<CreatorFeeSummary> {
