@@ -1001,13 +1001,7 @@ Deployment remains intentionally disabled until Neyro has a verified generic NEP
 
 ## 2026-10-02 — Navigation and generic token boundary checkpoint
 
-The visible navigation now separates the two token-creation concepts:
-
-- **Launch** contains only the NEARly launchpad flow.
-- **Token** contains the generic **Create token** flow.
-- **Token Tools** contains token operations such as Mint, Burn, Lock, Unlock, Airdrop and Bulk Transfer.
-
-This is a navigation clarification only; no new protocol capability was added.
+The visible navigation now treats **Mint** as the generic fresh-token creation flow. **Launch NEARly token** is the separate NEARly launch mechanism. Token Tools contains operational tools such as Burn, Lock, Unlock, Airdrop and Bulk Transfer.
 
 The generic Create Token surface remains a deployment configuration/review form. It does not claim that NEP-141 itself defines token deployment, mint authority, or a factory. Deployment stays gated until Neyro has a verified token implementation/factory and exact initialization interface.
 
@@ -1055,3 +1049,26 @@ The Mint UI now includes:
 These are configuration surfaces only until the generic token implementation/factory is verified. Mint-authority revocation and buy/sell tax are implementation-specific and are not claimed as NEP-141 capabilities. No unverified transaction method is exposed.
 
 - Added freeze-authority and metadata-authority policy controls to the Mint UI. These remain implementation-specific and are not presented as NEP-141 guarantees.
+
+
+## 2026-10-02 — Full web-terminal audit checkpoint
+
+Audit scope: PR #26, branch `web-terminal-2026-10-02`, all web source modules, tests, CI workflow, navigation/routing, execution state machine, browser wallet boundary, NEAR RPC/FT helpers, NEARly adapter, token-tool fee/sponsorship modules, and Cloudflare Pages configuration.
+
+Verified:
+- PR #26 remains open/draft and its changed files are confined to `web/**` plus `.github/workflows/web-ci.yml`.
+- Latest CI for `db3ac34611eba2cdb268f5c24539915de8992d5f`: Web Terminal CI #349 and general CI #573 both passed.
+- Cloudflare production deployment for that commit completed build and deploy successfully.
+- Browser wallet signing is isolated behind the WebWalletConnector boundary.
+- Campaign state is persisted locally and unknown/submitted batches are blocked from blind retry.
+- NEAR RPC reads use finality.
+- Mint remains a UI/configuration surface until a verified generic token implementation/factory exists.
+
+Open release risks identified by the audit:
+1. Generic Mint execution is not production-ready because there is no verified Neyro token factory/implementation and no exact deployment ABI in this branch.
+2. Token tax, freeze authority, metadata authority and mint-authority revocation are configuration UI only until the token implementation defines their exact semantics.
+3. Bulk transfer currently preflights sender registration/balances but does not preflight every recipient's NEP-145 registration. Unregistered recipients can therefore cause execution failure depending on the token implementation; a recipient-registration strategy should be added before production-scale campaigns.
+4. The bulk-transfer parser still materializes parsed recipient rows in browser memory. Million-wallet scale is not yet proven.
+5. Burn currently submits a transaction and immediately reloads token state instead of waiting/reconciling final transaction status. This should be changed to avoid misleading post-submit state.
+6. Liquidity creation/management is not yet implemented in the web terminal. This is a product gap for developers who want to create a generic token and then make it tradable.
+7. The historical Mint/Create Token notes above are retained as implementation history; the current navigation/product semantics are the authoritative definition: **Mint creates a fresh token** and NEARly is a separate launch mechanism.
