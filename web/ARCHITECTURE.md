@@ -416,7 +416,7 @@ The adapter:
 
 Browser wallets may redirect for signing and therefore may not return a final transaction outcome immediately. The campaign engine must treat an absent hash as an unresolved submission, not as a failed transaction.
 
-The adapter is **not wired to Start Airdrop yet**. This is deliberate. The remaining gates are fresh revalidation immediately before signing, immutable campaign-state transition to `signing`, submission/reconciliation handling, and safe resume after redirect/reload.
+The adapter is now wired to Start Airdrop through `web/src/execution/executor.ts`. The executor performs fresh revalidation immediately before each signing step, persists the `signing` state first, records the transaction hash before finality polling, and stops safely on unresolved outcomes.
 
 References:
 - Wallet Selector core: https://www.npmjs.com/package/@near-wallet-selector/core
