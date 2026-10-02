@@ -414,7 +414,10 @@ function renderCreatorFees(summary: CreatorFeeSummary): { text: string; keyboard
     "💰 <b>NEARly creator fees</b>",
     "",
     `Wallet: ${code(summary.accountId)}`,
-    `Ⓝ NEAR claimable: <b>${escapeHtml(near)} NEAR</b>`,
+    `💰 <b>Available now: ${escapeHtml(near)} NEAR</b>`,
+    BigInt(summary.nearAmount) > 0n
+      ? "✅ Your available NEAR fees can be claimed below."
+      : "ℹ️ No NEAR creator fees are available right now.",
     ""
   ];
 
@@ -442,7 +445,7 @@ function renderCreatorFees(summary: CreatorFeeSummary): { text: string; keyboard
   );
 
   const keyboard = new InlineKeyboard();
-  if (BigInt(summary.nearAmount) > 0n) keyboard.text("💰 Claim NEAR", "fees:near");
+  if (BigInt(summary.nearAmount) > 0n) keyboard.text("💰 Claim available NEAR", "fees:near");
   keyboard.row();
   for (const position of summary.positions.slice(0, 30)) {
     keyboard.text(
