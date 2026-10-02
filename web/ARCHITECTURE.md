@@ -960,11 +960,11 @@ The web UI first verifies a live fungible-token surface by reading:
 
 Minting itself is not part of the NEP-141 core interface. The UI therefore treats the mint method as contract-specific instead of falsely claiming that every NEP-141 token has a standard mint call.
 
-Supported call templates currently include:
+The default mint interface is custom because no mint signature is guaranteed by NEP-141. The UI also provides clearly-labelled common implementation patterns:
 - `ft_mint({ receiver_id, amount })`;
 - `mint({ receiver_id, amount })`;
-- `mint({ account_id, amount })`;
-- custom method + JSON arguments for a mint interface verified from the token's own documentation/source.
+- `mint({ account_id, amount })`.
+These patterns are not presented as verified capabilities. The user must verify the token's own documentation/source and access-control model before signing.
 
 Amounts are converted to exact base units with `bigint`. The transaction preview shows the contract, method, recipient, amount, attached deposit and gas before browser signing.
 
