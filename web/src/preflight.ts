@@ -1,9 +1,23 @@
 import type { NearRpcClient } from "./near/rpc";
-import { getFtBalance, getFtMetadata, getStorageBalance, isRegistered } from "./near/ft";
+import {
+  getFtBalance,
+  getFtMetadata,
+  getStorageBalance,
+  getStorageRegistrationState,
+  isRegistered
+} from "./near/ft";
 import type { SenderBalance } from "./airdrop-core";
 
 export type SenderPreflight = SenderBalance & {
   storage: "registered" | "not-registered" | "unknown";
+};
+
+export type RecipientRegistrationPreflight = {
+  checked: number;
+  registered: number;
+  notRegistered: number;
+  unsupported: number;
+  sampleNotRegistered: string[];
 };
 
 export type CampaignPreflight = {
@@ -13,13 +27,15 @@ export type CampaignPreflight = {
   totalTokenBalance: bigint;
   totalRequired: bigint;
   enoughTokenBalance: boolean;
+  recipientRegistration?: RecipientRegistrationPreflight;
 };
 
 export async function preflightSenders(
   rpc: NearRpcClient,
   tokenContract: string,
   senderIds: readonly string[],
-  totalRequired: bigint
+  totalRequired: bigint,
+  recipientIds: readonly string[] = []
 ): Promise<CampaignPreflight> {
   if (!tokenContract) throw new Error("token contract is required");
   if (senderIds.length === 0) throw new Error("at least one sender is required");
@@ -53,6 +69,9 @@ export async function preflightSenders(
     (total, sender) => total + sender.tokenBalance,
     0n
   );
+  const recipientRegistration = recipientIds.length > 0
+    ? await preflightRecipientRegistration(rpc, tokenContract, recipientIds)
+    : undefined;
 
   return {
     tokenContract,
@@ -60,6 +79,51 @@ export async function preflightSenders(
     senders,
     totalTokenBalance,
     totalRequired,
-    enoughTokenBalance: totalTokenBalance >= totalRequired
+    enoughTokenBalance: totalTokenBalance >= totalRequired,
+    ...(recipientRegistration ? { recipientRegistration } : {})
+  };
+}
+
+
+async function preflightRecipientRegistration(
+  rpc: NearRpcClient,
+  tokenContract: string,
+  recipientIds: readonly string[],
+  concurrency = 8
+): Promise<RecipientRegistrationPreflight> {
+  const uniqueRecipients = [...new Set(recipientIds)];
+  let registered = 0;
+  let notRegistered = 0;
+  let unsupported = 0;
+  const sampleNotRegistered: string[] = [];
+
+  for (let offset = 0; offset < uniqueRecipients.length; offset += concurrency) {
+    const chunk = uniqueRecipients.slice(offset, offset + concurrency);
+    const states = await Promise.all(
+      chunk.map((accountId) =>
+        getStorageRegistrationState(rpc, tokenContract, accountId)
+      )
+    );
+
+    states.forEach((state, index) => {
+      if (state === "registered") {
+        registered += 1;
+      } else if (state === "not-registered") {
+        notRegistered += 1;
+        if (sampleNotRegistered.length < 12) {
+          sampleNotRegistered.push(chunk[index]);
+        }
+      } else {
+        unsupported += 1;
+      }
+    });
+  }
+
+  return {
+    checked: uniqueRecipients.length,
+    registered,
+    notRegistered,
+    unsupported,
+    sampleNotRegistered
   };
 }
