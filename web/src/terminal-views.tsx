@@ -463,7 +463,9 @@ export function TokenBurnView({
       if (meta.spec !== "ft-1.0.0" && meta.spec !== "ft-1.0.0".toLowerCase() && !String(meta.spec ?? "").startsWith("ft-")) {
         throw new Error("Contract is not exposing a NEP-141 token interface.");
       }
-      if (typeof meta.symbol !== "string" || !Number.isInteger(meta.decimals)) {
+      const symbol = meta.symbol;
+      const decimals = meta.decimals;
+      if (typeof symbol !== "string" || typeof decimals !== "number" || !Number.isInteger(decimals) || decimals < 0 || decimals > 64) {
         throw new Error("Token metadata is invalid.");
       }
 
@@ -471,8 +473,8 @@ export function TokenBurnView({
       if (!/^\d+$/.test(rawBalance)) throw new Error("Token returned an invalid balance.");
 
       setMetadata({
-        symbol: meta.symbol,
-        decimals: meta.decimals,
+        symbol,
+        decimals,
         ...(typeof meta.name === "string" ? { name: meta.name } : {})
       });
       setBalance(BigInt(rawBalance));
