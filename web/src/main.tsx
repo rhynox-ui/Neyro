@@ -7,6 +7,10 @@ import { NearRpcClient } from "./near/rpc";
 import { preflightSenders, type CampaignPreflight } from "./preflight";
 import { createMyNearWalletConnector } from "./wallet/selector";
 import type { WebWalletConnector } from "./wallet/connector";
+import { allocateRecipientsDetailed, type ValidRecipient } from "./airdrop-core";
+import { executeAirdrop } from "./execution/executor";
+import { IndexedDbCampaignStore } from "./campaign/storage";
+import type { Campaign } from "./campaign/model";
 
 type Row = {
   line: number;
@@ -250,6 +254,10 @@ function App() {
   const [message, setMessage] = useState("Upload a recipient file to build the campaign.");
   const [preflight, setPreflight] = useState<CampaignPreflight | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
+  const [executionBusy, setExecutionBusy] = useState(false);
+  const [executionCampaign, setExecutionCampaign] = useState<Campaign | null>(null);
+
+  const campaignStore = useMemo(() => new IndexedDbCampaignStore(), []);
 
   const senderList = useMemo(
     () => senders.split(/\r?\n/).map((v) => v.trim().toLowerCase()).filter(Boolean),
@@ -320,6 +328,86 @@ function App() {
       setMessage(error instanceof Error ? error.message : "Sender preflight failed");
     } finally {
       setPreflightBusy(false);
+    }
+  }
+
+  async function startAirdrop() {
+    if (!wallet || !accountId) {
+      setMessage("Connect the browser wallet before starting execution.");
+      return;
+    }
+    if (!plan || plan.invalid > 0) {
+      setMessage("Resolve all invalid or duplicate recipient rows before execution.");
+      return;
+    }
+    if (!token.trim() || senderList.length === 0) {
+      setMessage("Enter the token contract and at least one sender account.");
+      return;
+    }
+
+    setExecutionBusy(true);
+    setMessage("Refreshing sender balances and building the execution plan…");
+
+    try {
+      const fresh = await preflightSenders(
+        new NearRpcClient(),
+        token.trim(),
+        senderList,
+        plan.total
+      );
+
+      if (fresh.decimals !== Number(decimals)) {
+        throw new Error(
+          `Token reports ${fresh.decimals} decimals, but the campaign was parsed with ${decimals}. Re-parse the file with the token's actual decimals.`
+        );
+      }
+      if (!fresh.enoughTokenBalance) {
+        throw new Error("Fresh sender balances do not cover the campaign total.");
+      }
+      if (fresh.senders.some((sender) => sender.storage === "not-registered")) {
+        throw new Error("At least one sender is not registered with the token contract.");
+      }
+
+      const recipients: ValidRecipient[] = plan.rows
+        .filter((row): row is Row & { base: bigint } => row.valid && row.base !== undefined)
+        .map((row) => ({
+          line: row.line,
+          wallet: row.wallet,
+          amountBase: row.base
+        }));
+
+      const allocations = allocateRecipientsDetailed(recipients, fresh.senders);
+      const sourceFingerprint = [
+        token.trim().toLowerCase(),
+        String(fresh.decimals),
+        senderList.join(","),
+        recipients.map((recipient) => `${recipient.line}:${recipient.wallet}:${recipient.amountBase}`).join("|")
+      ].join("::");
+
+      const result = await executeAirdrop({
+        tokenContract: token.trim().toLowerCase(),
+        decimals: fresh.decimals,
+        allocations,
+        sourceFingerprint,
+        wallet,
+        rpc: new NearRpcClient(),
+        store: campaignStore,
+        onProgress: ({ campaign, batch }) => {
+          setExecutionCampaign({ ...campaign, batches: campaign.batches.map((item) => ({ ...item })) });
+          setMessage(
+            batch.status === "success"
+              ? `Confirmed batch ${batch.id}.`
+              : `Batch ${batch.id}: ${batch.status}.`
+          );
+        }
+      });
+
+      setExecutionCampaign(result.campaign);
+      setMessage(`Campaign ${result.campaignId} completed successfully.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Airdrop execution stopped safely.");
+    } finally {
+      setExecutionBusy(false);
     }
   }
 
@@ -531,7 +619,19 @@ function App() {
                 <div className="card full">
                   <div className="row-title">
                     <div><span className="eyebrow">PREVIEW</span><h3>First {preview.length} valid recipients</h3></div>
-                    <button disabled>Start airdrop</button>
+                    <button
+                      onClick={() => void startAirdrop()}
+                      disabled={
+                        executionBusy ||
+                        !wallet ||
+                        !accountId ||
+                        Boolean(plan.invalid) ||
+                        !preflight?.enoughTokenBalance ||
+                        preflight.senders.some((sender) => sender.storage === "not-registered")
+                      }
+                    >
+                      {executionBusy ? "Executing…" : "Start airdrop"}
+                    </button>
                   </div>
                   <div className="table-wrap">
                     <table>
@@ -544,6 +644,38 @@ function App() {
                     </table>
                   </div>
                 </div>
+
+                {executionCampaign && (
+                  <div className="card full">
+                    <div className="row-title">
+                      <div><span className="eyebrow">EXECUTION</span><h3>Campaign progress</h3></div>
+                      <span className={executionCampaign.status === "completed" ? "ready" : "warning"}>
+                        {executionCampaign.status}
+                      </span>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead><tr><th>Batch</th><th>Sender</th><th>Recipients</th><th>Status</th><th>Transaction</th></tr></thead>
+                        <tbody>
+                          {executionCampaign.batches.map((batch) => (
+                            <tr key={batch.id}>
+                              <td>{batch.id}</td>
+                              <td>{batch.senderId}</td>
+                              <td>{batch.actionCount}</td>
+                              <td className={batch.status === "success" ? "ready" : batch.status === "failed" ? "warning" : "muted"}>
+                                {batch.status}
+                              </td>
+                              <td>{batch.transactionHash ?? batch.error ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <small>
+                      A submitted/unknown batch is never automatically resent. Reconcile it before retrying.
+                    </small>
+                  </div>
+                )}
               </>
             )}
           </section>
