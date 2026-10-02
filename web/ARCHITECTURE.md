@@ -918,3 +918,14 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Desktop keeps the grouped sidebar navigation; mobile uses the same NAV_GROUPS source without overflowing or truncating labels.
 - The selected terminal view stays synchronized with the mobile picker.
 - No Telegram bot, Worker, wallet custody, or execution code was modified.
+
+
+## 2026-10-02 — Light theme and remaining-page UI pass
+
+- Added a final terminal typography/theme layer with larger body, navigation, form and secondary text for desktop and mobile readability.
+- Light mode now uses a subtle layered palette: page background, slightly tinted sidebar, white cards, soft raised panels and restrained borders/shadows instead of a flat white surface.
+- Form focus, buttons, tables, drop zones, code output and mobile section picker receive matching light-mode states.
+- Upgraded the remaining gated pages (Create token, Mint, Burn, Lock, Unlock, Developer write/builder and token-operation history) with explicit integration requirements instead of empty placeholder cards.
+- Create token links to the already implemented NEARly launch surface; no unverified token factory transaction was added.
+- No guessed token-operation contract methods were introduced.
+- No Telegram bot, Worker, wallet custody, or production signer code was modified.
