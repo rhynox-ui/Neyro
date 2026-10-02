@@ -773,6 +773,82 @@ function toNearYocto(value: string): bigint {
   return BigInt(whole) * 10n ** 24n + BigInt(fraction.padEnd(24, "0") || "0");
 }
 
+
+export function CreateTokenView({ accountId }: { accountId: string }) {
+  const [name, setName] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [decimals, setDecimals] = useState("18");
+  const [supply, setSupply] = useState("");
+  const [recipient, setRecipient] = useState(accountId);
+  const [metadata, setMetadata] = useState("");
+
+  useEffect(() => {
+    if (!recipient && accountId) setRecipient(accountId);
+  }, [accountId, recipient]);
+
+  const validDecimals = /^\\d+$/.test(decimals) && Number(decimals) >= 0 && Number(decimals) <= 24;
+  const validSupply = /^\\d+(?:\\.\\d+)?$/.test(supply.trim()) && Number(supply) > 0;
+  const ready = Boolean(name.trim() && symbol.trim() && validDecimals && validSupply && recipient.trim());
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero full">
+        <div>
+          <span className="eyebrow">TOKEN / CREATE</span>
+          <h2>Create a developer-owned NEP-141 token.</h2>
+          <p>
+            This is the generic token-creation flow, separate from the NEARly launchpad. Define the token identity,
+            initial supply and receiving account first; Neyro will only enable deployment once its verified token factory is connected.
+          </p>
+        </div>
+        <div className="hero-state"><span className="status-dot" /><span>Factory deployment gate</span></div>
+      </div>
+
+      <div className="card create-token-form">
+        <div className="section-head"><div><span className="eyebrow">01 / TOKEN</span><h3>Token details</h3></div><span className="module-status">NEP-141</span></div>
+
+        <div className="two">
+          <div className="mint-field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Protocol Token" maxLength={64} /></div>
+          <div className="mint-field"><label>Symbol</label><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="MPT" maxLength={16} /></div>
+        </div>
+
+        <div className="two">
+          <div className="mint-field"><label>Decimals</label><input inputMode="numeric" value={decimals} onChange={(e) => setDecimals(e.target.value.replace(/[^0-9]/g, ""))} placeholder="18" /><small>Fixed token precision chosen at creation.</small></div>
+          <div className="mint-field"><label>Initial supply</label><input inputMode="decimal" value={supply} onChange={(e) => setSupply(e.target.value)} placeholder="1000000" /><small>Whole-token amount. Base units are derived from decimals.</small></div>
+        </div>
+
+        <div className="mint-field">
+          <label>Initial supply recipient</label>
+          <div className="mint-recipient-row"><input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="your-account.near" spellCheck={false} />{accountId && <button type="button" onClick={() => setRecipient(accountId)}>My wallet</button>}</div>
+          <small>The creation transaction will define who receives the initial supply.</small>
+        </div>
+
+        <div className="mint-field">
+          <label>Metadata reference <span className="optional">optional</span></label>
+          <input value={metadata} onChange={(e) => setMetadata(e.target.value)} placeholder="https://example.com/token.json" spellCheck={false} />
+          <small>Metadata handling will be finalized against the deployed token implementation.</small>
+        </div>
+      </div>
+
+      <div className="card create-token-review">
+        <div className="section-head"><div><span className="eyebrow">02 / REVIEW</span><h3>Deployment preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
+
+        <div className="mint-review-list">
+          <div><span>Name</span><strong>{name || "—"}</strong></div>
+          <div><span>Symbol</span><strong>{symbol || "—"}</strong></div>
+          <div><span>Initial supply</span><strong>{supply || "—"} {symbol || ""}</strong></div>
+          <div><span>Decimals</span><strong>{validDecimals ? decimals : "—"}</strong></div>
+          <div><span>Recipient</span><strong>{recipient || "—"}</strong></div>
+          <div><span>Metadata</span><strong>{metadata || "Not configured"}</strong></div>
+        </div>
+
+        <div className="mint-interface-warning"><strong>Deployment is intentionally gated.</strong><span>Neyro does not currently have a verified generic token-factory contract address and interface in this web branch. No guessed contract call is exposed here.</span></div>
+        <button className="mint-submit" type="button" disabled={!ready}>Factory deployment not connected</button>
+      </div>
+    </section>
+  );
+}
+
 export function TerminalModuleView({
   view,
   onNavigate
