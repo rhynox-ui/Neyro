@@ -58,7 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
   { label: "WORKSPACE", items: ["Overview"] },
   { label: "TRADE", items: ["Swap", "Portfolio"] },
   { label: "LAUNCH", items: ["Launch NEARly token"] },
-  { label: "TOKEN", items: ["Mint"] },
+  { label: "TOKEN", items: ["Mint / Create Token"] },
   { label: "TOKEN TOOLS", items: ["Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
 ];
 
@@ -834,7 +834,7 @@ function App() {
           <TokenBurnView accountId={accountId} wallet={wallet} />
         ) : activeView === "Lock" ? (
           <TokenLockView accountId={accountId} />
-        ) : activeView === "Mint" ? (
+        ) : activeView === "Mint / Create Token" ? (
           <MintView accountId={accountId} />
         ) : activeView === "Airdrop Campaigns" ? (
           <CampaignHistoryView
