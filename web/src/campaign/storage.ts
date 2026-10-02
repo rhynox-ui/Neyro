@@ -13,7 +13,7 @@ export interface RegistrationStore {
   listRegistrations(): Promise<RegistrationSession[]>;
 }
 
-export interface CampaignStore extends RegistrationStore {
+export interface CampaignStore {
   get(id: string): Promise<Campaign | null>;
   put(campaign: Campaign): Promise<void>;
   delete(id: string): Promise<void>;
@@ -49,7 +49,7 @@ function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
-export class IndexedDbCampaignStore implements CampaignStore {
+export class IndexedDbCampaignStore implements CampaignStore, RegistrationStore {
   async get(id: string): Promise<Campaign | null> {
     const database = await openDatabase();
     try {
