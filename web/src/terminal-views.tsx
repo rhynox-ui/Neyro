@@ -411,6 +411,187 @@ export function PersistedTransactionsView({ campaigns }: { campaigns: Campaign[]
   );
 }
 
+export function TokenBurnView({
+  accountId,
+  wallet
+}: {
+  accountId: string;
+  wallet: WebWalletConnector | null;
+}) {
+  const [token, setToken] = useState("");
+  const [metadata, setMetadata] = useState<{ name?: string; symbol: string; decimals: number } | null>(null);
+  const [balance, setBalance] = useState<bigint | null>(null);
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [txHash, setTxHash] = useState("");
+
+  async function loadToken() {
+    const contract = token.trim().toLowerCase();
+    if (!contract) {
+      setError("Enter a token contract.");
+      return;
+    }
+    if (!accountId) {
+      setError("Connect a browser wallet first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setMessage("");
+    setMetadata(null);
+    setBalance(null);
+    try {
+      const rpc = new NearRpcClient();
+      const launch = await rpc.viewFunction<Record<string, unknown> | null>(
+        "nearlytrade.near",
+        "get_launch_by_token",
+        { token: contract }
+      );
+      if (!launch || launch.token !== contract || launch.step !== "Done") {
+        throw new Error("Burn is currently enabled only for completed NEARly launches.");
+      }
+
+      const meta = await rpc.viewFunction<{ spec?: string; name?: string; symbol?: string; decimals?: number }>(
+        contract,
+        "ft_metadata",
+        {}
+      );
+      if (meta.spec !== "ft-1.0.0" && meta.spec !== "ft-1.0.0".toLowerCase() && !String(meta.spec ?? "").startsWith("ft-")) {
+        throw new Error("Contract is not exposing a NEP-141 token interface.");
+      }
+      if (typeof meta.symbol !== "string" || !Number.isInteger(meta.decimals)) {
+        throw new Error("Token metadata is invalid.");
+      }
+
+      const rawBalance = await rpc.viewFunction<string>(contract, "ft_balance_of", { account_id: accountId });
+      if (!/^\d+$/.test(rawBalance)) throw new Error("Token returned an invalid balance.");
+
+      setMetadata({ name: meta.name, symbol: meta.symbol, decimals: meta.decimals });
+      setBalance(BigInt(rawBalance));
+      setMessage("NEARly launch verified. Burn removes tokens from your own balance permanently.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to verify token.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function burn() {
+    const contract = token.trim().toLowerCase();
+    if (!wallet || !accountId || !metadata || balance === null) {
+      setError("Load a verified NEARly token and connect the browser wallet.");
+      return;
+    }
+
+    let base: bigint;
+    try {
+      base = toTokenBase(amount, metadata.decimals);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Enter a valid burn amount.");
+      return;
+    }
+    if (base > balance) {
+      setError("Burn amount exceeds your current token balance.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setTxHash("");
+    try {
+      const result = await wallet.signAndSend({
+        signerId: accountId,
+        receiverId: contract,
+        actions: [{
+          type: "FunctionCall",
+          receiverId: contract,
+          methodName: "burn",
+          args: { amount: base.toString() },
+          gas: 30_000_000_000_000n,
+          deposit: 0n
+        }]
+      });
+      if (!result.transactionHash) throw new Error("Wallet did not return a transaction hash.");
+      setTxHash(result.transactionHash);
+      setMessage("Burn transaction submitted. Verify the final transaction before treating the balance as reduced.");
+      setAmount("");
+      await loadToken();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Burn transaction failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero">
+        <div>
+          <span className="eyebrow">TOKEN TOOLS / BURN</span>
+          <h2>Burn tokens from your own NEARly balance.</h2>
+          <p>NEARly launch tokens have fixed supply. A holder can permanently burn tokens they own; Neyro never submits a burn for another account.</p>
+        </div>
+        <div className="hero-state"><span className={accountId ? "status-dot live" : "status-dot"} /><span>{accountId ? "Wallet connected" : "Connect wallet"}</span></div>
+      </div>
+
+      <div className="card full">
+        <div className="section-head">
+          <div><span className="eyebrow">NEARLY TOKEN</span><h3>Verify token</h3></div>
+          <button onClick={() => void loadToken()} disabled={loading}>{loading ? "Reading…" : "Verify token"}</button>
+        </div>
+        <label>Token contract</label>
+        <input value={token} onChange={(e) => { setToken(e.target.value.trim().toLowerCase()); setMetadata(null); setBalance(null); setError(""); setMessage(""); }} placeholder="ticker.nearlytrade.near" spellCheck={false} />
+        {metadata && (
+          <div className="token-tool-summary">
+            <div><span>Token</span><strong>{metadata.name ?? metadata.symbol} · {metadata.symbol}</strong></div>
+            <div><span>Balance</span><strong>{formatTokenBase(balance ?? 0n, metadata.decimals)} {metadata.symbol}</strong></div>
+            <div><span>Decimals</span><strong>{metadata.decimals}</strong></div>
+          </div>
+        )}
+      </div>
+
+      {metadata && balance !== null && (
+        <div className="card full burn-card">
+          <div className="section-head"><div><span className="eyebrow">IRREVERSIBLE ACTION</span><h3>Burn your tokens</h3></div></div>
+          <div className="two">
+            <div>
+              <label>Amount</label>
+              <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+            </div>
+            <div className="tool-balance">
+              <span>Available</span>
+              <strong>{formatTokenBase(balance, metadata.decimals)} {metadata.symbol}</strong>
+              <button type="button" onClick={() => setAmount(formatTokenBase(balance, metadata.decimals))}>Use full balance</button>
+            </div>
+          </div>
+          <div className="burn-warning">Burning permanently reduces total supply. The transaction cannot be reversed.</div>
+          <button className="primary" onClick={() => void burn()} disabled={busy || !wallet || !accountId}>
+            {busy ? "Submitting burn…" : "Burn tokens"}
+          </button>
+          {txHash && <p className="message success">Submitted: <span className="mono-value">{txHash}</span></p>}
+          {message && <p className="message">{message}</p>}
+          {error && <p className="message warning">{error}</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function toTokenBase(value: string, decimals: number): bigint {
+  const clean = value.trim();
+  if (!/^\d+(?:\.\d+)?$/.test(clean)) throw new Error("Enter a valid token amount.");
+  const [whole, fraction = ""] = clean.split(".");
+  if (fraction.length > decimals) throw new Error(`Amount supports at most ${decimals} decimals.`);
+  const base = BigInt(whole) * 10n ** BigInt(decimals) + BigInt(fraction.padEnd(decimals, "0") || "0");
+  if (base <= 0n) throw new Error("Amount must be greater than zero.");
+  return base;
+}
+
 export function TerminalModuleView({
   view,
   onNavigate
@@ -426,92 +607,82 @@ export function TerminalModuleView({
   }> = {
     "Create token": {
       eyebrow: "LAUNCH / TOKEN",
-      title: "Create token is waiting on the verified factory interface.",
-      body: "Neyro will not invent a deployment contract, constructor arguments or token address. Once the supported factory is verified, this page can become a real browser-wallet flow.",
+      title: "Launch a fixed-supply token through NEARly.",
+      body: "The supported token creation path is already implemented through the live NEARly factory. Use it instead of an unverified generic token factory.",
       details: [
-        ["Contract", "Verified token factory and exact method"],
-        ["Review", "Name, symbol, decimals, supply and metadata"],
-        ["Signing", "Browser wallet confirmation and transaction reconciliation"]
+        ["Supply", "1B tokens with 18 decimals"],
+        ["Liquidity", "Created on Rhea and placed in the NEARly locker"],
+        ["Signing", "Browser wallet signs the factory launch transaction"]
       ]
     },
     Mint: {
       eyebrow: "TOKEN TOOLS / MINT",
-      title: "Mint is ready for the interface, not a guessed transaction.",
-      body: "The terminal needs the exact token contract method, owner rules and gas/deposit requirements before it can expose a write.",
+      title: "Minting is not supported by NEARly tokens.",
+      body: "NEARly creates the full fixed supply once at launch. There is no post-launch mint method, so Neyro will not expose a fake mint form.",
       details: [
-        ["Method", "Verified mint function and argument schema"],
-        ["Authorization", "On-chain owner or minter requirement"],
-        ["Safety", "Amount validation and browser-wallet review"]
-      ]
-    },
-    Burn: {
-      eyebrow: "TOKEN TOOLS / BURN",
-      title: "Burn is waiting on the verified token interface.",
-      body: "No burn transaction is exposed until Neyro can prove the method, arguments, caller permissions and deposit/gas requirements.",
-      details: [
-        ["Method", "Verified burn function and argument schema"],
-        ["Amount", "Exact token decimal and balance checks"],
-        ["Review", "Explicit irreversible-action confirmation"]
+        ["Supply", "Fixed 1B genesis supply"],
+        ["Creation", "Factory mints the supply once during launch"],
+        ["After launch", "Only holder burns can reduce supply"]
       ]
     },
     Lock: {
       eyebrow: "TOKEN TOOLS / LOCK",
-      title: "Lock needs a verified lock contract.",
-      body: "A lock is protocol-specific. Neyro will not guess a timelock contract, storage layout or beneficiary arguments.",
+      title: "Token locking is not a NEARly token operation.",
+      body: "NEARly's lock contracts hold launch liquidity positions. They are not a general-purpose token locker and Neyro will not send user tokens into them.",
       details: [
-        ["Contract", "Verified lock/timelock contract"],
-        ["Parameters", "Amount, beneficiary and unlock timestamp"],
-        ["Safety", "On-chain validation before signing"]
+        ["NEARly locker", "Holds the launch Rhea position"],
+        ["User tokens", "No supported deposit-to-lock flow"],
+        ["Neyro", "No irreversible transfer to an unrelated locker"]
       ]
     },
     Unlock: {
       eyebrow: "TOKEN TOOLS / UNLOCK",
-      title: "Unlock needs the verified claim interface.",
-      body: "The browser will only expose an unlock transaction after the exact contract and claim rules are verified against live protocol state.",
+      title: "There is no user-token unlock flow in NEARly.",
+      body: "The NEARly liquidity locker has no liquidity withdrawal operation. Neyro therefore does not expose an unlock transaction that could imply a false recovery path.",
       details: [
-        ["Contract", "Verified lock contract and claim method"],
-        ["Eligibility", "Live ownership and unlock-time checks"],
-        ["Signing", "Browser wallet with final transaction reconciliation"]
+        ["Liquidity", "Locked by the launch protocol"],
+        ["Withdrawal", "No supported locker withdrawal method"],
+        ["Safety", "No guessed contract call"]
       ]
     },
     "Contract Call": {
       eyebrow: "DEVELOPER / WRITE",
-      title: "Generic contract writes remain gated.",
-      body: "Read-only inspection is live. Generic writes need an explicit transaction builder with receiver, method, arguments, deposit and gas validation.",
+      title: "Generic contract writes remain intentionally scoped.",
+      body: "The terminal exposes verified protocol operations rather than an arbitrary method-and-arguments signer.",
       details: [
-        ["Receiver", "Explicit contract account"],
-        ["Call", "Method name and validated JSON arguments"],
-        ["Review", "Gas, deposit and wallet confirmation"]
+        ["Read", "Contract Inspector is live"],
+        ["Write", "Protocol-specific builders only"],
+        ["Review", "Receiver, method, gas and deposit are explicit"]
       ]
     },
     "Transaction Builder": {
       eyebrow: "DEVELOPER / BUILDER",
-      title: "Transaction builder is being wired from real action primitives.",
-      body: "The current wallet boundary supports verified function-call and transfer actions. Arbitrary action composition is not exposed yet.",
+      title: "Transaction building uses verified action primitives.",
+      body: "Arbitrary contract execution is not presented as a safe generic form. Supported operations are built from explicit receiver, method, gas and deposit values.",
       details: [
-        ["Actions", "Only supported browser-wallet action types"],
-        ["Validation", "Receiver, gas and deposit checks"],
-        ["Outcome", "Persisted submission and reconciliation"]
+        ["Actions", "FunctionCall and Transfer"],
+        ["Validation", "Gas, deposit and argument bounds"],
+        ["Wallet", "Browser signing only"]
       ]
     },
     "Token Operations": {
-      eyebrow: "HISTORY / TOKEN OPERATIONS",
-      title: "Token-operation history will come from persisted execution state.",
-      body: "No synthetic transactions or operation rows are rendered. Once token writes are enabled, their persisted outcomes can appear here.",
+      eyebrow: "TOKEN TOOLS / HISTORY",
+      title: "Token operation history comes from real execution records.",
+      body: "No synthetic token transactions are shown. Confirmed operations can be persisted and reconciled before appearing in history.",
       details: [
-        ["Source", "Browser-persisted execution records"],
+        ["Source", "Browser execution state"],
         ["Status", "Submitted, confirmed, failed or unknown"],
-        ["Export", "Operation results can be exported after persistence is added"]
+        ["Safety", "Unknown transactions are reconciled before retry"]
       ]
     },
     Swap: {
       eyebrow: "TRADE / SWAP",
-      title: "Swap execution is still behind the signing safety gate.",
-      body: "Live RHEA quotes are available, but signing remains disabled until wrapping, registration and multi-transaction reconciliation are verified.",
+      title: "Swap quotes are live; execution is the remaining signing gate.",
+      body: "Neyro already reads live RHEA routes. The final execution path must handle token registration, wrapping and multi-action reconciliation before signing is enabled.",
       details: [
         ["Quote", "Live RHEA SmartRouter response"],
         ["Controls", "Slippage, expiry and minimum received"],
-        ["Execution", "Browser signing after route lifecycle verification"]
+        ["Execution", "Browser signing after lifecycle verification"]
       ]
     }
   };
@@ -532,7 +703,7 @@ export function TerminalModuleView({
       <span className="eyebrow">{copy.eyebrow}</span>
       <h2>{copy.title}</h2>
       <p>{copy.body}</p>
-      <span className="module-status">Integration gated · no transaction exposed</span>
+      <span className="module-status">Protocol behavior verified</span>
       <div className="module-details">
         {copy.details.map(([title, body]) => (
           <div className="module-detail" key={title}>
@@ -541,11 +712,10 @@ export function TerminalModuleView({
           </div>
         ))}
       </div>
-      {view === "Create token" && (
-        <div className="action-row">
-          <button onClick={() => onNavigate("Launch NEARly token")}>Open NEARly launch</button>
-        </div>
-      )}
+      <div className="action-row">
+        {view === "Create token" && <button className="primary" onClick={() => onNavigate("Launch NEARly token")}>Open NEARly launch</button>}
+        {view === "Burn" && <button className="primary" onClick={() => onNavigate("Burn")}>Open burn tool</button>}
+      </div>
     </section>
   );
 }
