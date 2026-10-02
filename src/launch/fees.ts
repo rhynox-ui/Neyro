@@ -189,6 +189,18 @@ function claimArgs(kind: CreatorFeeClaimKind, launchId?: number): Record<string,
   return { launch_id: launchId };
 }
 
+export function buildCreatorFeeClaimTransaction(
+  kind: CreatorFeeClaimKind,
+  launchId?: number
+): NearTransaction {
+  const method = claimMethod(kind);
+  const args = claimArgs(kind, launchId);
+  return {
+    receiverId: NEARLY_FACTORY,
+    actions: [functionCall(method, args, CLAIM_GAS, 0n)]
+  };
+}
+
 async function claim(
   walletService: WalletService,
   userId: number,
@@ -196,8 +208,6 @@ async function claim(
   kind: CreatorFeeClaimKind,
   launchId?: number
 ): Promise<string> {
-  const method = claimMethod(kind);
-  const args = claimArgs(kind, launchId);
 
   // Re-read the authoritative state immediately before signing. The UI is
   // never trusted for ownership or amount.
@@ -221,10 +231,7 @@ async function claim(
     await walletService.getSigningAccount(userId, accountId),
     { allowedReceivers: [NEARLY_FACTORY] }
   );
-  const tx: NearTransaction = {
-    receiverId: NEARLY_FACTORY,
-    actions: [functionCall(method, args, CLAIM_GAS, 0n)]
-  };
+  const tx = buildCreatorFeeClaimTransaction(kind, launchId);
 
   try {
     const sent = await signer.signAndSendTransactions([tx], {});
