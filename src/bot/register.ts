@@ -1208,7 +1208,7 @@ export function registerBotHandlers(bot: Bot) {
           const buyResult = await tradingService.execute(userId, prepared.id);
           creatorBuyMessage =
             "\n\n<b>Creator buy</b>\n" +
-            escapeHtml(renderExecution(buyResult));
+            renderExecution(buyResult);
         } catch (error) {
           console.error("NEARly post-launch creator buy error:", error);
           creatorBuyMessage =
