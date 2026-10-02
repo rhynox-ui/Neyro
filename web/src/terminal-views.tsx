@@ -598,6 +598,392 @@ function toTokenBase(value: string, decimals: number): bigint {
   return base;
 }
 
+
+export function TokenMintView({
+  accountId,
+  wallet
+}: {
+  accountId: string;
+  wallet: WebWalletConnector | null;
+}) {
+  type MintProfile = "ft_mint" | "mint_receiver_id" | "mint_account_id" | "custom";
+  type TokenState = {
+    name: string;
+    symbol: string;
+    decimals: number;
+    spec: string;
+    totalSupply: bigint;
+    balance: bigint;
+    icon?: string | null;
+  };
+
+  const [token, setToken] = useState("");
+  const [recipient, setRecipient] = useState(accountId);
+  const [amount, setAmount] = useState("");
+  const [profile, setProfile] = useState<MintProfile>("ft_mint");
+  const [customMethod, setCustomMethod] = useState("mint");
+  const [customArgs, setCustomArgs] = useState("{}");
+  const [gasTgas, setGasTgas] = useState("100");
+  const [depositNear, setDepositNear] = useState("0");
+  const [state, setState] = useState<TokenState | null>(null);
+  const [recipientStorage, setRecipientStorage] = useState<"registered" | "not-registered" | "unsupported" | "unknown">("unknown");
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [txHash, setTxHash] = useState("");
+
+  useEffect(() => {
+    if (!recipient && accountId) setRecipient(accountId);
+  }, [accountId, recipient]);
+
+  function clearFeedback() {
+    setError("");
+    setMessage("");
+    setTxHash("");
+  }
+
+  async function verifyToken() {
+    const contract = token.trim().toLowerCase();
+    if (!contract) {
+      setError("Enter a token contract.");
+      return;
+    }
+
+    setLoading(true);
+    clearFeedback();
+    setState(null);
+    setRecipientStorage("unknown");
+
+    try {
+      const rpc = new NearRpcClient();
+      const [metadata, totalSupply, balance] = await Promise.all([
+        rpc.viewFunction<{
+          spec: string;
+          name: string;
+          symbol: string;
+          decimals: number;
+          icon?: string | null;
+        }>(contract, "ft_metadata", {}),
+        rpc.viewFunction<string>(contract, "ft_total_supply", {}),
+        accountId
+          ? rpc.viewFunction<string>(contract, "ft_balance_of", { account_id: accountId })
+          : Promise.resolve("0")
+      ]);
+
+      if (metadata.spec !== "ft-1.0.0") {
+        throw new Error("Contract does not report the NEP-141 metadata spec ft-1.0.0.");
+      }
+      if (!metadata.name || !metadata.symbol || !Number.isInteger(metadata.decimals) || metadata.decimals < 0 || metadata.decimals > 24) {
+        throw new Error("Token metadata is incomplete or invalid.");
+      }
+      if (!/^\d+$/.test(totalSupply) || !/^\d+$/.test(balance)) {
+        throw new Error("Token returned an invalid supply or balance.");
+      }
+
+      let storage: typeof recipientStorage = "unsupported";
+      if (recipient.trim()) {
+        try {
+          const result = await rpc.viewFunction<{ total?: string } | null>(
+            contract,
+            "storage_balance_of",
+            { account_id: recipient.trim().toLowerCase() }
+          );
+          storage = result && typeof result === "object" ? "registered" : "not-registered";
+        } catch {
+          storage = "unsupported";
+        }
+      }
+
+      setState({
+        name: metadata.name,
+        symbol: metadata.symbol,
+        decimals: metadata.decimals,
+        spec: metadata.spec,
+        totalSupply: BigInt(totalSupply),
+        balance: BigInt(balance),
+        icon: metadata.icon
+      });
+      setRecipientStorage(storage);
+      setMessage("NEP-141 interface verified from live NEAR mainnet state. Mint authority is contract-specific.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Token verification failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function buildMintArgs(): Record<string, unknown> {
+    const receiver = recipient.trim().toLowerCase();
+    const base = toTokenBase(amount, state?.decimals ?? 0);
+
+    if (profile === "ft_mint") return { receiver_id: receiver, amount: base.toString() };
+    if (profile === "mint_receiver_id") return { receiver_id: receiver, amount: base.toString() };
+    if (profile === "mint_account_id") return { account_id: receiver, amount: base.toString() };
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(customArgs);
+    } catch {
+      throw new Error("Custom mint args must be valid JSON.");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Custom mint args must be a JSON object.");
+    }
+    return parsed as Record<string, unknown>;
+  }
+
+  function mintMethod(): string {
+    if (profile === "ft_mint") return "ft_mint";
+    if (profile === "mint_receiver_id" || profile === "mint_account_id") return "mint";
+    const method = customMethod.trim();
+    if (!method) throw new Error("Enter the custom mint method.");
+    if (!/^[a-zA-Z0-9_$:-]{1,128}$/.test(method)) throw new Error("Mint method contains invalid characters.");
+    return method;
+  }
+
+  function gas(): bigint {
+    const value = Number(gasTgas);
+    if (!Number.isFinite(value) || value < 1 || value > 300) throw new Error("Gas must be between 1 and 300 Tgas.");
+    return BigInt(Math.round(value * 1_000_000_000_000));
+  }
+
+  function deposit(): bigint {
+    return toNearYocto(depositNear);
+  }
+
+  async function mint() {
+    if (!wallet || !accountId) {
+      setError("Connect the browser wallet first.");
+      return;
+    }
+    if (!state) {
+      setError("Verify the token before minting.");
+      return;
+    }
+
+    const contract = token.trim().toLowerCase();
+    const receiver = recipient.trim().toLowerCase();
+    if (!/^(?=.{2,64}$)(?:[a-z\d]+(?:[-_][a-z\d]+)*\.)*[a-z\d]+(?:[-_][a-z\d]+)*$/.test(receiver)) {
+      setError("Enter a valid NEAR recipient account.");
+      return;
+    }
+
+    let args: Record<string, unknown>;
+    let method: string;
+    let callGas: bigint;
+    let attached: bigint;
+    try {
+      args = buildMintArgs();
+      method = mintMethod();
+      callGas = gas();
+      attached = deposit();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Mint parameters are invalid.");
+      return;
+    }
+
+    setBusy(true);
+    clearFeedback();
+
+    try {
+      const result = await wallet.signAndSend({
+        signerId: accountId,
+        receiverId: contract,
+        actions: [{
+          type: "FunctionCall",
+          receiverId: contract,
+          methodName: method,
+          args,
+          gas: callGas,
+          deposit: attached
+        }]
+      });
+
+      if (!result.transactionHash) {
+        throw new Error("Wallet did not return a transaction hash. If the wallet redirected for signing, verify the transaction before retrying.");
+      }
+
+      setTxHash(result.transactionHash);
+      setMessage("Mint transaction submitted. Refresh the token state after final execution.");
+      setAmount("");
+      await verifyToken();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Mint transaction failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const previewAmount = state && amount.trim()
+    ? (() => {
+        try { return formatTokenBase(toTokenBase(amount, state.decimals), state.decimals); }
+        catch { return "Invalid amount"; }
+      })()
+    : "—";
+
+  return (
+    <section className="grid terminal-page mint-page">
+      <div className="card hero full">
+        <div>
+          <span className="eyebrow">TOKEN TOOLS / MINT</span>
+          <h2>Mint tokens on NEAR.</h2>
+          <p>Load any compatible NEP-141 token, inspect its live supply and balance, then call the token's configured mint interface from your browser wallet.</p>
+        </div>
+        <div className="hero-state">
+          <span className={accountId ? "status-dot live" : "status-dot"} />
+          <span>{accountId ? "Wallet connected" : "Connect wallet"}</span>
+        </div>
+      </div>
+
+      <div className="card full mint-token-card">
+        <div className="section-head">
+          <div><span className="eyebrow">01 / TOKEN</span><h3>Load token</h3></div>
+          <button onClick={() => void verifyToken()} disabled={loading || !token.trim()}>
+            {loading ? "Verifying…" : "Verify token"}
+          </button>
+        </div>
+        <div className="mint-contract-row">
+          <div>
+            <label>Token contract</label>
+            <input
+              value={token}
+              onChange={(event) => { setToken(event.target.value.trim().toLowerCase()); setState(null); clearFeedback(); }}
+              placeholder="token.near"
+              spellCheck={false}
+            />
+          </div>
+          {state && (
+            <div className="mint-token-identity">
+              {state.icon?.startsWith("data:image/") || state.icon?.startsWith("https://") ? (
+                <img src={state.icon} alt="" className="mint-token-icon" />
+              ) : (
+                <span className="mint-token-icon mint-token-icon-fallback">{state.symbol.slice(0, 2)}</span>
+              )}
+              <div><strong>{state.name}</strong><span>{state.symbol} · {state.spec}</span></div>
+            </div>
+          )}
+        </div>
+
+        {state && (
+          <div className="mint-stats">
+            <div><span>Total supply</span><strong>{formatTokenBase(state.totalSupply, state.decimals)} {state.symbol}</strong></div>
+            <div><span>Your balance</span><strong>{formatTokenBase(state.balance, state.decimals)} {state.symbol}</strong></div>
+            <div><span>Decimals</span><strong>{state.decimals}</strong></div>
+            <div><span>Interface</span><strong className="ready">NEP-141</strong></div>
+          </div>
+        )}
+      </div>
+
+      {state && (
+        <>
+          <div className="card mint-form-card">
+            <div className="section-head">
+              <div><span className="eyebrow">02 / MINT</span><h3>Issue new supply</h3></div>
+              <span className="mint-live">LIVE ON-CHAIN</span>
+            </div>
+
+            <div className="mint-field">
+              <label>Recipient</label>
+              <input
+                value={recipient}
+                onChange={(event) => { setRecipient(event.target.value.trim().toLowerCase()); setRecipientStorage("unknown"); }}
+                placeholder="recipient.near"
+                spellCheck={false}
+              />
+              <small>
+                {recipientStorage === "registered" ? "Recipient storage is registered." :
+                 recipientStorage === "not-registered" ? "Recipient is not registered under NEP-145; the mint contract may or may not handle registration." :
+                 recipientStorage === "unsupported" ? "Token does not expose the standard storage_balance_of view." :
+                 "Verify the token to read recipient storage state."}
+              </small>
+            </div>
+
+            <div className="mint-field">
+              <label>Amount <span className="optional">in {state.symbol}</span></label>
+              <div className="mint-amount-row">
+                <input inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); clearFeedback(); }} placeholder="0.00" />
+                <span>{state.symbol}</span>
+              </div>
+            </div>
+
+            <div className="mint-field">
+              <label>Mint interface</label>
+              <select value={profile} onChange={(event) => { setProfile(event.target.value as MintProfile); clearFeedback(); }}>
+                <option value="ft_mint">ft_mint · receiver_id + amount</option>
+                <option value="mint_receiver_id">mint · receiver_id + amount</option>
+                <option value="mint_account_id">mint · account_id + amount</option>
+                <option value="custom">Custom contract interface</option>
+              </select>
+            </div>
+
+            {profile === "custom" && (
+              <div className="mint-custom-grid">
+                <div className="mint-field">
+                  <label>Method</label>
+                  <input value={customMethod} onChange={(event) => setCustomMethod(event.target.value)} placeholder="mint" spellCheck={false} />
+                </div>
+                <div className="mint-field full-field">
+                  <label>Arguments JSON</label>
+                  <textarea value={customArgs} onChange={(event) => setCustomArgs(event.target.value)} rows={6} spellCheck={false} placeholder='{"receiver_id":"alice.near","amount":"1000000"}' />
+                  <small>Custom mode is for a mint interface you have verified in the token contract documentation or source.</small>
+                </div>
+              </div>
+            )}
+
+            <details className="mint-advanced">
+              <summary>Advanced transaction settings</summary>
+              <div className="two">
+                <div className="mint-field">
+                  <label>Gas (Tgas)</label>
+                  <input inputMode="decimal" value={gasTgas} onChange={(event) => setGasTgas(event.target.value)} />
+                </div>
+                <div className="mint-field">
+                  <label>Attached deposit (NEAR)</label>
+                  <input inputMode="decimal" value={depositNear} onChange={(event) => setDepositNear(event.target.value)} />
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div className="card mint-review-card">
+            <div className="section-head">
+              <div><span className="eyebrow">03 / REVIEW</span><h3>Transaction preview</h3></div>
+              <span className="muted">{profile === "custom" ? "Custom interface" : "Supported call template"}</span>
+            </div>
+            <div className="mint-review-list">
+              <div><span>Contract</span><strong>{shortId(token.trim().toLowerCase())}</strong></div>
+              <div><span>Method</span><strong>{profile === "ft_mint" ? "ft_mint" : profile === "custom" ? customMethod || "—" : "mint"}</strong></div>
+              <div><span>Recipient</span><strong>{shortId(recipient.trim().toLowerCase() || "—")}</strong></div>
+              <div><span>Amount</span><strong>{previewAmount} {state.symbol}</strong></div>
+              <div><span>Attached deposit</span><strong>{depositNear || "0"} NEAR</strong></div>
+              <div><span>Network</span><strong>NEAR mainnet</strong></div>
+            </div>
+            <div className="mint-note">
+              <strong>Important:</strong> NEP-141 does not define a universal mint method. The selected mint call must exist on this contract and its on-chain access control must authorize the connected signer.
+            </div>
+            <button className="primary mint-submit" onClick={() => void mint()} disabled={busy || !wallet || !accountId}>
+              {busy ? "Submitting mint…" : "Mint tokens"}
+            </button>
+            {!accountId && <p className="muted">Connect the browser wallet to sign this transaction.</p>}
+            {txHash && <p className="message success">Submitted: <span className="mono-value">{txHash}</span></p>}
+            {message && <p className="message">{message}</p>}
+            {error && <p className="message warning">{error}</p>}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function toNearYocto(value: string): bigint {
+  const clean = value.trim() || "0";
+  if (!/^\d+(?:\.\d+)?$/.test(clean)) throw new Error("Attached deposit must be a valid NEAR amount.");
+  const [whole, fraction = ""] = clean.split(".");
+  if (fraction.length > 24) throw new Error("Attached deposit supports at most 24 decimals.");
+  return BigInt(whole) * 10n ** 24n + BigInt(fraction.padEnd(24, "0") || "0");
+}
+
 export function TerminalModuleView({
   view,
   onNavigate
@@ -623,12 +1009,12 @@ export function TerminalModuleView({
     },
     Mint: {
       eyebrow: "TOKEN TOOLS / MINT",
-      title: "Minting is not supported by NEARly tokens.",
-      body: "NEARly creates the full fixed supply once at launch. There is no post-launch mint method, so Neyro will not expose a fake mint form.",
+      title: "Mint tokens through a contract-specific mint interface.",
+      body: "NEP-141 verifies the fungible-token surface, while minting remains an optional contract capability. Load the token to inspect its live supply and configure the mint call before signing.",
       details: [
-        ["Supply", "Fixed 1B genesis supply"],
-        ["Creation", "Factory mints the supply once during launch"],
-        ["After launch", "Only holder burns can reduce supply"]
+        ["Token standard", "Live NEP-141 metadata and supply checks"],
+        ["Mint method", "Contract-specific; not defined by NEP-141"],
+        ["Signing", "Connected browser wallet only"]
       ]
     },
     Lock: {
