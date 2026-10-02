@@ -600,7 +600,7 @@ function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">N</div>
+          <img className="brand-mark" src="/neyro-logo.svg" alt="" aria-hidden="true" />
           <div><strong>NEYRO</strong><small>TERMINAL</small></div>
         </div>
 
