@@ -28,7 +28,7 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
+import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, getNearlyLaunchQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
 import { claimCreatorLaunchFees, claimCreatorNearFees, formatCreatorFee, getCreatorFeeSummary, type CreatorFeeSummary } from "../launch/fees.js";
 
 const walletService = new WalletService();
@@ -137,7 +137,7 @@ function renderNearlyLaunchSuccess(result: Pick<NearlyLaunchResult, "txHash" | "
     `Launch ID: <code>${result.launch.id}</code>\n` +
     `Cost: ${formatNear(BigInt(result.cost.total))} NEAR\n` +
     `Pair: <b>${escapeHtml(launchQuoteLabel(result.launch.quote))}</b>\n` +
-    `First buy: ${result.launch.quote === NEARLY_WNEAR ? `${escapeHtml(result.devBuyNear)} NEAR` : "Not available for this pair"}\n` +
+    `Creator buy: ${escapeHtml(result.devBuyNear)} NEAR${result.launch.quote === NEARLY_WNEAR ? "" : " (after launch)"}\n` +
     `Status: <b>LIVE</b>\n\n` +
     `🔗 <a href="${explorerTx(result.txHash)}">View launch transaction</a>\n` +
     `🔗 <a href="https://nearly.trade/">Open NEARly</a>`
@@ -974,16 +974,19 @@ export function registerBotHandlers(bot: Bot) {
       await ctx.answerCallbackQuery("That pair is no longer available");
       return;
     }
-    const nextStep = quote === NEARLY_WNEAR ? "devBuyNear" : "website";
+    const nextStep = "devBuyNear";
     const nextState: LaunchWizard = { ...wizard, quote, step: nextStep };
     delete nextState.pairOptions;
     await defaultStateStore().set(ctx.from.id, "launch-wizard", nextState, 30 * 60 * 1000);
     await ctx.answerCallbackQuery(`Pair: ${launchQuoteLabel(quote)}`);
-    if (nextStep === "devBuyNear") {
-      await replyScreen(ctx, "launch", "Enter your optional <b>first buy in NEAR</b>, or send <code>0</code> for none.", HTML);
-    } else {
-      await replyScreen(ctx, "launch", "Website URL, or <code>skip</code>.", HTML);
-    }
+    await replyScreen(
+      ctx,
+      "launch",
+      quote === NEARLY_WNEAR
+        ? "Enter your optional <b>first buy in NEAR</b>, or send <code>0</code> for none."
+        : "Enter your optional <b>creator buy in NEAR</b>, or send <code>0</code> for none.\n\nNEARly will launch the token first, then Neyro will route this NEAR amount through the selected pair.",
+      HTML
+    );
   });
 
   pm.command("launch_status", async (ctx) => {
@@ -1351,8 +1354,8 @@ export function registerBotHandlers(bot: Bot) {
         }
         case "tax": {
           const finishTax = async (tax: LaunchWizard["tax"]) => {
-            const quotes = await getNearlyQuotes(true);
-            const pairOptions = quotes.map((quote) => quote.accountId);
+            const quotes = await getNearlyLaunchQuotes(true);
+            if (quotes.length === 0) throw new UserFacingError("NEARly returned no supported launch pairs.");
             const state: LaunchWizard = { ...wizard, tax, step: "pair", pairOptions };
             await save(state);
             const keyboard = new InlineKeyboard();
@@ -1398,8 +1401,8 @@ export function registerBotHandlers(bot: Bot) {
           const options = wizard.pairOptions ?? [];
           const quote = options.find((accountId) => accountId.toLowerCase() === text.toLowerCase())
             ?? options.find((accountId) => launchQuoteLabel(accountId).toLowerCase() === text.toLowerCase());
-          if (!quote) throw new UserFacingError("Choose one of the approved NEARly pairs shown above.");
-          const nextStep = quote === NEARLY_WNEAR ? "devBuyNear" : "website";
+          if (!quote) throw new UserFacingError("Choose one of the supported NEARly launch pairs shown above.");
+          const nextStep = "devBuyNear";
           const state: LaunchWizard = { ...wizard, quote, step: nextStep };
           delete state.pairOptions;
           await save(state, nextStep === "devBuyNear"
