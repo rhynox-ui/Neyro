@@ -862,24 +862,14 @@ export function TerminalModuleView({
     body: string;
     details: Array<[string, string]>;
   }> = {
-    "Create token": {
-      eyebrow: "TOKEN / CREATE",
-      title: "Create a developer-owned NEP-141 token.",
-      body: "This is separate from NEARly. The generic creation form is ready for the verified deployment interface, but Neyro will not guess a factory contract or token initialization method.",
+    Mint: {
+      eyebrow: "TOKEN / MINT",
+      title: "Create a fresh developer-owned NEP-141 token.",
+      body: "Mint is Neyro's fresh-token creation flow. Define the token identity, decimals, initial supply, recipient and metadata, then deploy through Neyro's verified token implementation when the on-chain factory is connected.",
       details: [
         ["Identity", "Name, symbol and decimals"],
-        ["Supply", "Initial supply and receiving account"],
-        ["Deployment", "Blocked until the Neyro token contract/factory is verified"]
-      ]
-    },
-    Mint: {
-      eyebrow: "TOKEN TOOLS / MINT",
-      title: "Mint tokens through a contract-specific mint interface.",
-      body: "NEP-141 verifies the fungible-token surface, while minting remains an optional contract capability. Load the token to inspect its live supply and configure the mint call before signing.",
-      details: [
-        ["Token standard", "Live NEP-141 metadata and supply checks"],
-        ["Mint method", "Contract-specific; not defined by NEP-141"],
-        ["Signing", "Connected browser wallet only"]
+        ["Initial supply", "Created for the selected recipient"],
+        ["Deployment", "Enabled only after the Neyro token implementation is verified"]
       ]
     },
     Lock: {
