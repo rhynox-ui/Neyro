@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import type { Campaign } from "./campaign/model";
-import type { CampaignStore } from "./campaign/storage";
-import type { WebWalletConnector } from "./wallet/connector";
 import { NearRpcClient } from "./near/rpc";
 
 function formatNear(yocto: string): string {
@@ -22,12 +20,10 @@ function statusClass(status: Campaign["status"]): string {
 
 export function OverviewView({
   accountId,
-  campaignStore,
   campaigns,
   tokenSymbol
 }: {
   accountId: string;
-  campaignStore: CampaignStore;
   campaigns: Campaign[];
   tokenSymbol?: string;
 }) {
