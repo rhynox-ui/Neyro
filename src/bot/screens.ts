@@ -8,7 +8,7 @@ import { scheduleDeletion } from "./autodelete.js";
  * previous screen of the same kind. Results the user may need later (trade
  * receipts, withdrawals, the exported key) are never tracked, so they stay.
  */
-export type ScreenKind = "menu" | "panel" | "wallet" | "deposit" | "balance" | "portfolio" | "settings" | "feed" | "withdraw" | "launch";
+export type ScreenKind = "menu" | "panel" | "wallet" | "deposit" | "balance" | "portfolio" | "settings" | "feed" | "withdraw" | "launch" | "fees";
 
 type Screen = { chatId: number; messageId: number };
 
