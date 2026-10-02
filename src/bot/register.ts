@@ -304,10 +304,12 @@ export function renderImportWalletPrompt(): string {
   return [
     "📥 <b>Import NEAR wallet</b>",
     "",
-    "Send your <b>private key</b> in your next message.",
-    "Format: <code>ed25519:...</code>",
+    "Send your <b>private key or NEAR seed phrase</b> in your next message.",
+    "Private key: <code>ed25519:...</code>",
+    "Seed phrase: your 12/24 NEAR recovery words",
     "",
-    "⚠️ Send only the private key. Neyro will delete your message immediately after receiving it.",
+    "⚠️ Neyro will delete your message immediately after receiving it.",
+
     "The key is encrypted before it is stored.",
     "",
     "❌ Never send a seed phrase or private key to anyone except the wallet you intentionally want to import."
