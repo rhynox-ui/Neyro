@@ -298,3 +298,54 @@ Current policy:
 The fee transfer is represented separately from the token contract operation. When live transaction adapters are added, the final transaction must make the fee transfer explicit in the pre-signing summary.
 
 Before mainnet execution, verify the treasury account against the current production bot deployment configuration. If the treasury changes, update the web-only fee configuration through a dedicated commit; do not modify Telegram code as part of that change.
+
+
+## 27. Campaign persistence
+
+Implemented `web/src/campaign/storage.ts` using browser IndexedDB.
+
+Stored campaign records contain only campaign execution state:
+- campaign id;
+- source fingerprint;
+- token/sender metadata;
+- recipient and amount totals;
+- per-batch state;
+- transaction hashes/errors.
+
+No private keys, seed phrases, encrypted Telegram wallet records, or signer secrets are persisted.
+
+Campaign identifiers use SHA-256 over a caller-provided stable fingerprint. The fingerprint must include enough source information to prevent accidentally treating a different recipient file as the same campaign.
+
+## 28. Sponsorship boundary
+
+The existing Neyro configuration confirms:
+
+`TREASURY_ACCOUNT_ID=widekingdom6862.near`
+
+That account is the fee treasury.
+
+The repository does **not** currently provide evidence of a separate browser gas-sponsorship/relayer service or a dedicated sponsor credential. Therefore the web terminal does not claim that the treasury can sponsor arbitrary user transactions.
+
+The web sponsorship abstraction has two explicit modes:
+- `user-pays-gas` — current default;
+- `relayer` — disabled until an explicit sponsor account and relayer provider are configured.
+
+This separation is intentional:
+- **fee collection** = 1 NEAR Mint/Lock fee sent to the treasury;
+- **gas sponsorship** = a separate execution mechanism that requires a controlled relayer/sponsor.
+
+Do not put a Telegram private key or treasury private key into the browser to implement sponsorship.
+
+## 29. Updated implementation order
+
+1. IndexedDB campaign persistence — implemented.
+2. Browser wallet connector abstraction.
+3. Fresh token/native balance preflight.
+4. Registration preflight.
+5. Transaction action adapter.
+6. Conservative gas-aware batch planner.
+7. Explicit sponsorship adapter, only if a supported relayer is selected.
+8. Signing and broadcast.
+9. Reconciliation/polling.
+10. Resume after reload.
+11. Enable Start only after all safety gates pass.
