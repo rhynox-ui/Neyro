@@ -151,7 +151,12 @@ export class RheaClient {
     }
     const amountIn = stringField(data, "amount_in", "amountIn");
     const amountOut = stringField(data, "amount_out", "amountOut");
-    const minAmountOut = stringField(data, "min_amount_out", "minAmountOut");
+    const reportedMinAmountOut = stringField(data, "min_amount_out", "minAmountOut", "min_output_amount", "minOutputAmount");
+    // Some live SmartRouter responses omit min_amount_out even though the
+    // documented response includes it. The requested slippage is already sent
+    // to SmartRouter, so derive the local minimum conservatively from the
+    // returned expected output rather than rejecting an otherwise valid route.
+    const minAmountOut = reportedMinAmountOut || deriveMinAmountOut(amountOut, request.slippageBps);
     const msg = stringField(data, "msg", "message");
     const signature = stringField(data, "signature");
     const tokens = normalizeRouteTokens(data?.tokens ?? data?.routeTokens ?? data?.pathTokens);
@@ -332,6 +337,14 @@ function extractSmartRouterPayload(body: Record<string, unknown> | null): Record
     }
   }
   return body;
+}
+
+function deriveMinAmountOut(amountOut: string, slippageBps: number): string {
+  if (!/^\d+$/.test(amountOut)) return "";
+  if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps > 10_000) return "";
+  const output = BigInt(amountOut);
+  const minimum = (output * BigInt(10_000 - slippageBps)) / 10_000n;
+  return minimum.toString();
 }
 
 function stringField(record: Record<string, unknown> | null, ...keys: string[]): string {
