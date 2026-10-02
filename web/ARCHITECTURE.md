@@ -278,3 +278,23 @@ When the execution adapter is implemented, the pre-signing confirmation must sho
 - connected signing account.
 
 The UI must never silently substitute token units for the 1 NEAR native fee.
+
+
+## 26. Token tool fee collection
+
+Mint and Lock fees use the same treasury account configured by the existing Neyro bot:
+
+`widekingdom6862.near`
+
+The web terminal references this account but does not import or modify Telegram code.
+
+Current policy:
+- Mint: 1 NEAR → `widekingdom6862.near`
+- Lock: 1 NEAR → `widekingdom6862.near`
+- Fee denomination: native NEAR
+- Fee recipient: fixed treasury account
+- User signing account: pays the fee; it must never be replaced by the treasury account.
+
+The fee transfer is represented separately from the token contract operation. When live transaction adapters are added, the final transaction must make the fee transfer explicit in the pre-signing summary.
+
+Before mainnet execution, verify the treasury account against the current production bot deployment configuration. If the treasury changes, update the web-only fee configuration through a dedicated commit; do not modify Telegram code as part of that change.
