@@ -301,6 +301,14 @@ function App() {
       .catch(() => {
         // IndexedDB may be unavailable in private/restricted browser contexts.
       });
+    void campaignStore.listRegistrations()
+      .then((sessions) => {
+        const latest = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        if (latest) setRegistrationSession(latest);
+      })
+      .catch(() => {
+        // IndexedDB may be unavailable in private/restricted browser contexts.
+      });
   }, [campaignStore]);
 
   const senderList = useMemo(
