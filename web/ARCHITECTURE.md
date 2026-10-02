@@ -838,3 +838,14 @@ This is a presentation-only reset around the existing execution boundary; Telegr
 - Added the Neyro network logo as `web/public/neyro-logo.svg` and use it for the terminal sidebar brand mark and browser favicon.
 - The logo is presentation-only; it does not participate in wallet, signing, protocol, or execution state.
 - Telegram bot and Worker code remain untouched.
+
+
+## 2026-10-02 — Swap UI and theme pass
+
+- Reworked the Swap surface into a conventional DEX flow: From/To token panels, amount entry, token switch control, slippage presets, live route card and a clear review/sign boundary.
+- Increased terminal typography and control sizing for mobile readability while keeping compact desktop density.
+- Added persistent dark/light mode using local browser preference storage.
+- Light mode covers the terminal shell, navigation, forms, cards and swap surface.
+- Swap quote display now formats input/output/minimum amounts using the verified token decimals returned by NEAR metadata.
+- RHEA execution remains disabled until the transaction lifecycle is safe for wrapping, registration and multi-transaction reconciliation.
+- Telegram bot and Worker code remain untouched.
