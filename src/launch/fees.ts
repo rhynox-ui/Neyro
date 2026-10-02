@@ -121,12 +121,20 @@ async function getCreatorLaunches(accountId: string): Promise<RawLaunch[]> {
 }
 
 export async function getCreatorFeeSummary(accountId: string): Promise<CreatorFeeSummary> {
-  const [nearRaw, launches] = await Promise.all([
-    view<unknown>("get_creator_fees", { account_id: accountId }),
-    getCreatorLaunches(accountId)
-  ]);
-
+  // The aggregate NEAR balance is the authoritative value needed for the
+  // main /fees screen and the NEAR claim button. Do not let optional
+  // per-launch discovery take the whole screen down if one factory view
+  // method is temporarily unavailable.
+  const nearRaw = await view<unknown>("get_creator_fees", { account_id: accountId });
   const nearAmount = decimalString(nearRaw, "creator fee balance");
+
+  let launches: RawLaunch[] = [];
+  try {
+    launches = await getCreatorLaunches(accountId);
+  } catch (error) {
+    console.error("NEARly per-launch fee discovery unavailable:", error);
+  }
+
   const nonNearQuotes = launches.filter((launch) => launch.quote !== NEARLY_WNEAR);
   const decimalsByQuote = new Map(
     nonNearQuotes.length === 0
