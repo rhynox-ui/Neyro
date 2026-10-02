@@ -470,7 +470,11 @@ export function TokenBurnView({
       const rawBalance = await rpc.viewFunction<string>(contract, "ft_balance_of", { account_id: accountId });
       if (!/^\d+$/.test(rawBalance)) throw new Error("Token returned an invalid balance.");
 
-      setMetadata({ name: meta.name, symbol: meta.symbol, decimals: meta.decimals });
+      setMetadata({
+        symbol: meta.symbol,
+        decimals: meta.decimals,
+        ...(typeof meta.name === "string" ? { name: meta.name } : {})
+      });
       setBalance(BigInt(rawBalance));
       setMessage("NEARly launch verified. Burn removes tokens from your own balance permanently.");
     } catch (cause) {
