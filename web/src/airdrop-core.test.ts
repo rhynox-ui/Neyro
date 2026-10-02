@@ -37,6 +37,34 @@ describe("airdrop core", () => {
     ]);
   });
 
+  it("uses best-fit decreasing to avoid avoidable sender fragmentation", () => {
+    const allocations = allocateRecipientsDetailed(
+      [
+        recipient(1, "a.near", 1n),
+        recipient(2, "b.near", 1n),
+        recipient(3, "c.near", 4n),
+        recipient(4, "d.near", 4n)
+      ],
+      [
+        { senderId: "s1.near", tokenBalance: 5n, nativeBalance: 0n },
+        { senderId: "s2.near", tokenBalance: 5n, nativeBalance: 0n }
+      ]
+    );
+
+    expect(allocations).toEqual([
+      {
+        senderId: "s1.near",
+        recipients: [recipient(3, "c.near", 4n), recipient(1, "a.near", 1n)],
+        totalAmount: 5n
+      },
+      {
+        senderId: "s2.near",
+        recipients: [recipient(4, "d.near", 4n), recipient(2, "b.near", 1n)],
+        totalAmount: 5n
+      }
+    ]);
+  });
+
   it("rejects invalid decimals", () => {
     expect(() => parseAmount("1", -1)).toThrow();
     expect(() => parseAmount("1", 25)).toThrow();
