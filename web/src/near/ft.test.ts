@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { getFtBalance, getFtMetadata, getStorageBalance, isRegistered } from "./ft";
+import { getFtBalance, getFtMetadata, getStorageBalance, getStorageRegistrationState, isRegistered } from "./ft";
 import { NearRpcClient } from "./rpc";
 
 function clientWith<T>(value: T) {
@@ -51,5 +51,8 @@ describe("NEP-141 read helpers", () => {
     await expect(
       getStorageBalance(rpc, "token.near", "alice.near")
     ).resolves.toEqual({ total: "125", available: "0" });
+    await expect(
+      getStorageRegistrationState(rpc, "token.near", "alice.near")
+    ).resolves.toBe("registered");
   });
 });
