@@ -1386,7 +1386,7 @@ export function registerBotHandlers(bot: Bot) {
           const finishTax = async (tax: LaunchWizard["tax"]) => {
             const quotes = await getNearlyLaunchQuotes(true);
             if (quotes.length === 0) throw new UserFacingError("NEARly returned no supported launch pairs.");
-            const state: LaunchWizard = { ...wizard, tax, step: "pair", pairOptions };
+            const state: LaunchWizard = { ...wizard, tax, step: "pair", pairOptions: quotes.map((quote) => quote.accountId) };
             await save(state);
             const keyboard = new InlineKeyboard();
             quotes.forEach((quote, index) => {
