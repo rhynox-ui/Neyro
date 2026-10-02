@@ -49,7 +49,7 @@ export function createRateLimitMiddleware(distributed?: DistributedRateLimiter) 
 
     const updateKey = `u:${userId}`;
     if (!updates.take(updateKey)) {
-    if (ctx.callbackQuery) await ctx.answerCallbackQuery("Slow down a little.").catch(() => {});
+      if (ctx.callbackQuery) await ctx.answerCallbackQuery("Slow down a little.").catch(() => {});
       return;
     }
 
@@ -72,6 +72,7 @@ export function createRateLimitMiddleware(distributed?: DistributedRateLimiter) 
       if (distributed) {
         const remote = await distributed.limit({ key: `q:${userId}` }).catch(() => null);
         if (remote && !remote.success) {
+          const message = "Too many quotes in a minute. Please wait a moment.";
           if (ctx.callbackQuery) await ctx.answerCallbackQuery(message).catch(() => {});
           else await ctx.reply(message).catch(() => {});
           return;
