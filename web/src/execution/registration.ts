@@ -6,7 +6,7 @@ import {
   STORAGE_DEPOSIT_GAS
 } from "./transaction-builder";
 import { getStorageBalance, getStorageBalanceBounds } from "../near/ft";
-import type { CampaignStore, RegistrationStore } from "../campaign/storage";
+import type { RegistrationStore } from "../campaign/storage";
 
 export type RegistrationBatchStatus =
   | "pending"
