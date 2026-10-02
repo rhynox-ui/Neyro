@@ -60,3 +60,17 @@ Bulk transfer execution is wired and safety-tested. Recipient NEP-145 registrati
 ## 2026-10-02 — Recipient registration execution
 
 The bulk-transfer UI performs a bounded-concurrency NEP-145 registration preflight before signing. Unregistered recipients and tokens whose storage API cannot be verified are blocked. Registration uses the token-reported storage minimum, the connected browser wallet pays the storage deposit, registration sessions are persisted in IndexedDB, and unknown/submitted transactions require reconciliation before retry.
+
+
+## Token creation semantics
+
+In the web terminal, **Mint means creating a fresh new token**. It is not the UI for minting additional supply into an existing token contract.
+
+The creation flow collects the token identity, initial supply, logo, metadata, post-creation authority policy, and optional tax configuration. The authority controls describe what the resulting token implementation should support after creation; they are not treated as generic NEP-141 capabilities.
+
+The actual creation transaction remains gated until Neyro has a verified mainnet factory/deployment interface. NEP-141 defines the fungible-token interface, but it does not define a universal token-factory ABI. NEAR's reference material describes creating a token by deploying and initializing a contract, so the web terminal must use a specifically verified factory/deployment path rather than inventing a frontend ABI.
+
+References:
+- NEP-141: https://github.com/near/NEPs/blob/master/neps/nep-0141.md
+- NEAR FT example: https://github.com/near-examples/FT
+- NEAR token factory example (archived/deprecated): https://github.com/near-examples/token-factory
