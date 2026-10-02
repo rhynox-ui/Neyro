@@ -1287,3 +1287,34 @@ html[data-theme="light"] .burn-warning {
   .mint-review-list > div { align-items: flex-start; flex-direction: column; gap: 4px; }
   .mint-review-list strong { max-width: 100%; }
 }
+
+
+.mint-interface-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 7px;
+  border: 1px solid var(--border, #1a2028);
+  border-radius: 999px;
+  background: var(--surface-2, #0d1117);
+  color: var(--muted, #68717f);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .09em;
+}
+.mint-interface-status.warning {
+  border-color: var(--warning-border, #4b3f24);
+  color: var(--warning-text, #b59b63);
+}
+.mint-interface-warning {
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px;
+  border: 1px solid var(--warning-border, #4b3f24);
+  border-radius: 8px;
+  background: var(--warning-bg, #17140d);
+  color: var(--muted, #68717f);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.mint-interface-warning strong { color: var(--warning-text, #b59b63); font-size: 10px; }
