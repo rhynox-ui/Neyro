@@ -831,3 +831,10 @@ This is a presentation-only reset around the existing execution boundary; Telegr
 - Added a live RHEA SmartRouter quote surface. Quotes are fetched at request time, validated for positive output, minimum output and signature/message presence, and treated as short-lived.
 - Swap execution remains gated while the browser transaction lifecycle is hardened for RHEA wrapping, token registration and multi-transaction routes.
 - No Telegram bot, Worker or production signer code was modified.
+
+
+## 2026-10-02 — Neyro brand asset
+
+- Added the Neyro network logo as `web/public/neyro-logo.svg` and use it for the terminal sidebar brand mark and browser favicon.
+- The logo is presentation-only; it does not participate in wallet, signing, protocol, or execution state.
+- Telegram bot and Worker code remain untouched.
