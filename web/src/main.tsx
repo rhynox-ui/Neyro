@@ -246,6 +246,13 @@ async function parseFile(
 
 function App() {
   const [activeView, setActiveView] = useState("Overview");
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    try {
+      return localStorage.getItem("neyro-theme") === "light" ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  });
   const [wallet, setWallet] = useState<WebWalletConnector | null>(null);
   const [accountId, setAccountId] = useState("");
   const [walletBusy, setWalletBusy] = useState(false);
@@ -268,6 +275,11 @@ function App() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   const campaignStore = useMemo(() => new IndexedDbCampaignStore(), []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("neyro-theme", theme); } catch {}
+  }, [theme]);
 
   useEffect(() => {
     void campaignStore.list()
@@ -648,6 +660,9 @@ function App() {
             <h1>{activeView}</h1>
           </div>
           <div className="header-actions">
+            <button className="theme-toggle" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Use light mode" : "Use dark mode"}>
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
             {accountId ? (
               <>
                 <span className="account-pill">{accountId}</span>
