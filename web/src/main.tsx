@@ -20,6 +20,7 @@ import {
   TerminalModuleView,
   TokenBurnView,
   TokenMintView,
+  CreateTokenView,
   NearlyLaunchView,
   SwapView
 } from "./terminal-views";
@@ -713,6 +714,8 @@ function App() {
           <TokenBurnView accountId={accountId} wallet={wallet} />
         ) : activeView === "Mint" ? (
           <TokenMintView accountId={accountId} wallet={wallet} />
+        ) : activeView === "Create token" ? (
+          <CreateTokenView accountId={accountId} />
         ) : activeView === "Airdrop Campaigns" ? (
           <CampaignHistoryView
             campaigns={campaigns}
