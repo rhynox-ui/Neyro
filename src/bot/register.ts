@@ -1190,9 +1190,39 @@ export function registerBotHandlers(bot: Bot) {
       const wallet = await requireWallet(ctx);
       if (!wallet) throw new Error("Wallet not found");
       const result = await launchNearlyToken(walletService, userId, wizard);
-      await defaultStateStore().delete(userId, "launch-executing");
       await saveNearlyLaunchHistory(userId, result);
-      await editLaunchReview(ctx, renderNearlyLaunchSuccess(result));
+
+      let creatorBuyMessage = "";
+      const requestedCreatorBuy = wizard.devBuyNear && wizard.devBuyNear !== "0" ? wizard.devBuyNear : undefined;
+
+      if (requestedCreatorBuy && wizard.quote && wizard.quote !== NEARLY_WNEAR) {
+        try {
+          await editLaunchReview(
+            ctx,
+            renderNearlyLaunchSuccess(result) +
+            "\n\n⏳ <b>Creator buy</b>\nLaunching is complete. Routing your " +
+            escapeHtml(requestedCreatorBuy) +
+            " NEAR into the selected pair…"
+          );
+          const prepared = await tradingService.prepare(userId, "buy", result.launch.token, requestedCreatorBuy);
+          const buyResult = await tradingService.execute(userId, prepared.id);
+          creatorBuyMessage =
+            "\n\n<b>Creator buy</b>\n" +
+            escapeHtml(renderExecution(buyResult));
+        } catch (error) {
+          console.error("NEARly post-launch creator buy error:", error);
+          creatorBuyMessage =
+            "\n\n⚠️ <b>Launch succeeded, but the creator buy was not completed.</b>" +
+            "\nYou can retry it manually with /buy " +
+            code(result.launch.token) +
+            " " +
+            escapeHtml(requestedCreatorBuy) +
+            ".";
+        }
+      }
+
+      await defaultStateStore().delete(userId, "launch-executing");
+      await editLaunchReview(ctx, renderNearlyLaunchSuccess(result) + creatorBuyMessage);
     } catch (error) {
       await defaultStateStore().delete(userId, "launch-executing");
       console.error("NEARly launch execution error:", error);
