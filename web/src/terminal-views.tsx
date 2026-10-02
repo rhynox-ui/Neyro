@@ -863,13 +863,13 @@ export function TerminalModuleView({
     details: Array<[string, string]>;
   }> = {
     "Create token": {
-      eyebrow: "LAUNCH / TOKEN",
-      title: "Launch a fixed-supply token through NEARly.",
-      body: "The supported token creation path is already implemented through the live NEARly factory. Use it instead of an unverified generic token factory.",
+      eyebrow: "TOKEN / CREATE",
+      title: "Create a developer-owned NEP-141 token.",
+      body: "This is separate from NEARly. The generic creation form is ready for the verified deployment interface, but Neyro will not guess a factory contract or token initialization method.",
       details: [
-        ["Supply", "1B tokens with 18 decimals"],
-        ["Liquidity", "Created on Rhea and placed in the NEARly locker"],
-        ["Signing", "Browser wallet signs the factory launch transaction"]
+        ["Identity", "Name, symbol and decimals"],
+        ["Supply", "Initial supply and receiving account"],
+        ["Deployment", "Blocked until the Neyro token contract/factory is verified"]
       ]
     },
     Mint: {
