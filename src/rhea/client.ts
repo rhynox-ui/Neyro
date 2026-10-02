@@ -212,31 +212,76 @@ export class RheaClient {
     if (!token.endsWith(".nearlytrade.near")) return null;
 
     const launch = await fetchLaunchByToken(token).catch(() => null);
-    if (!launch || stripAssetPrefix(launch.token) !== token || stripAssetPrefix(launch.quote) !== "wrap.near") {
+    if (!launch || stripAssetPrefix(launch.token) !== token || !launch.poolId || !isValidDclPoolId(launch.poolId)) {
       return null;
     }
 
-    // NEARly launches use the Rhea DCL 1% tier. The factory's pool_id is
-    // authoritative, but validate its exact shape before using it.
-    const expectedPoolId = [token, "wrap.near"].sort().join("|") + "|10000";
-    const poolId = launch.poolId ?? expectedPoolId;
-    if (poolId !== expectedPoolId) return null;
-
     const inputToken = stripAssetPrefix(toApiAsset(request.fromToken).address);
     const outputToken = stripAssetPrefix(toApiAsset(request.toToken).address);
-    const raw = await withRpcFallback((provider) => provider.callFunction({
-      contractId: DCL_CONTRACT,
-      method: "quote",
-      args: {
-        pool_ids: [poolId],
-        input_token: { id: inputToken, decimals: inputDecimals },
-        output_token: { id: outputToken, decimals: outputDecimals },
-        input_amount: request.amountIn,
-        tag: null
+
+    // The launch record is authoritative for the launch pool. If its quote
+    // asset is another NEARly token, that quote token itself has a DCL pool
+    // against wrap.near. A NEAR/NEARly-pair buy therefore needs two pools:
+    // quote-token/NEAR first, then launch-token/quote-token.
+    const launchPoolId = launch.poolId;
+    const quoteToken = stripAssetPrefix(launch.quote);
+    const poolIds: string[] = [launchPoolId];
+
+    if (quoteToken !== "wrap.near") {
+      if (!quoteToken.endsWith(".nearlytrade.near")) return null;
+      const pairLaunch = await fetchLaunchByToken(quoteToken).catch(() => null);
+      if (
+        !pairLaunch ||
+        stripAssetPrefix(pairLaunch.token) !== quoteToken ||
+        stripAssetPrefix(pairLaunch.quote) !== "wrap.near" ||
+        !pairLaunch.poolId ||
+        !isValidDclPoolId(pairLaunch.poolId)
+      ) {
+        return null;
       }
-    }));
+
+      const buyingLaunchFromNear = inputToken === "wrap.near" && outputToken === token;
+      const sellingLaunchToNear = inputToken === token && outputToken === "wrap.near";
+      if (buyingLaunchFromNear) {
+        poolIds.splice(0, poolIds.length, pairLaunch.poolId, launchPoolId);
+      } else if (sellingLaunchToNear) {
+        poolIds.splice(0, poolIds.length, launchPoolId, pairLaunch.poolId);
+      } else if (inputToken === quoteToken && outputToken === token) {
+        poolIds.splice(0, poolIds.length, launchPoolId);
+      } else if (inputToken === token && outputToken === quoteToken) {
+        poolIds.splice(0, poolIds.length, launchPoolId);
+      } else {
+        return null;
+      }
+    } else if (
+      !(
+        (inputToken === "wrap.near" && outputToken === token) ||
+        (inputToken === token && outputToken === "wrap.near")
+      )
+    ) {
+      return null;
+    }
+
+    const raw = await withRpcFallback((provider) =>
+      provider.callFunction({
+        contractId: DCL_CONTRACT,
+        method: "quote",
+        args: {
+          pool_ids: poolIds,
+          // The live mainnet DCL contract expects token account IDs here.
+          // Do not send the SDK's TokenMetadata objects; that ABI is rejected
+          // by the deployed contract with "invalid type: map, expected a string".
+          input_token: inputToken,
+          output_token: outputToken,
+          input_amount: request.amountIn,
+          tag: null
+        }
+      })
+    );
+
     const amountOut = dclQuoteAmount(raw);
     if (amountOut === null || amountOut <= 0n) return null;
+
     const minAmountOut = deriveMinAmountOut(amountOut.toString(), request.slippageBps);
     if (!minAmountOut || BigInt(minAmountOut) <= 0n || BigInt(minAmountOut) > amountOut) return null;
 
@@ -246,7 +291,7 @@ export class RheaClient {
       amountOut: amountOut.toString(),
       minAmountOut,
       tokens: [inputToken, outputToken],
-      poolId,
+      poolIds,
       receivedAt: Date.now(),
       expiresAt: Date.now() + SMART_ROUTER_TTL_MS
     };
@@ -272,13 +317,22 @@ export class RheaClient {
       throw new UserFacingError("RHEA SmartRouter quote input no longer matches the approved trade");
     }
     if (quote.kind === "rhea-dcl") {
-      if (!quote.poolId || !/^.+\\|.+\\|10000$/.test(quote.poolId)) {
-        throw new UserFacingError("RHEA DCL quote has an invalid pool id; refresh the trade and try again");
+      const poolIds = quote.poolIds ?? (quote.poolId ? [quote.poolId] : []);
+      if (
+        poolIds.length < 1 ||
+        poolIds.length > 2 ||
+        poolIds.some((poolId) => !isValidDclPoolId(poolId))
+      ) {
+        throw new UserFacingError("RHEA DCL quote has an invalid pool path; refresh the trade and try again");
       }
-      const outputToken = isNearNative(request.toToken) ? "wrap.near" : stripAssetPrefix(request.toToken.address);
+
+      const gas = poolIds.length === 2 ? "250000000000000" : "180000000000000";
+      const outputToken = isNearNative(request.toToken)
+        ? "wrap.near"
+        : stripAssetPrefix(request.toToken.address);
       const msg = JSON.stringify({
         Swap: {
-          pool_ids: [quote.poolId],
+          pool_ids: poolIds,
           output_token: outputToken,
           min_output_amount: quote.minAmountOut
         }
@@ -288,20 +342,38 @@ export class RheaClient {
         params: {
           methodName: "ft_transfer_call",
           args: { receiver_id: DCL_CONTRACT, amount: quote.amountIn, msg },
-          gas: "180000000000000",
+          gas,
           deposit: "1"
         }
       };
+
       if (isNearNative(request.fromToken)) {
         return [
           {
             receiverId: "wrap.near",
-            actions: [{ type: "FunctionCall" as const, params: { methodName: "near_deposit", args: {}, gas: "180000000000000", deposit: quote.amountIn } }]
+            actions: [
+              {
+                type: "FunctionCall" as const,
+                params: {
+                  methodName: "near_deposit",
+                  args: {},
+                  gas,
+                  deposit: quote.amountIn
+                }
+              }
+            ]
           },
           { receiverId: "wrap.near", actions: [transfer] }
         ] as NearTransaction[];
       }
-      return [{ receiverId: stripAssetPrefix(((request.fromToken as AssetRef & { contractAddress?: string | null }).contractAddress) || request.fromToken.address), actions: [transfer] }] as NearTransaction[];
+
+      return [{
+        receiverId: stripAssetPrefix(
+          ((request.fromToken as AssetRef & { contractAddress?: string | null }).contractAddress)
+          || request.fromToken.address
+        ),
+        actions: [transfer]
+      }] as NearTransaction[];
     }
 
     const msg = JSON.stringify({ msg: quote.msg, signature: quote.signature });
@@ -356,6 +428,15 @@ export function isNearNative(token: { isNative?: boolean; address: string; asset
     .some((id) => id === "wrap.near" || id === "near");
 }
 
+
+function isValidDclPoolId(poolId: string): boolean {
+  const parts = poolId.split("|");
+  return parts.length === 3
+    && isValidAccountId(parts[0]!)
+    && isValidAccountId(parts[1]!)
+    && /^\\d+$/.test(parts[2]!)
+    && Number(parts[2]) === 10000;
+}
 
 function rheaApiError(body: Record<string, unknown> | null): string | undefined {
   if (!body) return undefined;
