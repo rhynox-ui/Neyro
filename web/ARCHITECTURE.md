@@ -902,3 +902,11 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Mobile navigation now has a constrained scroll region with hidden scrollbar chrome and no inherited horizontal overscroll behavior.
 - Specialized Mint, Burn, Lock, and Unlock writes remain intentionally gated because the repository does not contain a verified standard contract interface for those operations; no guessed write methods were added.
 - No Telegram bot, Worker, wallet custody, or execution code was modified.
+
+
+## 2026-10-02 — Complete light theme
+
+- Added a full light-mode palette for the terminal rather than only changing the theme toggle label.
+- Light mode covers the shell, sidebar/navigation, cards, forms, selects, tables, status text, code output, drop zones, buttons, and swap-related surfaces.
+- Theme preference remains persisted through the existing `neyro-theme` localStorage key and `data-theme` attribute.
+- No Telegram bot, Worker, wallet custody, or execution code was modified.
