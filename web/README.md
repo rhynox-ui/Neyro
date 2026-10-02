@@ -56,3 +56,7 @@ The web terminal CI is passing on the current branch (Web Terminal CI #357 and r
 The current product surface is intentionally non-custodial, but generic Mint execution is still gated until the token factory/implementation is deployed and its exact interface is verified. Tax, freeze, metadata and mint-authority controls are therefore configuration-only until that implementation exists.
 
 Bulk transfer execution is wired and safety-tested. Recipient NEP-145 registration is now checked before execution and unregistered/unknown recipients are blocked. In-terminal registration itself and million-wallet memory-bounded planning remain release gates.
+
+## 2026-10-02 — Recipient registration safety gate
+
+The bulk-transfer UI performs a bounded-concurrency NEP-145 registration preflight before signing. Unregistered recipients and tokens whose storage API cannot be verified are blocked. Registration itself is intentionally not guessed or silently funded; the next step is a dedicated persisted registration flow using the token-reported storage bounds.
