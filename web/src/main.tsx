@@ -50,8 +50,6 @@ const NAV_GROUPS: NavGroup[] = [
   { label: "TRADE", items: ["Swap", "Portfolio", "Orders"] },
   { label: "LAUNCH", items: ["Launch NEARly token", "Create token"] },
   { label: "TOKEN TOOLS", items: ["Mint", "Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
-  { label: "DEVELOPER", items: ["Contract Inspector", "Contract Call", "Transaction Builder"] },
-  { label: "HISTORY", items: ["Transactions", "Airdrop Campaigns", "Token Operations"] }
 ];
 
 const ACCOUNT_ID =
