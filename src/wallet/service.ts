@@ -98,9 +98,12 @@ export class WalletService {
       // - ed25519:<base58 private key>
       // - raw base58 private key (we add the ed25519 prefix)
       // - a NEAR BIP-39 seed phrase (converted to the canonical private key)
-      if (/^(?:ed25519:)?[1-9A-HJ-NP-Za-km-z]{80,100}$/.test(input)) {
-        const canonical = input.startsWith("ed25519:") ? input : `ed25519:${input}`;
-        keyPair = KeyPair.fromString(canonical as KeyPairString);
+      if (input.startsWith("ed25519:")) {
+        keyPair = KeyPair.fromString(input as KeyPairString);
+      } else if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(input)) {
+        // Let near-api-js validate the exact key length/encoding rather than
+        // rejecting a valid key because a future key format changes length.
+        keyPair = KeyPair.fromString(`ed25519:${input}` as KeyPairString);
       } else if (input.split(" ").length >= 12) {
         keyPair = parseSeedPhrase(input);
       } else {
