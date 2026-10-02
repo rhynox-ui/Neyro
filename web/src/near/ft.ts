@@ -75,6 +75,33 @@ export async function getStorageBalance(
   }
 }
 
+export type StorageRegistrationState =
+  | "registered"
+  | "not-registered"
+  | "unsupported";
+
+export async function getStorageRegistrationState(
+  rpc: NearRpcClient,
+  tokenContract: string,
+  accountId: string
+): Promise<StorageRegistrationState> {
+  try {
+    const storage = await rpc.viewFunction<StorageBalance | null>(
+      tokenContract,
+      "storage_balance_of",
+      { account_id: accountId }
+    );
+    return storage !== null && storage.total !== ZERO_STORAGE
+      ? "registered"
+      : "not-registered";
+  } catch (error) {
+    if (error instanceof Error && /method|does not exist|unknown/i.test(error.message)) {
+      return "unsupported";
+    }
+    throw error;
+  }
+}
+
 export function isRegistered(storage: StorageBalance | null): boolean {
   return storage !== null && storage.total !== ZERO_STORAGE;
 }
