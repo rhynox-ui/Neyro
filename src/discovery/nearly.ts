@@ -123,6 +123,7 @@ async function fetchLaunchTax(id: number): Promise<{ buyBps: number; sellBps: nu
   const buy = value.buy_bps;
   const sell = value.sell_bps;
   if (
+    typeof buy !== "number" || typeof sell !== "number" ||
     !Number.isInteger(buy) || !Number.isInteger(sell) ||
     buy < 0 || buy > 400 || sell < 0 || sell > 400
   ) return undefined;
