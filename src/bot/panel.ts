@@ -215,6 +215,9 @@ export function panelText(state: PanelState, ownedHuman: string | null, nearHuma
     `⚙️ Slippage: ${state.slippagePct}%`,
     // Sell side always shows holdings; buy side when the user holds some.
     ...(side === "sell" || (owned !== null && owned > 0) ? [holding] : []),
+    ...(side === "sell" && state.sellPct === 100
+      ? ["⚠️ SELL ALL uses your entire token balance and bypasses the normal trade-size limit."]
+      : []),
     ...(side === "buy" && nearHuman !== null ? [`👛 Wallet: ${escapeHtml(tokenAmount(nearHuman))} NEAR available`] : [])
   ].join("\n");
 }

@@ -5,6 +5,15 @@ import { buildRheaRegistrationPlan, extractRheaRouteTokens, requireRheaTokenRegi
 import { getNearBalance } from "../near/account.js";
 import { config } from "../config.js";
 import { UserFacingError } from "../errors.js";
+import { applyBuyTax } from "./tax.js";
+
+function applyOutputTax(amount: string, taxBps = 0): string {
+  if (!/^\d+$/.test(amount)) throw new UserFacingError("RHEA returned an invalid quote amount; refresh and try again");
+  if (!taxBps) return amount;
+  const taxed = applyBuyTax(BigInt(amount), taxBps);
+  if (taxed <= 0n) throw new UserFacingError("The quoted output is too small after NEARly tax; increase the trade size or refresh");
+  return taxed.toString();
+}
 
 export class RheaTradingEngine implements TradingEngine {
   private readonly rhea: RheaClient;
@@ -46,8 +55,8 @@ export class RheaTradingEngine implements TradingEngine {
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
         amountIn: request.amountIn,
-        expectedOut: direct.amountOut,
-        minAmountOut: direct.minAmountOut,
+        expectedOut: applyOutputTax(direct.amountOut, request.outputTaxBps),
+        minAmountOut: applyOutputTax(direct.minAmountOut, request.outputTaxBps),
         router: "rhea-smart-router",
         direct
       };
@@ -69,8 +78,8 @@ export class RheaTradingEngine implements TradingEngine {
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
         amountIn: request.amountIn,
-        expectedOut: quote.estimatedOut,
-        minAmountOut: quote.minAmountOut,
+        expectedOut: applyOutputTax(quote.estimatedOut, request.outputTaxBps),
+        minAmountOut: applyOutputTax(quote.minAmountOut, request.outputTaxBps),
         router: quote.route?.router,
         raw: quote
       };

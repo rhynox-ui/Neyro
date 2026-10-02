@@ -40,7 +40,8 @@ updates by webhook, and a cron trigger settles unresolved trades every minute.
      (near.drpc.org), from NEAR's provider list; rpc.mainnet.near.org is
      deprecated for backend use.
 3. Deploy: build command `npm run build`, deploy command `npx wrangler deploy`.
-4. Set the webhook once from the shell that has the setup secret value:
+4. The Wrangler configuration now enables the Telegram Queue and Cloudflare global rate limits. On the first deploy, Wrangler can provision the configured Queue resource automatically; verify it exists with `npx wrangler queues list`.
+5. Set the webhook once from the shell that has the setup secret value:
 
 ```bash
 SETUP_SECRET="<your-setup-secret>"
@@ -51,12 +52,12 @@ curl -i \
 
 The setup secret is never sent in the URL. Do not put it in Telegram, GitHub, or source control.
    This points Telegram at the Worker and registers the command menu.
-5. Check `https://<worker>.workers.dev/health`.
+6. Check `https://<worker>.workers.dev/health`.
 
 `DATABASE_URL` is required on Workers: each update may run in a different
 isolate, so wallets, quotes, panels and pending withdrawals live in Postgres.
-For production, enable the optional Queue in `wrangler.jsonc` so long trades
-are never cut off.
+For production, the Queue is required: the webhook fails closed rather than
+falling back to `waitUntil()`. Failed queue deliveries are retried.
 
 Neyro runs on NEAR mainnet: it is the default, and the Worker refuses any
 other network. Run the bot locally with `npm run dev` (long polling via

@@ -2,6 +2,7 @@ export const BOT_COMMANDS = [
   { command: "start", description: "Open the Neyro trading terminal" },
   { command: "help", description: "Show all Neyro commands" },
   { command: "wallet", description: "Create or view your wallet" },
+  { command: "import", description: "Import a NEAR wallet by private key" },
   { command: "deposit", description: "Show your deposit address" },
   { command: "balance", description: "NEAR balance" },
   { command: "portfolio", description: "Token holdings" },

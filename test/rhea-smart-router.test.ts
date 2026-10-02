@@ -76,6 +76,36 @@ test("direct RHEA SmartRouter quote accepts wrapped/camelCase responses", async 
   }
 });
 
+test("direct RHEA SmartRouter derives min output when live response omits min_amount_out", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      result_code: 0,
+      result_message: "success",
+      result_data: {
+        amount_in: request.amountIn,
+        amount_out: "123456789",
+        dexs: [],
+        msg: "route-message",
+        signature: "route-signature",
+        tokens: ["wrap.near", "shore-4lzt.launch.shoremarkets.near"]
+      }
+    })
+  })) as typeof fetch;
+  try {
+    const quote = await new RheaClient().quoteDirect(request);
+    assert.equal(quote.amountIn, request.amountIn);
+    assert.equal(quote.amountOut, "123456789");
+    // floor(123456789 * (1 - 1%))
+    assert.equal(quote.minAmountOut, "122222221");
+    assert.deepEqual(quote.tokens, ["wrap.near", "shore-4lzt.launch.shoremarkets.near"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("direct RHEA SmartRouter accepts result_code/result_data envelope", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => ({

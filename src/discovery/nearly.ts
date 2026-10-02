@@ -30,6 +30,8 @@ export type NearlyLaunch = {
   tokenIsX?: boolean;
   /** Raw total supply (1B tokens at 18 decimals for NEARly launches). */
   totalSupply?: string;
+  /** Immutable NEARly launch tax, when configured. */
+  tax?: { buyBps: number; sellBps: number };
 };
 
 type RawLaunch = {
@@ -110,13 +112,34 @@ export function isNearlyToken(contractId: string): boolean {
   return contractId.endsWith(`.${NEARLY_FACTORY}`);
 }
 
+async function fetchLaunchTax(id: number): Promise<{ buyBps: number; sellBps: number } | undefined> {
+  const raw = await withRpcFallback((provider) => provider.callFunction({
+    contractId: NEARLY_FACTORY,
+    method: "get_tax",
+    args: { launch_id: String(id) }
+  })).catch(() => null);
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  const buy = value.buy_bps;
+  const sell = value.sell_bps;
+  if (
+    typeof buy !== "number" || typeof sell !== "number" ||
+    !Number.isInteger(buy) || !Number.isInteger(sell) ||
+    buy < 0 || buy > 400 || sell < 0 || sell > 400
+  ) return undefined;
+  return { buyBps: buy, sellBps: sell };
+}
+
 export async function fetchLaunchByToken(token: string): Promise<NearlyLaunch | null> {
   const raw = await withRpcFallback((provider) => provider.callFunction({
     contractId: NEARLY_FACTORY,
     method: "get_launch_by_token",
     args: { token }
   }));
-  return raw && typeof raw === "object" ? parseLaunch(raw as RawLaunch) : null;
+  const launch = raw && typeof raw === "object" ? parseLaunch(raw as RawLaunch) : null;
+  if (!launch) return null;
+  const tax = await fetchLaunchTax(launch.id);
+  return tax ? { ...launch, tax } : launch;
 }
 
 /**

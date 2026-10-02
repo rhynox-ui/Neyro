@@ -269,7 +269,7 @@ export function renderWalletScreen(
   if (wrapped > 0n) keyboard.row().text(`🔁 Unwrap ${shortNear(wrapped).replace(" NEAR", " wNEAR")} → NEAR`, "w:unwrap");
   keyboard.row().text("🔄 Refresh", "w:refresh");
   if (wallets.length < maxWallets) keyboard.text("➕ New wallet", "w:new");
-  keyboard.row().text("🔑 Export private key", "w:export");
+  keyboard.row().text("🔑 Export private key", "w:export").text("📥 Import wallet", "w:import");
   return { text, keyboard };
 }
 
@@ -297,6 +297,22 @@ export function renderExportWarning(accountId: string): string {
     "• Store it offline, e.g. written down or in a password manager.",
     "",
     "The key message stays for 24 hours, then deletes itself. You'll get a reminder 1 hour before."
+  ].join("\n");
+}
+
+export function renderImportWalletPrompt(): string {
+  return [
+    "📥 <b>Import NEAR wallet</b>",
+    "",
+    "Send your <b>private key or NEAR seed phrase</b> in your next message.",
+    "Private key: <code>ed25519:...</code>",
+    "Seed phrase: your 12/24 NEAR recovery words",
+    "",
+    "⚠️ Neyro will delete your message immediately after receiving it.",
+
+    "The key is encrypted before it is stored.",
+    "",
+    "❌ Never send a seed phrase or private key to anyone except the wallet you intentionally want to import."
   ].join("\n");
 }
 
@@ -496,6 +512,12 @@ export function registerBotHandlers(bot: Bot) {
     await showWallet(ctx, true);
   });
 
+  pm.callbackQuery("w:import", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await defaultStateStore().set(ctx.from.id, "wallet-import", { kind: "private-key" }, 5 * 60 * 1000);
+    await ctx.editMessageText(renderImportWalletPrompt(), HTML);
+  });
+
   pm.callbackQuery("w:export", async (ctx) => {
     await ctx.answerCallbackQuery();
     const wallet = await walletService.getWallet(ctx.from.id);
@@ -542,6 +564,11 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.command("wallet", (ctx) => showWallet(ctx, false));
+
+  pm.command("import", async (ctx) => {
+    await defaultStateStore().set(ctx.from.id, "wallet-import", { kind: "private-key" }, 5 * 60 * 1000);
+    await replyScreen(ctx, "wallet", renderImportWalletPrompt(), HTML);
+  });
 
   pm.command("deposit", async (ctx) => {
     const wallet = await requireWallet(ctx);
@@ -1113,9 +1140,37 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.on("message:text", async (ctx, next) => {
+    const importState = await defaultStateStore().take<{ kind: "private-key" }>(ctx.from.id, "wallet-import");
+    const text = ctx.message.text.trim();
+
+    if (importState) {
+      if (text.startsWith("/")) {
+        await defaultStateStore().set(ctx.from.id, "wallet-import", importState, 5 * 60 * 1000);
+        return next();
+      }
+
+      // Delete the message containing the private key before any wallet work.
+      await deleteIncoming(ctx).catch(() => {});
+      try {
+        const wallet = await walletService.importWallet(ctx.from.id, text);
+        await replyScreen(
+          ctx,
+          "wallet",
+          `✅ <b>Wallet imported</b>\\n\\nActive wallet: <code>${escapeHtml(wallet.accountId)}</code>\\n\\nThe private key was encrypted before storage.`,
+          HTML
+        );
+      } catch (error) {
+        // The secret message was already deleted. Restore the short-lived
+        // import state so a bad format can be corrected without asking the
+        // user to start the import flow again.
+        await defaultStateStore().set(ctx.from.id, "wallet-import", importState, 5 * 60 * 1000);
+        await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't import that wallet")}`);
+      }
+      return;
+    }
+
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
     if (!wizard) return next();
-    const text = ctx.message.text.trim();
     if (text.startsWith("/")) return next();
     await deleteIncoming(ctx);
     const value = launchSkip(text);

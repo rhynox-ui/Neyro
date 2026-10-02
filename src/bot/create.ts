@@ -1,16 +1,16 @@
 import { Bot } from "grammy";
 import { withRpcFallback } from "../near/rpc.js";
 import { registerBotHandlers } from "./register.js";
-import { rateLimit } from "./rate-limit.js";
+import { createRateLimitMiddleware, type DistributedRateLimiter } from "./rate-limit.js";
 import { BOT_COMMANDS } from "./commands.js";
 
 export { BOT_COMMANDS } from "./commands.js";
 
 /** The bot with every handler registered; shared by the Node and Worker entry points. */
-export function createBot(token: string): Bot {
+export function createBot(token: string, distributedRateLimiter?: DistributedRateLimiter): Bot {
   const bot = new Bot(token);
 
-  bot.use(rateLimit);
+  bot.use(createRateLimitMiddleware(distributedRateLimiter));
   registerBotHandlers(bot);
 
   bot.command("health", async (ctx) => {

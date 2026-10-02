@@ -6,13 +6,17 @@ import type {
 export type TradeSide = "buy" | "sell";
 
 export type DirectRheaNearQuote = {
-  kind: "rhea-smart-router";
+  kind: "rhea-smart-router" | "rhea-dcl";
   amountIn: string;
   amountOut: string;
   minAmountOut: string;
-  msg: string;
-  signature: string;
+  msg?: string;
+  signature?: string;
   tokens: string[];
+  /** Authoritative Rhea DCL pool path for direct NEARly execution. */
+  poolIds?: string[];
+  /** Backward-compatible single-pool field. */
+  poolId?: string;
   receivedAt: number;
   expiresAt: number;
 };
@@ -38,6 +42,8 @@ export type TradeRequest = {
   tokenOut: AssetRef;
   amountIn: string;
   slippageBps: number;
+  /** Immutable NEARly buy tax applied after Rhea's pool min-output check. */
+  outputTaxBps?: number;
 };
 
 export interface TradingEngine {

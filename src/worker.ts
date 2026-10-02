@@ -18,10 +18,16 @@ interface Env {
   TELEGRAM_WEBHOOK_SECRET?: string;
   SETUP_SECRET?: string;
   NEYRO_TELEGRAM_UPDATES?: UpdateQueue;
+  UPDATE_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  QUOTE_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
 }
 
 type QueueBatch = {
-  messages: readonly { body: Update; ack(): void }[];
+  messages: readonly {
+    body: Update;
+    ack(): void;
+    retry(options?: { delaySeconds?: number }): void;
+  }[];
 };
 
 const REQUIRED_SECRETS = ["TELEGRAM_BOT_TOKEN", "DATABASE_URL", "NEYRO_MASTER_KEY"] as const;
@@ -67,10 +73,18 @@ function getApp(): Promise<App> {
   return appPromise;
 }
 
-function getBot(): Promise<Bot> {
+function getBot(env?: Env): Promise<Bot> {
   botPromise ??= (async () => {
     const app = await getApp();
-    const bot = app.create.createBot(app.config.TELEGRAM_BOT_TOKEN);
+    const distributedRateLimiter = env?.UPDATE_RATE_LIMITER && env?.QUOTE_RATE_LIMITER
+      ? {
+          limit: ({ key }: { key: string }) =>
+            key.startsWith("q:")
+              ? env.QUOTE_RATE_LIMITER!.limit({ key })
+              : env.UPDATE_RATE_LIMITER!.limit({ key })
+        }
+      : undefined;
+    const bot = app.create.createBot(app.config.TELEGRAM_BOT_TOKEN, distributedRateLimiter);
     await bot.init();
     await bot.api.setMyCommands(app.create.BOT_COMMANDS);
     return bot;
@@ -81,8 +95,8 @@ function getBot(): Promise<Bot> {
   return botPromise;
 }
 
-async function processUpdate(update: Update): Promise<void> {
-  const bot = await getBot();
+async function processUpdate(update: Update, env?: Env): Promise<void> {
+  const bot = await getBot(env);
   await bot.handleUpdate(update);
 }
 
@@ -115,6 +129,11 @@ async function handleWebhook(request: Request, env: Env, ctx: ExecutionContext):
     update = (await request.json()) as Update;
   } catch {
     return new Response("Invalid JSON", { status: 400 });
+  }
+
+  if (process.env.NODE_ENV === "production" && !env.NEYRO_TELEGRAM_UPDATES) {
+    console.error("Telegram Queue binding is missing; refusing waitUntil fallback");
+    return new Response("Queue unavailable", { status: 503 });
   }
 
   if (env.NEYRO_TELEGRAM_UPDATES) {
@@ -330,22 +349,24 @@ export default {
     return new Response("Neyro is running.");
   },
 
-  async queue(batch: QueueBatch): Promise<void> {
+  async queue(batch: QueueBatch, env: Env): Promise<void> {
     for (const message of batch.messages) {
       try {
-        await processUpdate(message.body);
+        await processUpdate(message.body, env);
       } catch (error) {
         console.error("Queued update failed:", { updateId: message.body.update_id, error });
+        message.retry({ delaySeconds: 5 });
+        continue;
       }
       message.ack();
     }
   },
 
-  async scheduled(_event: unknown, _env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     if (await configurationProblem()) return;
     const app = await getApp();
     const databaseUrl = app.config.DATABASE_URL!;
-    const bot = await getBot();
+    const bot = await getBot(env);
     ctx.waitUntil(app.autodelete.deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error)));
     ctx.waitUntil(app.store.defaultStateStore().purgeExpired().catch((error) => console.error("State purge failed:", error)));
     ctx.waitUntil(app.pools.refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error)));
