@@ -485,5 +485,6 @@ export function TerminalModuleView({
       <span className="eyebrow">{copy.eyebrow}</span>
       <h2>{copy.title}</h2>
       <p>{copy.body}</p>
+    </section>
   );
 }
