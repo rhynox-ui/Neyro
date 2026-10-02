@@ -255,3 +255,26 @@ The future execution engine must:
 8. Reconciliation/polling.
 9. Resume after reload.
 10. Only then enable the Start button.
+
+
+## 25. Token tool fee policy
+
+The web terminal product fee policy is now defined in `web/src/token-tools/fees.ts`:
+
+- **Mint fee: 1 NEAR**
+- **Lock fee: 1 NEAR**
+- Both fees are denominated in native NEAR and represented internally in yoctoNEAR.
+- The token being minted or locked is not used to pay this product fee.
+
+These are product-level fee requirements. The actual mint and lock contract adapters must still be verified against their deployed contract ABI before execution is enabled. Do not assume the fee is the same as the contract's required storage deposit or gas allowance.
+
+When the execution adapter is implemented, the pre-signing confirmation must show:
+- operation;
+- token contract;
+- token amount;
+- native NEAR fee;
+- any separate contract-required deposit;
+- gas;
+- connected signing account.
+
+The UI must never silently substitute token units for the 1 NEAR native fee.
