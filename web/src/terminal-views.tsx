@@ -418,68 +418,113 @@ export function TerminalModuleView({
   view: string;
   onNavigate: (view: string) => void;
 }) {
-  const descriptions: Record<string, { eyebrow: string; title: string; body: string }> = {
-    Swap: {
-      eyebrow: "TRADE / SWAP",
-      title: "Swap is not faking a quote.",
-      body: "The web terminal will only show a route after a verified web-compatible router and signing path are connected."
-    },
-    Orders: {
-      eyebrow: "TRADE / ORDERS",
-      title: "No synthetic orders.",
-      body: "Orders will be populated from the real trading execution repository once its web persistence and signing boundary are wired."
-    },
-    "Launch NEARly token": {
-      eyebrow: "LAUNCH / NEARLY",
-      title: "Launch flow is the next protocol adapter.",
-      body: "The terminal shell is ready, but the web launch transaction path is not enabled yet. No fabricated launch cost, pool, or token address is shown."
-    },
+  const descriptions: Record<string, {
+    eyebrow: string;
+    title: string;
+    body: string;
+    details: Array<[string, string]>;
+  }> = {
     "Create token": {
       eyebrow: "LAUNCH / TOKEN",
-      title: "Token creation is gated until the contract interface is verified.",
-      body: "This page intentionally contains no fake contract address or deployment result."
+      title: "Create token is waiting on the verified factory interface.",
+      body: "Neyro will not invent a deployment contract, constructor arguments or token address. Once the supported factory is verified, this page can become a real browser-wallet flow.",
+      details: [
+        ["Contract", "Verified token factory and exact method"],
+        ["Review", "Name, symbol, decimals, supply and metadata"],
+        ["Signing", "Browser wallet confirmation and transaction reconciliation"]
+      ]
     },
     Mint: {
       eyebrow: "TOKEN TOOLS / MINT",
-      title: "Mint requires a verified token contract interface.",
-      body: "The browser will not guess an owner/mint method or send a write transaction without an exact interface."
+      title: "Mint is ready for the interface, not a guessed transaction.",
+      body: "The terminal needs the exact token contract method, owner rules and gas/deposit requirements before it can expose a write.",
+      details: [
+        ["Method", "Verified mint function and argument schema"],
+        ["Authorization", "On-chain owner or minter requirement"],
+        ["Safety", "Amount validation and browser-wallet review"]
+      ]
     },
     Burn: {
       eyebrow: "TOKEN TOOLS / BURN",
-      title: "Burn requires a verified token contract interface.",
-      body: "No write is exposed until the exact burn method, arguments, gas and deposit requirements are verified."
+      title: "Burn is waiting on the verified token interface.",
+      body: "No burn transaction is exposed until Neyro can prove the method, arguments, caller permissions and deposit/gas requirements.",
+      details: [
+        ["Method", "Verified burn function and argument schema"],
+        ["Amount", "Exact token decimal and balance checks"],
+        ["Review", "Explicit irreversible-action confirmation"]
+      ]
     },
     Lock: {
       eyebrow: "TOKEN TOOLS / LOCK",
-      title: "Lock requires a verified contract interface.",
-      body: "No lock transaction is exposed until the exact contract method and safety checks are verified."
+      title: "Lock needs a verified lock contract.",
+      body: "A lock is protocol-specific. Neyro will not guess a timelock contract, storage layout or beneficiary arguments.",
+      details: [
+        ["Contract", "Verified lock/timelock contract"],
+        ["Parameters", "Amount, beneficiary and unlock timestamp"],
+        ["Safety", "On-chain validation before signing"]
+      ]
     },
     Unlock: {
       eyebrow: "TOKEN TOOLS / UNLOCK",
-      title: "Unlock requires a verified contract interface.",
-      body: "No unlock transaction is exposed until the exact contract method and safety checks are verified."
+      title: "Unlock needs the verified claim interface.",
+      body: "The browser will only expose an unlock transaction after the exact contract and claim rules are verified against live protocol state.",
+      details: [
+        ["Contract", "Verified lock contract and claim method"],
+        ["Eligibility", "Live ownership and unlock-time checks"],
+        ["Signing", "Browser wallet with final transaction reconciliation"]
+      ]
     },
     "Contract Call": {
       eyebrow: "DEVELOPER / WRITE",
       title: "Generic contract writes remain gated.",
-      body: "Read-only inspection is live. Generic writes need an explicit transaction builder with receiver, method, args, deposit and gas validation."
+      body: "Read-only inspection is live. Generic writes need an explicit transaction builder with receiver, method, arguments, deposit and gas validation.",
+      details: [
+        ["Receiver", "Explicit contract account"],
+        ["Call", "Method name and validated JSON arguments"],
+        ["Review", "Gas, deposit and wallet confirmation"]
+      ]
     },
     "Transaction Builder": {
       eyebrow: "DEVELOPER / BUILDER",
       title: "Transaction builder is being wired from real action primitives.",
-      body: "The current web wallet boundary supports verified function-call and transfer actions; arbitrary action composition is not exposed yet."
+      body: "The current wallet boundary supports verified function-call and transfer actions. Arbitrary action composition is not exposed yet.",
+      details: [
+        ["Actions", "Only supported browser-wallet action types"],
+        ["Validation", "Receiver, gas and deposit checks"],
+        ["Outcome", "Persisted submission and reconciliation"]
+      ]
     },
     "Token Operations": {
       eyebrow: "HISTORY / TOKEN OPERATIONS",
-      title: "No token-operation history is fabricated.",
-      body: "This view will use persisted token-operation records once the corresponding web execution flows are enabled."
+      title: "Token-operation history will come from persisted execution state.",
+      body: "No synthetic transactions or operation rows are rendered. Once token writes are enabled, their persisted outcomes can appear here.",
+      details: [
+        ["Source", "Browser-persisted execution records"],
+        ["Status", "Submitted, confirmed, failed or unknown"],
+        ["Export", "Operation results can be exported after persistence is added"]
+      ]
+    },
+    Swap: {
+      eyebrow: "TRADE / SWAP",
+      title: "Swap execution is still behind the signing safety gate.",
+      body: "Live RHEA quotes are available, but signing remains disabled until wrapping, registration and multi-transaction reconciliation are verified.",
+      details: [
+        ["Quote", "Live RHEA SmartRouter response"],
+        ["Controls", "Slippage, expiry and minimum received"],
+        ["Execution", "Browser signing after route lifecycle verification"]
+      ]
     }
   };
 
   const copy = descriptions[view] ?? {
     eyebrow: "TERMINAL",
     title: "Module not available.",
-    body: "No route is exposed for this module yet."
+    body: "No route is exposed for this module yet.",
+    details: [
+      ["State", "No fabricated data"],
+      ["Safety", "No unverified transaction"],
+      ["Next", "Use an implemented terminal section"]
+    ]
   };
 
   return (
@@ -487,10 +532,23 @@ export function TerminalModuleView({
       <span className="eyebrow">{copy.eyebrow}</span>
       <h2>{copy.title}</h2>
       <p>{copy.body}</p>
+      <span className="module-status">Integration gated · no transaction exposed</span>
+      <div className="module-details">
+        {copy.details.map(([title, body]) => (
+          <div className="module-detail" key={title}>
+            <strong>{title}</strong>
+            <span>{body}</span>
+          </div>
+        ))}
+      </div>
+      {view === "Create token" && (
+        <div className="action-row">
+          <button onClick={() => onNavigate("Launch NEARly token")}>Open NEARly launch</button>
+        </div>
+      )}
     </section>
   );
 }
-
 
 export function NearlyLaunchView({
   accountId,
