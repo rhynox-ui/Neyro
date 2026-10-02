@@ -15,14 +15,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   background: #07090d;
 }
 .sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 18px 10px 14px;
+  padding: 20px 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 22px;
@@ -32,13 +32,13 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px; }
 .brand-mark {
-  width: 28px; height: 28px; flex: 0 0 28px; display: block;
+  width: 34px; height: 34px; flex: 0 0 34px; display: block;
   border: 1px solid #202733; border-radius: 7px; object-fit: cover;
   background: #06090f;
   box-shadow: 0 0 12px rgba(72, 255, 152, .08);
 }
-.brand strong { display: block; font-size: 11px; letter-spacing: .16em; }
-.brand small { display: block; margin-top: 2px; color: #525b68; font-size: 7px; letter-spacing: .18em; }
+.brand strong { display: block; font-size: 13px; letter-spacing: .14em; }
+.brand small { display: block; margin-top: 2px; color: #525b68; font-size: 9px; letter-spacing: .16em; }
 
 .nav-groups { display: grid; gap: 18px; overflow: auto; scrollbar-width: none; }
 .nav-groups::-webkit-scrollbar { display: none; }
@@ -46,7 +46,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .nav-label {
   padding: 0 9px 6px;
   color: #4f5865;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: .16em;
 }
@@ -60,7 +60,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   background: transparent;
   color: #697280;
   text-align: left;
-  font-size: 11px;
+  font-size: 13px;
 }
 .nav:hover { color: #c5cbd4; background: #0f1319; }
 .nav.active { color: #eef1f5; background: #151a21; }
@@ -92,14 +92,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 }
 .wallet-box small, footer, .muted, .message, small {
   color: #606a78;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 main {
   width: min(1080px, 100%);
   margin: 0 auto;
-  padding: 24px 28px 28px;
+  padding: 28px 32px 32px;
   min-width: 0;
 }
 header {
@@ -127,7 +127,7 @@ header {
 h1, h2, h3, p { margin: 0; }
 h1 { margin-top: 3px; font-size: clamp(22px, 2.4vw, 29px); letter-spacing: -.045em; }
 h2 { margin-top: 4px; font-size: clamp(19px, 2.1vw, 25px); line-height: 1.12; letter-spacing: -.04em; }
-h3 { margin-top: 3px; font-size: 13px; letter-spacing: -.015em; }
+h3 { margin-top: 3px; font-size: 15px; letter-spacing: -.015em; }
 
 .grid {
   display: grid;
@@ -178,7 +178,7 @@ h3 { margin-top: 3px; font-size: 13px; letter-spacing: -.015em; }
   gap: 10px;
 }
 .token-card { display: grid; gap: 11px; }
-.token-meta { display: flex; flex-wrap: wrap; gap: 5px; color: #68717f; font-size: 9px; }
+.token-meta { display: flex; flex-wrap: wrap; gap: 5px; color: #68717f; font-size: 11px; }
 .token-meta span {
   padding: 4px 6px;
   border: 1px solid #1b222b;
@@ -522,8 +522,13 @@ html[data-theme="light"] .status-dot.live { background: #238653; }
 .swap-route-grid strong { display: block; margin-top: 5px; color: #cbd2db; font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 .swap-review:disabled { opacity: .55; cursor: not-allowed; }
 
-@media (max-width: 700px) {
-  .swap-page { padding: 16px 0 30px; }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 184px minmax(0, 1fr); }
+  .sidebar { padding: 16px 9px 12px; gap: 18px; }
+  .brand strong { font-size: 12px; }
+  .nav { padding: 9px 8px; font-size: 12px; }
+  main { padding: 22px 20px 28px; }
+  .swap-page { padding: 18px 0 32px; }
   .swap-shell { width: 100%; }
   .swap-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
   .swap-heading p { font-size: 13px; }
@@ -577,6 +582,10 @@ html[data-theme="light"] .swap-settings-popover {
   background: #fff;
 }
 @media (max-width: 640px) {
+  .shell { grid-template-columns: 168px minmax(0, 1fr); }
+  main { padding: 18px 14px 24px; }
+  .brand-mark { width: 32px; height: 32px; flex-basis: 32px; }
+  .nav { font-size: 11px; padding: 8px 7px; }
   .swap-settings-popover {
     align-items: flex-start;
     flex-wrap: wrap;
