@@ -166,3 +166,56 @@ It is ready only when it can process a million recipients without requiring the 
 The current branch is the foundation only. The airdrop UI/planner is intentionally ahead of the signing layer.
 
 Telegram remains untouched.
+
+## 20. Phase A progress — read-only NEAR execution foundation
+
+Implemented on the web branch:
+
+### NEAR RPC client
+- `web/src/near/rpc.ts`
+- JSON-RPC POST client with typed request/response handling.
+- Account state reads through `view_account`.
+- Contract view calls through `call_function` with base64-encoded JSON arguments.
+- Transaction status lookup through the `tx` RPC method with `wait_until: FINAL`.
+- Mainnet and testnet public RPC URL lists are defined as web-only configuration.
+- No private credentials or signing material are handled by this client.
+
+### NEP-141 read helpers
+- `web/src/near/ft.ts`
+- `ft_metadata` validation.
+- `ft_balance_of` converted to exact `bigint`.
+- `storage_balance_of` detection.
+- Explicit distinction between registered, zero-storage, and unsupported/unknown storage APIs.
+
+### Deterministic transfer batch builder
+- `web/src/airdrop/batch-builder.ts`
+- Produces `ft_transfer` actions with exact string token amounts.
+- Attaches exactly 1 yoctoNEAR per NEP-141 transfer.
+- Uses an explicit prepaid-gas value.
+- Defaults to 50 transfers per batch rather than assuming the 100-action runtime ceiling is always safe.
+- Batch IDs are deterministic for a given sender and recipient ordering.
+
+### Tests
+- Read-only FT metadata/balance/storage helpers have unit coverage.
+- Batch construction, deterministic splitting and invalid-input checks have unit coverage.
+- CI now runs `npm test` before build.
+
+## 21. Phase A safety notes
+
+The batch builder is still a **planning primitive**, not a live execution engine.
+
+Before enabling the Start button, the web terminal still needs:
+- Wallet connection/signing integration.
+- A transaction-action adapter for the selected wallet API.
+- Fresh sender balance reads immediately before execution.
+- Gas-aware batch sizing based on measured token behavior.
+- Recipient storage-registration policy and preflight results.
+- Persistent campaign state and per-batch reconciliation.
+- Transaction hash/status reconciliation before any retry.
+- A final pre-signing summary showing sender, token, recipients, amounts, attached deposits and gas.
+
+The web terminal must not silently fall back to Telegram signing. If browser wallet signing is unavailable, execution remains blocked.
+
+## 22. Current handoff checkpoint
+
+Latest web branch includes the isolated foundation described above. Continue from the web branch only. Do not modify Telegram bot files, Telegram worker configuration, Telegram wallet storage, or Telegram execution code while implementing the web terminal.
