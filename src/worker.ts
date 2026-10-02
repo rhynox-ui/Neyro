@@ -357,11 +357,11 @@ export default {
     }
   },
 
-  async scheduled(_event: unknown, _env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     if (await configurationProblem()) return;
     const app = await getApp();
     const databaseUrl = app.config.DATABASE_URL!;
-    const bot = await getBot();
+    const bot = await getBot(env);
     ctx.waitUntil(app.autodelete.deleteDueMessages(bot.api).catch((error) => console.error("Message cleanup failed:", error)));
     ctx.waitUntil(app.store.defaultStateStore().purgeExpired().catch((error) => console.error("State purge failed:", error)));
     ctx.waitUntil(app.pools.refreshPoolIndex().catch((error) => console.error("Pool index refresh failed:", error)));
