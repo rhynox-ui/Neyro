@@ -227,7 +227,8 @@ Do not invent an ABI in the frontend.
 - [x] deterministic sender allocation primitive
 - [x] deterministic batch builder
 - [x] conservative gas-aware batch sizing
-- [x] provider-neutral browser wallet connector boundary (signing still locked)
+- [x] provider-neutral browser wallet connector boundary
+- [x] Wallet Selector/My NEAR Wallet adapter implemented but not wired into execution UI
 
 ### Phase B — campaign engine
 - [x] campaign model
@@ -299,7 +300,6 @@ Latest work hardens the multi-sender allocator with aggregate-balance validation
 
 Telegram code remains untouched.
 
-
 ## 21. Browser wallet boundary and sender preflight
 
 A web-only wallet connector boundary now exists at `web/src/wallet/connector.ts`.
@@ -356,7 +356,6 @@ Latest work adds the wallet boundary and fresh sender/token balance preflight. B
 
 Telegram remains untouched.
 
-
 ## 24. Gas-safe batching checkpoint
 
 `web/src/airdrop/gas-planner.ts` now models the two relevant NEAR limits independently:
@@ -396,4 +395,41 @@ The web terminal now has:
 - fresh read-only sender preflight;
 - a transaction action adapter that still cannot sign.
 
-Browser wallet integration, revalidation immediately before signing, transaction submission, reconciliation and resume remain disabled. Telegram code remains untouched.
+## 28. Browser wallet adapter checkpoint
+
+`web/src/wallet/selector.ts` now contains the first concrete browser-wallet adapter behind the provider-neutral connector interface.
+
+It uses:
+- `@near-wallet-selector/core` 10.1.4;
+- `@near-wallet-selector/my-near-wallet` 10.1.4;
+- NEAR mainnet;
+- the existing connector interface rather than exposing Wallet Selector types to campaign code.
+
+The adapter:
+- discovers the existing signed-in account;
+- requests browser-wallet sign-in when no account is connected;
+- exposes account discovery and sign-out;
+- converts only the explicitly approved web action types into Wallet Selector actions;
+- requires the requested signer to be one of the connected accounts;
+- requires every action receiver to equal the transaction receiver;
+- returns a transaction hash when the wallet provides an execution outcome.
+
+Browser wallets may redirect for signing and therefore may not return a final transaction outcome immediately. The campaign engine must treat an absent hash as an unresolved submission, not as a failed transaction.
+
+The adapter is **not wired to Start Airdrop yet**. This is deliberate. The remaining gates are fresh revalidation immediately before signing, immutable campaign-state transition to `signing`, submission/reconciliation handling, and safe resume after redirect/reload.
+
+References:
+- Wallet Selector core: https://www.npmjs.com/package/@near-wallet-selector/core
+- Wallet Selector wallet API: https://github.com/near/wallet-selector/blob/main/packages/core/docs/api/wallet.md
+
+## 29. Current checkpoint
+
+The web branch now has:
+- gas-safe batch planning;
+- fresh sender/token preflight;
+- immutable transaction action builders;
+- a concrete mainnet browser-wallet adapter;
+- adapter unit tests;
+- no Telegram code changes.
+
+Execution remains disabled until the campaign state machine, balance revalidation and unknown-transaction reconciliation are connected around the signer.
