@@ -55,8 +55,6 @@ describe("web transaction builder", () => {
   it("rejects zero product fees", () => {
     expect(() => buildNativeFeeTransfer("user.near", "treasury.near", 0n)).toThrow();
   });
-});
-
 
   it("builds bounded NEP-145 registration actions", () => {
     const request = buildStorageRegistrationTransaction(
@@ -87,3 +85,5 @@ describe("web transaction builder", () => {
       )
     ).toThrow("registration batch cannot exceed");
   });
+
+});
