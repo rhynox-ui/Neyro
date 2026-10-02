@@ -331,6 +331,33 @@ function App() {
     }
   }
 
+  async function reconcileExecution() {
+    if (!executionCampaign) return;
+    setExecutionBusy(true);
+    setMessage(`Reconciling campaign ${executionCampaign.id}…`);
+    try {
+      const campaign = await reconcileCampaign(
+        executionCampaign.id,
+        campaignStore,
+        new NearRpcClient(),
+        ({ campaign: nextCampaign }) => setExecutionCampaign({
+          ...nextCampaign,
+          batches: nextCampaign.batches.map((item) => ({ ...item }))
+        })
+      );
+      setExecutionCampaign(campaign);
+      setMessage(
+        campaign.status === "completed"
+          ? "Campaign reconciliation confirmed completion."
+          : "Reconciliation finished. Review batch states before retrying."
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Campaign reconciliation failed");
+    } finally {
+      setExecutionBusy(false);
+    }
+  }
+
   async function startAirdrop() {
     if (!wallet || !accountId) {
       setMessage("Connect the browser wallet before starting execution.");
