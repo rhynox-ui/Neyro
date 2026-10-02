@@ -1362,3 +1362,57 @@ html[data-theme="light"] .burn-warning {
 .create-token-review{display:grid;gap:14px}
 .create-token-review .mint-submit{margin-top:2px}
 .create-token-review .mint-review-list{margin-bottom:2px}
+
+
+/* Token Locker */
+.locker-load { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:0; padding:0; overflow:visible; }
+.locker-token-select { min-height:54px; padding:0 15px; display:flex; align-items:center; gap:8px; background:#11151b; border-right:1px solid #242b35; border-radius:10px 0 0 10px; font-size:13px; font-weight:700; }
+.locker-token-badge { width:28px; height:28px; display:grid; place-items:center; border-radius:50%; background:#202631; font-size:8px; }
+.locker-token-caret,.calendar-chevron { color:#697280; }
+.locker-load input { min-width:0; min-height:54px; border:0; outline:0; border-radius:0; background:#0a0d12; color:#eef1f5; padding:0 16px; font-size:14px; }
+.locker-load .primary { min-height:54px; min-width:100px; border-radius:0 10px 10px 0; }
+.locker-state { min-height:82px; display:flex; align-items:center; justify-content:center; gap:9px; flex-direction:column; color:#8a93a0; }
+.locker-state strong { color:#cbd1da; font-size:14px; }
+.locker-state span:last-child { font-size:11px; color:#596270; }
+.locker-state-icon,.locker-empty-icon { color:#4c5664; font-size:20px; }
+.locker-create,.locker-existing { min-height:390px; }
+.field-row-label { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.locker-balance { color:#697280; font-size:11px; }
+.amount-max { display:grid; grid-template-columns:minmax(0,1fr) auto; }
+.amount-max input { min-height:54px; border-radius:8px 0 0 8px; }
+.amount-max button { min-width:78px; border-radius:0 8px 8px 0; background:#10151b; color:#9da6b4; border:1px solid #262e38; font-weight:700; }
+.calendar-field { position:relative; }
+.calendar-trigger { width:100%; min-height:54px; display:flex; align-items:center; gap:11px; padding:0 14px; border:1px solid #262e38; border-radius:8px; background:#0c1015; color:#7d8795; text-align:left; }
+.calendar-trigger.selected { color:#eef1f5; }
+.calendar-icon { font-size:17px; line-height:1; }
+.calendar-chevron { margin-left:auto; }
+.modern-calendar { position:absolute; z-index:30; top:calc(100% + 8px); left:0; width:min(330px,calc(100vw - 32px)); padding:13px; border:1px solid #29313c; border-radius:12px; background:#0d1117; box-shadow:0 18px 50px rgba(0,0,0,.5); }
+.calendar-head { display:grid; grid-template-columns:36px 1fr 36px; align-items:center; gap:4px; margin-bottom:11px; }
+.calendar-head strong { text-align:center; font-size:13px; color:#e9edf2; }
+.calendar-head button { width:32px; height:32px; border-radius:7px; background:#141a21; color:#b9c1cc; font-size:21px; }
+.calendar-head button:hover,.calendar-today:hover { background:#1b222b; }
+.calendar-weekdays,.calendar-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+.calendar-weekdays span { padding:4px 0; text-align:center; color:#56606d; font-size:8px; font-weight:700; letter-spacing:.08em; }
+.calendar-grid button,.calendar-grid > span { min-height:34px; }
+.calendar-grid button { border-radius:7px; background:transparent; color:#c7ced7; font-size:12px; }
+.calendar-grid button:hover:not(:disabled) { background:#1a212a; }
+.calendar-grid button.today { border:1px solid #2e3946; }
+.calendar-grid button.selected { background:#1b6f92; color:#fff; }
+.calendar-grid button:disabled { color:#3f4752; cursor:not-allowed; }
+.calendar-time { display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; margin-top:12px; padding-top:11px; border-top:1px solid #1d242d; }
+.calendar-time label { font-size:9px; }
+.calendar-time input { min-height:36px; padding:0 9px; border:1px solid #252d37; border-radius:7px; background:#0a0e13; color:#dfe4ea; }
+.calendar-today { width:100%; min-height:34px; margin-top:9px; border-radius:7px; background:#141a21; color:#aeb7c3; font-size:11px; font-weight:700; }
+.locker-summary { display:flex; justify-content:space-between; gap:12px; margin-top:11px; padding:10px 11px; border:1px solid #1d242d; border-radius:8px; background:#0c1015; }
+.locker-summary span { color:#596270; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+.locker-summary strong { color:#cbd1da; font-size:11px; text-align:right; }
+.locker-empty { min-height:300px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:7px; color:#697280; text-align:center; }
+.locker-empty strong { color:#cbd1da; font-size:14px; }
+.locker-empty span:last-child { max-width:240px; color:#596270; font-size:11px; line-height:1.45; }
+@media (max-width:760px) {
+  .locker-load { grid-template-columns:1fr; }
+  .locker-token-select { border-right:0; border-bottom:1px solid #242b35; border-radius:10px 10px 0 0; }
+  .locker-load input { min-height:50px; border-bottom:1px solid #242b35; }
+  .locker-load .primary { border-radius:0 0 10px 10px; }
+  .locker-create,.locker-existing { min-height:0; }
+}
