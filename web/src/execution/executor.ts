@@ -1,5 +1,10 @@
 import type { Allocation } from "../airdrop-core";
-import { buildTransferBatches, DEFAULT_MAX_ACTIONS } from "../airdrop/batch-builder";
+import {
+  buildFtTransferAction,
+  buildTransferBatches,
+  DEFAULT_MAX_ACTIONS,
+  type TransferBatch
+} from "../airdrop/batch-builder";
 import { getFtBalance, getStorageBalance, isRegistered } from "../near/ft";
 import type { NearRpcClient } from "../near/rpc";
 import type { Campaign, CampaignBatch } from "../campaign/model";
@@ -67,18 +72,28 @@ function buildCampaignBatches(
   return batches;
 }
 
-function batchToTransferBatch(batch: CampaignBatch) {
-  return buildTransferBatches(
-    batch.senderId,
-    batch.recipients.map((recipient) => ({
-      wallet: recipient.wallet,
-      amountBase: BigInt(recipient.amountBase)
-    })),
-    batch.actionCount
-  ).find((candidate) => candidate.batchId === batch.id) ??
-    (() => {
-      throw new Error(`Could not reconstruct campaign batch ${batch.id}`);
-    })();
+function batchToTransferBatch(batch: CampaignBatch): TransferBatch {
+  if (batch.recipients.length !== batch.actionCount) {
+    throw new Error(`Campaign batch ${batch.id} has incomplete recipient data`);
+  }
+
+  const actions = batch.recipients.map((recipient) =>
+    buildFtTransferAction(recipient.wallet, BigInt(recipient.amountBase))
+  );
+
+  return {
+    batchId: batch.id,
+    senderId: batch.senderId,
+    actions,
+    totalAmount: actions.reduce(
+      (total, action) => total + BigInt(action.args.amount),
+      0n
+    ),
+    totalPrepaidGas: actions.reduce(
+      (total, action) => total + action.gas,
+      0n
+    )
+  };
 }
 
 function hasSuccess(status: unknown): boolean {
