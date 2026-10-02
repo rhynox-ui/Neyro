@@ -624,6 +624,7 @@ export function TokenMintView({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [txHash, setTxHash] = useState("");
+  const [submittedAmount, setSubmittedAmount] = useState("");
 
   useEffect(() => { if (!recipient && accountId) setRecipient(accountId); }, [accountId, recipient]);
 
@@ -705,9 +706,10 @@ export function TokenMintView({
       const result = await wallet.signAndSend({ signerId: accountId, receiverId: contract, actions: [{ type:"FunctionCall", receiverId:contract, methodName:method, args, gas:callGas, deposit:attached }] });
       if (!result.transactionHash) throw new Error("Wallet did not return a transaction hash. If the wallet redirected for signing, verify the transaction before retrying.");
       const submittedHash = result.transactionHash;
-      setTxHash(submittedHash); setMessage("Mint transaction submitted. Refreshing live token state…"); setAmount("");
-      await verifyToken();
-      setTxHash(submittedHash); setMessage("Mint transaction submitted. Confirm the transaction before treating the new supply as final.");
+      setTxHash(submittedHash);
+      setSubmittedAmount(previewAmount === "Invalid amount" ? amount.trim() : previewAmount);
+      setMessage("Mint transaction submitted. Wait for finality, then reload the token state to confirm the new supply.");
+      setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Mint transaction failed."); }
     finally { setBusy(false); }
   }
@@ -728,6 +730,7 @@ export function TokenMintView({
           {state && <div className="mint-token-identity">{state.icon?.startsWith("data:image/") || state.icon?.startsWith("https://") ? <img src={state.icon} alt="" className="mint-token-icon" /> : <span className="mint-token-icon mint-token-icon-fallback">{state.symbol.slice(0,2)}</span>}<div><strong>{state.name}</strong><span>{state.symbol} · {state.spec}</span></div></div>}
         </div>
         {state && <div className="mint-stats"><div><span>Current supply</span><strong>{formatTokenBase(state.totalSupply,state.decimals)} {state.symbol}</strong></div><div><span>Your balance</span><strong>{formatTokenBase(state.balance,state.decimals)} {state.symbol}</strong></div><div><span>Decimals</span><strong>{state.decimals}</strong></div><div><span>Standard</span><strong className="ready">NEP-141</strong></div></div>}
+        {state && txHash && <div className="mint-confirmation"><div><span>Submitted mint</span><strong>{submittedAmount || "—"} {state.symbol}</strong></div><button type="button" onClick={() => void verifyToken()} disabled={loading}>Reload token state</button></div>}
       </div>
 
       {state ? <>
