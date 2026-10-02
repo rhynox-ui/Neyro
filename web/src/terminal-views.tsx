@@ -671,7 +671,7 @@ export function SwapView({
   const [toToken, setToToken] = useState("");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState("1");
-  const [quote, setQuote] = useState<{amountIn:string;amountOut:string;minAmountOut:string;msg:string;signature:string;expiresAt:number}|null>(null);
+  const [quote, setQuote] = useState<{amountIn:string;amountOut:string;minAmountOut:string;msg:string;signature:string;expiresAt:number;inputDecimals:number;outputDecimals:number}|null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -693,8 +693,12 @@ export function SwapView({
     if (target === fromToken.trim().toLowerCase()) throw new Error("Choose two different tokens.");
 
     const rpc = new NearRpcClient();
-    const decimals = await rpc.viewFunction<{decimals:number}>(target, "ft_metadata", {}).catch(() => ({decimals: 24}));
-    const base = toBase(value, decimals.decimals);
+    const inputContract = fromToken.trim().toLowerCase();
+    const inputDecimals = inputContract === "near" || inputContract === NEARLY_WNEAR
+      ? 24
+      : (await rpc.viewFunction<{decimals:number}>(inputContract, "ft_metadata", {}).catch(() => ({decimals: 24}))).decimals;
+    const outputDecimals = (await rpc.viewFunction<{decimals:number}>(target, "ft_metadata", {}).catch(() => ({decimals: 24}))).decimals;
+    const base = toBase(value, inputDecimals);
     const bps = Math.round(Number(slippage) * 100);
     if (!Number.isInteger(bps) || bps < 0 || bps > 1000) throw new Error("Slippage must be between 0% and 10%.");
 
@@ -728,7 +732,7 @@ export function SwapView({
       throw new Error("RHEA returned an incomplete executable route.");
     }
 
-    setQuote({ amountIn, amountOut, minAmountOut: minimum, msg, signature, expiresAt: Date.now() + 45000 });
+    setQuote({ amountIn, amountOut, minAmountOut: minimum, msg, signature, expiresAt: Date.now() + 45000, inputDecimals, outputDecimals });
   }
 
   async function runQuote() {
@@ -800,7 +804,7 @@ export function SwapView({
               <span>NEP-141</span>
             </div>
             <div className="swap-token-row">
-              <div className="swap-output">{quote ? quote.amountOut : "0.00"}</div>
+              <div className="swap-output">{quote ? formatBaseValue(quote.amountOut, quote.outputDecimals) : "0.00"}</div>
               <input
                 className="swap-contract"
                 value={toToken}
@@ -850,9 +854,9 @@ export function SwapView({
               <span className="route-live">LIVE</span>
             </div>
             <div className="swap-route-grid">
-              <div><span>You'll pay</span><strong>{formatBaseValue(quote.amountIn)}</strong></div>
-              <div><span>You'll receive</span><strong>{formatBaseValue(quote.amountOut)}</strong></div>
-              <div><span>Minimum received</span><strong>{formatBaseValue(quote.minAmountOut)}</strong></div>
+              <div><span>You'll pay</span><strong>{formatBaseValue(quote.amountIn, quote.inputDecimals)}</strong></div>
+              <div><span>You'll receive</span><strong>{formatBaseValue(quote.amountOut, quote.outputDecimals)}</strong></div>
+              <div><span>Minimum received</span><strong>{formatBaseValue(quote.minAmountOut, quote.outputDecimals)}</strong></div>
               <div><span>Quote expiry</span><strong>45 seconds</strong></div>
             </div>
             <button className="swap-review" type="button" disabled>
@@ -866,12 +870,12 @@ export function SwapView({
   );
 }
 
-function formatBaseValue(value: string): string {
+function formatBaseValue(value: string, decimals: number): string {
   try {
     const base = BigInt(value);
-    const divisor = 10n ** 24n;
+    const divisor = 10n ** BigInt(decimals);
     const whole = base / divisor;
-    const fraction = (base % divisor).toString().padStart(24, "0").slice(0, 6).replace(/0+$/, "");
+    const fraction = (base % divisor).toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
     return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
   } catch {
     return value;
