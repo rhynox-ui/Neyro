@@ -673,7 +673,6 @@ function App() {
         ) : activeView === "Overview" ? (
           <OverviewView
             accountId={accountId}
-            campaignStore={campaignStore}
             campaigns={campaigns}
             tokenSymbol={tokenMetadata?.symbol}
           />
