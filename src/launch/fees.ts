@@ -85,9 +85,11 @@ async function view<T>(method: string, args: Record<string, unknown>): Promise<T
 
 async function getCreatorLaunches(accountId: string): Promise<RawLaunch[]> {
   const countRaw = await view<unknown>("get_num_launches", {});
-  const countText = typeof countRaw === "number" && Number.isSafeInteger(countRaw)
-    ? String(countRaw)
-    : decimalString(countRaw, "launch count");
+  const countText = typeof countRaw === "bigint"
+    ? countRaw.toString()
+    : typeof countRaw === "number" && Number.isSafeInteger(countRaw)
+      ? String(countRaw)
+      : decimalString(countRaw, "launch count");
   const count = Number(countText);
   if (!Number.isSafeInteger(count) || count < 0 || count > MAX_LAUNCHES_SCAN) {
     throw new UserFacingError("NEARly launch count is outside Neyro's safe scan limit");
@@ -109,7 +111,7 @@ async function getCreatorLaunches(accountId: string): Promise<RawLaunch[]> {
   // get_launch is the documented source for per-launch creator fee fields.
   // Keep the broad discovery query separate from fee-state reads so this
   // feature does not depend on the shape of get_launches for fee accounting.
-  const detailed = [];
+  const detailed: RawLaunch[] = [];
   for (const launch of launches) {
     const raw = await view<unknown>("get_launch", { launch_id: launch.id });
     const detail = parseLaunch(raw);
