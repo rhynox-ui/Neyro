@@ -12,6 +12,18 @@
   // Settle trades whose outcome was unknown (timeouts, cut-off invocations).
   "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true },
+  "ratelimits": [
+    {
+      "name": "UPDATE_RATE_LIMITER",
+      "namespace_id": "31001",
+      "simple": { "limit": 40, "period": 60 }
+    },
+    {
+      "name": "QUOTE_RATE_LIMITER",
+      "namespace_id": "31002",
+      "simple": { "limit": 12, "period": 60 }
+    }
+  ],
   "secrets": {
     "required": [
       "TELEGRAM_BOT_TOKEN",
@@ -34,12 +46,18 @@
     "PUBLIC_BASE_URL": "https://neyro.aliyumansurkwalli92-52b.workers.dev"
   }
 
-  // Optional, recommended for production: process updates from a Queue so
-  // long trades are never cut off. Create it first with
-  //   npx wrangler queues create neyro-telegram-updates
-  // then uncomment:
-  // ,"queues": {
-  //   "producers": [{ "binding": "NEYRO_TELEGRAM_UPDATES", "queue": "neyro-telegram-updates" }],
-  //   "consumers": [{ "queue": "neyro-telegram-updates", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 0 }]
-  // }
+  "queues": {
+    "producers": [
+      { "binding": "NEYRO_TELEGRAM_UPDATES", "queue": "neyro-telegram-updates" }
+    ],
+    "consumers": [
+      {
+        "queue": "neyro-telegram-updates",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "retry_delay": 5
+      }
+    ]
+  }
 }
