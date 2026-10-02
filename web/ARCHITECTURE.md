@@ -849,3 +849,13 @@ This is a presentation-only reset around the existing execution boundary; Telegr
 - Swap quote display now formats input/output/minimum amounts using the verified token decimals returned by NEAR metadata.
 - RHEA execution remains disabled until the transaction lifecycle is safe for wrapping, registration and multi-transaction reconciliation.
 - Telegram bot and Worker code remain untouched.
+
+
+## 2026-10-02 — Swap interaction checkpoint
+
+- Added a real-time quote expiry countdown instead of a static 45-second label.
+- Expired quotes are visibly invalidated and require a fresh quote before the review boundary can be used.
+- Added a compact swap settings popover for custom slippage while preserving the preset controls.
+- Changing slippage invalidates the current quote.
+- No swap execution was enabled by this UI pass; RHEA signing remains gated until wrapping, token registration and multi-transaction reconciliation are verified.
+- Telegram bot and Worker code remain untouched.
