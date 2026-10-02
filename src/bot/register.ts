@@ -565,7 +565,7 @@ export function registerBotHandlers(bot: Bot) {
 
   pm.command("import", async (ctx) => {
     await defaultStateStore().set(ctx.from.id, "wallet-import", { kind: "private-key" }, 5 * 60 * 1000);
-    await replyScreen(ctx, "wallet-import", renderImportWalletPrompt(), HTML);
+    await replyScreen(ctx, "wallet", renderImportWalletPrompt(), HTML);
   });
 
   pm.command("deposit", async (ctx) => {
