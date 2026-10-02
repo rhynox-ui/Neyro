@@ -1084,3 +1084,28 @@ Open release risks identified by the audit:
 - The next implementation stage is a dedicated persisted registration flow using the token's live storage_balance_bounds and standard storage_deposit interface.
 - This is a safety improvement, not a claim of million-wallet readiness; the current browser planner still retains parsed rows in memory.
 - Telegram bot and Worker code remain untouched.
+
+
+## 2026-10-02 — Recipient registration execution checkpoint
+
+The web terminal now has a dedicated NEP-145 recipient-registration execution path:
+
+- reads the token's live `storage_balance_bounds`;
+- uses the reported `min` storage deposit rather than guessing a fee;
+- allows the connected browser wallet to pay storage for recipient accounts;
+- uses `registration_only: true` so excess attached storage is not intentionally accumulated;
+- batches at most 10 registration calls per transaction with 30 TGas per call, keeping the planned registration transaction at or below 300 TGas;
+- persists registration sessions in IndexedDB;
+- records pending/signing/submitted/success/failed/unknown states;
+- requires reconciliation before retrying an unknown/submitted registration transaction;
+- requires a fresh registration preflight before the airdrop itself can proceed.
+
+This is intentionally separate from the Telegram bot and does not expose Telegram signer material to the browser.
+
+NEP-145 defines `storage_balance_bounds` as the source of the minimum/maximum storage amounts and `storage_deposit` as the payable registration method. citeturn0search0
+
+Remaining release work:
+- verify the flow against several real NEP-141 contracts on mainnet;
+- add automated browser-wallet/testnet execution coverage;
+- continue memory-bounded planning work for very large recipient sets;
+- do not claim million-wallet readiness from the registration flow alone.
