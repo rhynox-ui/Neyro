@@ -849,6 +849,166 @@ export function MintView({ accountId }: { accountId: string }) {
   );
 }
 
+
+export function TokenLockView({ accountId }: { accountId: string }) {
+  const today = new Date();
+  const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [time, setTime] = useState("12:00");
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [token, setToken] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const monthLabel = month.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const cells = Array.from({ length: firstDay + daysInMonth }, (_, index) => index < firstDay ? null : index - firstDay + 1);
+
+  function selectDay(day: number) {
+    const next = new Date(month.getFullYear(), month.getMonth(), day);
+    next.setHours(Number(time.slice(0, 2)), Number(time.slice(3, 5)), 0, 0);
+    setSelectedDate(next);
+    setCalendarOpen(false);
+  }
+
+  function changeMonth(offset: number) {
+    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  }
+
+  function isBeforeToday(day: number) {
+    const candidate = new Date(month.getFullYear(), month.getMonth(), day);
+    const floor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    return candidate < floor;
+  }
+
+  function formatSelected() {
+    if (!selectedDate) return "Select unlock date";
+    return selectedDate.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+  }
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero full">
+        <div>
+          <span className="eyebrow">TOKEN TOOLS / LOCK</span>
+          <h2>Token Locker</h2>
+          <p>Lock your tokens until a scheduled unlock date. The calendar only selects the schedule; deployment remains gated until Neyro's verified locker contract is connected.</p>
+        </div>
+        <div className="hero-state"><span className="status-dot" /><span>Locker deployment gate</span></div>
+      </div>
+
+      <div className="card locker-load full">
+        <div className="locker-token-select"><span className="locker-token-badge">NEAR</span><span className="locker-token-caret">⌄</span></div>
+        <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="Enter token contract or locker address" spellCheck={false} />
+        <button className="primary" type="button" disabled={!token.trim()}>LOAD</button>
+      </div>
+
+      <div className="card locker-state full">
+        <span className="locker-state-icon">⌁</span>
+        <strong>Load a token to view</strong>
+        <span>Live token balance and existing lockers will appear here when a verified locker protocol is connected.</span>
+      </div>
+
+      <div className="card locker-create">
+        <div className="section-head">
+          <div><span className="eyebrow">01 / LOCK</span><h3>Create Locker</h3></div>
+          <span className="module-status">NON-CUSTODIAL</span>
+        </div>
+
+        <div className="mint-field">
+          <div className="field-row-label"><label>Token Amount</label><span className="locker-balance">Balance —</span></div>
+          <div className="amount-max">
+            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+            <button type="button" onClick={() => {}} disabled>MAX</button>
+          </div>
+        </div>
+
+        <div className="mint-field">
+          <label>Unlock Schedule</label>
+          <div className="calendar-field">
+            <button type="button" className={selectedDate ? "calendar-trigger selected" : "calendar-trigger"} onClick={() => setCalendarOpen((open) => !open)}>
+              <span className="calendar-icon">📅</span>
+              <span>{formatSelected()}</span>
+              <span className="calendar-chevron">⌄</span>
+            </button>
+
+            {calendarOpen && (
+              <div className="modern-calendar" role="dialog" aria-label="Unlock date calendar">
+                <div className="calendar-head">
+                  <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous month">‹</button>
+                  <strong>{monthLabel}</strong>
+                  <button type="button" onClick={() => changeMonth(1)} aria-label="Next month">›</button>
+                </div>
+                <div className="calendar-weekdays">
+                  {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => <span key={day}>{day}</span>)}
+                </div>
+                <div className="calendar-grid">
+                  {cells.map((day, index) => day === null ? <span key={index} /> : (
+                    <button
+                      key={day}
+                      type="button"
+                      className={[
+                        selectedDate && selectedDate.getFullYear() === month.getFullYear() && selectedDate.getMonth() === month.getMonth() && selectedDate.getDate() === day ? "selected" : "",
+                        new Date().getFullYear() === month.getFullYear() && new Date().getMonth() === month.getMonth() && new Date().getDate() === day ? "today" : ""
+                      ].filter(Boolean).join(" ")}
+                      disabled={isBeforeToday(day)}
+                      onClick={() => selectDay(day)}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
+                <div className="calendar-time">
+                  <label>Unlock time</label>
+                  <input type="time" value={time} onChange={(e) => {
+                    setTime(e.target.value);
+                    if (selectedDate) {
+                      const next = new Date(selectedDate);
+                      next.setHours(Number(e.target.value.slice(0, 2)), Number(e.target.value.slice(3, 5)), 0, 0);
+                      setSelectedDate(next);
+                    }
+                  }} />
+                </div>
+                <button type="button" className="calendar-today" onClick={() => {
+                  const next = new Date();
+                  next.setHours(Number(time.slice(0, 2)), Number(time.slice(3, 5)), 0, 0);
+                  setMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+                  setSelectedDate(next);
+                  setCalendarOpen(false);
+                }}>Today</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="locker-summary">
+          <span>Unlock</span>
+          <strong>{selectedDate ? selectedDate.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Not scheduled"}</strong>
+        </div>
+
+        <div className="mint-interface-warning">
+          <strong>Locker deployment is intentionally gated.</strong>
+          <span>Neyro does not currently expose a verified generic token-locker contract here. No guessed locker address or lock method is used.</span>
+        </div>
+        <button className="mint-submit" type="button" disabled={!accountId || !token.trim() || !amount.trim() || !selectedDate}>Create Locker</button>
+      </div>
+
+      <div className="card locker-existing">
+        <div className="section-head"><div><span className="eyebrow">02 / LOCKERS</span><h3>Existing Lockers</h3></div><span className="module-status">LIVE DATA</span></div>
+        <div className="locker-empty">
+          <span className="locker-empty-icon">◌</span>
+          <strong>No lockers loaded</strong>
+          <span>Connect a verified locker protocol to read existing locks.</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function TerminalModuleView({
   view,
   onNavigate
