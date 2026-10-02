@@ -887,3 +887,10 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Removed the Developer and History groups from the visible Web Terminal sidebar.
 - Existing implementation modules remain in the codebase for the current execution/history architecture; this change only removes those navigation entries from the primary surface.
 - No Telegram bot, Worker, wallet custody, or execution code was modified.
+
+
+## 2026-10-02 — Orders navigation cleanup
+
+- Removed the Orders entry from the visible Trade navigation.
+- The primary sidebar now exposes only currently relevant Web Terminal surfaces: Overview, Swap, Portfolio, Launch, and Token Tools.
+- No Telegram bot, Worker, wallet custody, or execution code was modified.
