@@ -628,7 +628,6 @@ function App() {
             )}
           </div>
 
-/div>
         </div>
       </aside>
 
