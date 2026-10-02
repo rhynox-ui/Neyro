@@ -756,3 +756,9 @@ The current export iterates the persisted campaign object in memory. Million-wal
 The latest Wallet Selector documentation confirms that `getAccounts()` can expose multiple signed-in accounts and that `signAndSendTransaction` may return no outcome for browser wallets that redirect. The execution layer therefore continues to require explicit signer-account matching and treats missing transaction hashes as unresolved rather than successful.
 
 Reference: https://github.com/near/wallet-selector/blob/main/packages/core/docs/api/wallet.md
+
+## 32. Execution checkpoint — deterministic sender allocation
+
+Sender allocation now uses deterministic best-fit decreasing: larger recipient transfers are assigned first, with ties preserving source order, and each transfer selects the sender with the smallest remaining balance that can cover it. This reduces avoidable balance fragmentation compared with simple first-fit allocation.
+
+Aggregate balance remains only a necessary condition, not a proof that arbitrary recipient amounts can be partitioned across sender accounts. If the deterministic allocator cannot place a recipient, execution stops before signing. Exact optimal bin-packing is intentionally not claimed; million-wallet planning will need bounded-memory allocation semantics and explicit handling of unsatisfiable distributions.
