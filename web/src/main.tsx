@@ -383,6 +383,43 @@ function App() {
             </div>
 
             <div className="card full">
+              <div className="row-title">
+                <div><span className="eyebrow">READ-ONLY PREFLIGHT</span><h3>Fresh sender balances</h3></div>
+                <button
+                  onClick={() => void runPreflight()}
+                  disabled={preflightBusy || Boolean(plan.invalid) || !token.trim() || senderList.length === 0}
+                >
+                  {preflightBusy ? "Checking…" : "Check balances"}
+                </button>
+              </div>
+              {preflight ? (
+                <>
+                  <p className={preflight.enoughTokenBalance ? "ready" : "warning"}>
+                    {preflight.enoughTokenBalance ? "Aggregate token balance is sufficient." : "Aggregate token balance is insufficient."}
+                  </p>
+                  <p className="muted">
+                    Available: {preflight.totalTokenBalance.toString()} base units · Required: {preflight.totalRequired.toString()} base units
+                  </p>
+                  <div className="table-wrap">
+                    <table><thead><tr><th>Sender</th><th>Token</th><th>NEAR</th><th>Storage</th></tr></thead>
+                      <tbody>{preflight.senders.map((sender) => (
+                        <tr key={sender.senderId}>
+                          <td>{sender.senderId}</td>
+                          <td>{sender.tokenBalance.toString()}</td>
+                          <td>{sender.nativeBalance.toString()}</td>
+                          <td className={sender.storage === "registered" ? "ready" : "warning"}>{sender.storage}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                  <small>Read-only. No transaction has been signed or broadcast.</small>
+                </>
+              ) : (
+                <p className="muted">Run this after entering the token, sender pool and validated recipient file.</p>
+              )}
+            </div>
+
+            <div className="card full">
               <div className="row-title"><div><span className="eyebrow">PREVIEW</span><h3>First {preview.length} valid recipients</h3></div><button disabled>Start airdrop</button></div>
               <div className="table-wrap">
                 <table><thead><tr><th>#</th><th>Wallet</th><th>Amount</th><th>Status</th></tr></thead>
