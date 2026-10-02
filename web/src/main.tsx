@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { formatTokenToolFee } from "./token-tools/fees";
 import { TOKEN_TOOL_FEE_RECIPIENT } from "./token-tools/fee-recipient";
+import { NearRpcClient } from "./near/rpc";
+import { preflightSenders, type CampaignPreflight } from "./preflight";
 
 type Row = {
   line: number;
@@ -221,11 +223,50 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [processed, setProcessed] = useState(0);
   const [message, setMessage] = useState("Upload a recipient file to build the campaign.");
+  const [preflight, setPreflight] = useState<CampaignPreflight | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
 
   const senderList = useMemo(
     () => senders.split(/\r?\n/).map((v) => v.trim().toLowerCase()).filter(Boolean),
     [senders]
   );
+
+  async function runPreflight() {
+    if (!token.trim()) {
+      setMessage("Enter a token contract before running sender preflight.");
+      return;
+    }
+    if (!plan) {
+      setMessage("Upload and validate a recipient file before running sender preflight.");
+      return;
+    }
+    if (senderList.length === 0) {
+      setMessage("Add at least one sender account before running sender preflight.");
+      return;
+    }
+
+    setPreflightBusy(true);
+    setPreflight(null);
+    setMessage("Reading fresh sender balances from NEAR mainnet…");
+    try {
+      const result = await preflightSenders(
+        new NearRpcClient(),
+        token.trim(),
+        senderList,
+        plan.total
+      );
+      setPreflight(result);
+      setMessage(
+        result.enoughTokenBalance
+          ? "Preflight passed for aggregate token balance. Execution remains locked."
+          : "Preflight failed: sender pool does not cover the campaign total."
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Sender preflight failed");
+    } finally {
+      setPreflightBusy(false);
+    }
+  }
 
   async function upload(file: File) {
     setBusy(true);
