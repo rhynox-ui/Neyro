@@ -219,3 +219,39 @@ The web terminal must not silently fall back to Telegram signing. If browser wal
 ## 22. Current handoff checkpoint
 
 Latest web branch includes the isolated foundation described above. Continue from the web branch only. Do not modify Telegram bot files, Telegram worker configuration, Telegram wallet storage, or Telegram execution code while implementing the web terminal.
+
+
+## 23. Phase B progress — campaign safety model
+
+Implemented:
+- `web/src/campaign/model.ts`
+- Explicit per-batch states: pending, signing, submitted, success, failed, unknown.
+- Explicit transition validation so the UI cannot accidentally jump from an unknown broadcast directly back to pending.
+- Unknown broadcast states are intentionally **not retryable** until reconciled.
+- Transaction hashes can be attached when a batch reaches submitted.
+- Campaign completion requires every batch to reach success.
+
+This is a pure state machine. It does not perform RPC calls, wallet signing, retries, or persistence yet.
+
+### Why "unknown" is a first-class state
+
+A wallet/RPC timeout after a transaction was submitted does not prove that the transaction failed. Treating that timeout as a normal failure and signing the same batch again could duplicate token transfers.
+
+The future execution engine must:
+1. persist the batch as unknown;
+2. reconcile the transaction using its hash when available, sender/account and receipt state;
+3. only move to success/failed after reconciliation;
+4. never automatically resend an unresolved unknown batch.
+
+## 24. Next implementation order
+
+1. IndexedDB campaign persistence.
+2. Wallet connector abstraction.
+3. Fresh token/native balance preflight.
+4. Registration preflight.
+5. Transaction action adapter.
+6. Conservative gas-aware batch planner.
+7. Signing and broadcast.
+8. Reconciliation/polling.
+9. Resume after reload.
+10. Only then enable the Start button.
