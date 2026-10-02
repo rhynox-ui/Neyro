@@ -8,7 +8,7 @@ export type PendingPayload = {
   quote: TradeQuote;
   fee?: FeePlan;
   /** Original user-entered amount before any NEARly sell tax adjustment. */
-  feeBaseAmount: string;
+  feeBaseAmount?: string;
 };
 
 export type ClaimResult =
