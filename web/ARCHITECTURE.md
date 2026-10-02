@@ -821,3 +821,13 @@ This is a presentation-only reset around the existing execution boundary; Telegr
 - Unsupported modules now explain the real integration boundary instead of rendering fabricated balances, quotes, orders, fees or deployment results.
 - Removed illustrative sender account placeholders.
 - Telegram bot and Worker code remain untouched.
+
+
+## 2026-10-02 — Live protocol surfaces
+
+- Added a browser-side NEARly launch adapter under `web/src/protocol/nearly.ts`.
+- NEARly launch pairs are read from `nearlytrade.near::get_quotes`; launch costs are read from `quote_launch` immediately before signing.
+- Launch arguments preserve NEARly's documented optional metadata, pair, first-buy and tax fields.
+- Added a live RHEA SmartRouter quote surface. Quotes are fetched at request time, validated for positive output, minimum output and signature/message presence, and treated as short-lived.
+- Swap execution remains gated while the browser transaction lifecycle is hardened for RHEA wrapping, token registration and multi-transaction routes.
+- No Telegram bot, Worker or production signer code was modified.
