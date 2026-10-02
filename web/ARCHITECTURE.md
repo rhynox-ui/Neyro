@@ -529,3 +529,208 @@ The supplied Mango-style HTML references are design references only. Production 
 Fix/verify CI first. Then run the execution path on NEAR testnet before enabling or expanding mainnet execution.
 
 **Telegram code remains off-limits.**
+
+
+## 31. Web Terminal Roadmap — 2026-10-02
+
+This roadmap is the implementation order for the separate Neyro web terminal. It is intentionally execution-first: every step must preserve non-custodial browser signing, deterministic campaign state, and the rule that Telegram code is reference-only.
+
+### Stage 0 — Repository and UI foundation
+
+**Status: COMPLETE**
+
+- [x] Isolated web application under `web/`
+- [x] React + Vite + TypeScript
+- [x] CI workflow for web typecheck/test/build
+- [x] Mango-style terminal shell adapted for Neyro
+- [x] Responsive grouped navigation
+- [x] Dynamic wallet/account display
+- [x] No copied demo balances, wallets, transactions or fake status data
+- [x] Unsupported modules show foundation state instead of fabricated functionality
+- [x] Telegram source remains untouched
+
+### Stage 1 — Airdrop planning and safety foundation
+
+**Status: COMPLETE**
+
+- [x] CSV/TXT/JSON recipient ingestion
+- [x] Streaming text ingestion where supported
+- [x] NEAR account validation
+- [x] Duplicate detection
+- [x] Exact bigint token arithmetic
+- [x] Multi-sender allocation
+- [x] Deterministic campaign fingerprint
+- [x] Deterministic NEP-141 transfer batches
+- [x] Conservative gas-aware batch sizing
+- [x] NEAR RPC read layer
+- [x] FT metadata/balance/storage reads
+- [x] Fresh sender preflight
+- [x] IndexedDB campaign persistence
+- [x] Campaign/batch state machine
+
+### Stage 2 — Browser execution
+
+**Status: WIRED; VERIFICATION REQUIRED**
+
+- [x] Provider-neutral wallet connector
+- [x] My NEAR Wallet / Wallet Selector adapter
+- [x] Transaction action adapter
+- [x] Fresh sender checks immediately before signing
+- [x] Persist `signing` before wallet approval
+- [x] Persist transaction hash as `submitted`
+- [x] Finality verification
+- [x] Unknown outcome protection
+- [x] Explicit reconciliation path
+- [ ] Green Web Terminal CI after the latest Wallet Selector correction
+- [ ] Real NEAR testnet signing with a test token
+- [ ] Verify wallet redirect/signing return behavior
+- [ ] Verify final/failed transaction reconciliation against live RPC
+- [ ] Verify reload/resume behavior
+- [ ] Verify safe retry after confirmed failure
+
+**Gate:** Do not treat mainnet airdrop execution as production-validated until every unchecked item above passes.
+
+### Stage 3 — Production-grade campaign engine
+
+**Status: NEXT**
+
+- [ ] Resume campaigns automatically after reload
+- [ ] Persist and restore active campaign selection
+- [ ] Prevent duplicate execution across tabs
+- [ ] Revalidate balances before every batch
+- [ ] Recalculate/reject stale allocations safely
+- [ ] Sender switching when multiple browser accounts are required
+- [ ] Insufficient-balance recovery without silently dropping recipients
+- [ ] Complete per-recipient result tracking
+- [ ] CSV result export
+- [ ] Network/RPC interruption recovery
+- [ ] Unknown transaction reconciliation UI
+- [ ] Safe retry UI limited to confirmed failures
+- [ ] Clear pre-signing transaction summary
+
+### Stage 4 — Million-wallet execution hardening
+
+**Status: NOT READY**
+
+The goal is not simply to parse one million rows. The planner must operate with bounded memory and preserve deterministic execution.
+
+- [ ] Chunked/streaming planning without retaining the full recipient dataset
+- [ ] Persistent source/chunk checkpoints
+- [ ] Deterministic allocation across large datasets
+- [ ] Batch generation from bounded chunks
+- [ ] Duplicate detection that does not require an unbounded in-memory set
+- [ ] Crash/reload recovery from the last committed checkpoint
+- [ ] Complete result ledger/export
+- [ ] Performance testing with large synthetic datasets
+- [ ] Browser memory profiling on realistic mobile/desktop targets
+
+**Gate:** Keep large-scale Start/Execute flows disabled until bounded-memory planning and recovery are demonstrated.
+
+### Stage 5 — Token tools
+
+**Status: FOUNDATION ONLY**
+
+Fees are already modeled:
+- Mint: 1 NEAR
+- Lock: 1 NEAR
+- Treasury: `widekingdom6862.near`
+
+Implementation order:
+
+1. [ ] Verify the exact supported NEP-141 token creation contract/factory.
+2. [ ] Implement token creation adapter from the verified ABI/interface.
+3. [ ] Implement mint with verified contract arguments.
+4. [ ] Implement burn with verified contract arguments.
+5. [ ] Implement lock using an on-chain lock contract.
+6. [ ] Implement unlock/claim.
+7. [ ] Implement batch transfer.
+8. [ ] Reuse the campaign engine for airdrop execution.
+9. [ ] Add operation history and result export.
+
+**Rule:** Never invent contract methods or ABI fields from the frontend.
+
+### Stage 6 — NEARly launch
+
+**Status: NOT STARTED**
+
+- [ ] Verify current NEARly launch contract/interface
+- [ ] Verify supported launch pairs and decimals
+- [ ] Verify launch parameters and required deposits
+- [ ] Build browser-wallet launch transaction
+- [ ] Pre-signing summary
+- [ ] Submit and reconcile launch transaction
+- [ ] Show resulting token/launch reference from confirmed chain state
+- [ ] Test on testnet/sandbox where the protocol supports it
+
+The Telegram Neyro launch implementation may be referenced for protocol/configuration understanding but must not be modified for the web terminal.
+
+### Stage 7 — Trading
+
+**Status: NOT STARTED**
+
+- [ ] Verify supported Rhea trading interface
+- [ ] Build quote/read layer
+- [ ] Browser-wallet swap execution
+- [ ] Slippage/deadline controls where supported
+- [ ] Transaction simulation/preflight where available
+- [ ] Execution reconciliation
+- [ ] Portfolio/balance aggregation
+- [ ] Orders/trade history
+
+### Stage 8 — Developer tools
+
+**Status: NOT STARTED**
+
+- [ ] Contract Inspector
+- [ ] Read-only Contract Call
+- [ ] Safe transaction builder
+- [ ] Explicit receiver/method/arguments review
+- [ ] Gas/deposit validation
+- [ ] Browser-wallet signing
+- [ ] Transaction reconciliation
+
+Developer tools must never provide a generic “send anything” path without an explicit transaction preview and wallet confirmation.
+
+### Stage 9 — History and observability
+
+**Status: NOT STARTED**
+
+- [ ] Transaction history from verified chain state
+- [ ] Airdrop campaign history
+- [ ] Token-operation history
+- [ ] Batch-level status and hashes
+- [ ] Failure/reconciliation details
+- [ ] Exportable campaign results
+- [ ] No fake/static history rows
+
+### Stage 10 — Sponsorship, if required
+
+**Status: BLOCKED ON VERIFIED INFRASTRUCTURE**
+
+- [x] Separate fee collection from gas sponsorship
+- [x] Default to user-pays-gas
+- [ ] Identify a dedicated sponsor/relayer account
+- [ ] Identify the supported sponsorship provider/protocol
+- [ ] Verify authorization and spending limits
+- [ ] Implement an explicit sponsorship adapter
+- [ ] Add sponsor failure/recovery handling
+- [ ] Never expose treasury or sponsor private keys to browser code
+
+The existing treasury `widekingdom6862.near` is a fee recipient. It must not be treated as a sponsor unless verified infrastructure explicitly proves that role.
+
+### Release gates
+
+The web terminal should move toward mainnet feature enablement in this order:
+
+1. **CI gate** — typecheck, tests and build are green.
+2. **Protocol gate** — every contract method used by the web terminal is verified from authoritative protocol/interface sources.
+3. **Wallet gate** — browser-wallet signing and returned outcomes work reliably.
+4. **Execution gate** — fresh balances, registration, gas, signing and reconciliation are all enforced.
+5. **Recovery gate** — reload, unknown transaction, RPC failure and confirmed-failure retry paths are tested.
+6. **Scale gate** — large-file planning is bounded and recoverable before claiming million-wallet readiness.
+7. **Mainnet gate** — only verified features are enabled; unfinished modules remain visibly disabled/foundation-only.
+
+### Working rule for future contributors
+
+When continuing this roadmap, work on the earliest incomplete stage unless a later-stage task is required to unblock it. Keep changes inside `web/` (plus the web CI workflow when necessary), update this roadmap/checkpoint after meaningful milestones, and never modify Telegram code to make a web feature work.
+
