@@ -145,12 +145,10 @@ export async function executeRecipientRegistration(
     throw new Error("Existing registration session does not match this request");
   }
 
-  const account = await input.rpc.viewAccount(input.payerId);
-  const gasPrice = await input.rpc.gasPrice();
-  const maxGas = BigInt(session.batches[0]?.recipientIds.length ?? 0) * STORAGE_DEPOSIT_GAS;
-  const requiredForFirstBatch = BigInt(session.batches[0]?.recipientIds.length ?? 0) * deposit + maxGas * gasPrice;
-  if (BigInt(account.amount) < requiredForFirstBatch) {
-    throw new Error("Registration payer does not have enough NEAR for the next registration batch");
+  if (session.deposit !== deposit.toString()) {
+    throw new Error(
+      "Token storage minimum changed since this registration session was created. Start a new registration session."
+    );
   }
 
   const connected = await input.wallet.getAccounts();
@@ -165,6 +163,14 @@ export async function executeRecipientRegistration(
       session.status = "paused";
       await input.store.putRegistration(session);
       throw new Error(`Registration batch ${batch.id} needs reconciliation before retrying`);
+    }
+
+    const account = await input.rpc.viewAccount(input.payerId);
+    const gasPrice = await input.rpc.gasPrice();
+    const batchGas = BigInt(batch.recipientIds.length) * STORAGE_DEPOSIT_GAS;
+    const requiredForBatch = BigInt(batch.recipientIds.length) * deposit + batchGas * gasPrice;
+    if (BigInt(account.amount) < requiredForBatch) {
+      throw new Error("Registration payer does not have enough NEAR for the next registration batch");
     }
 
     session.batches[index] = transition(batch, "signing");
