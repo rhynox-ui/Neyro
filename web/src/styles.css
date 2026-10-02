@@ -1441,3 +1441,34 @@ html[data-theme="light"] .burn-warning {
 .suffix-input input { min-width:0; border-radius:8px 0 0 8px; }
 .suffix-input span { min-height:42px; display:grid; place-items:center; padding:0 11px; border:1px solid #252d37; border-left:0; border-radius:0 8px 8px 0; background:#11161d; color:#737d8a; font-size:11px; }
 .tax-fields { margin-top:11px; }
+
+
+.registration-action,
+.registration-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--border, #1a2028);
+  border-radius: 9px;
+  background: var(--panel-soft, #0d1117);
+}
+.registration-action > div,
+.registration-session > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.registration-action strong { color: var(--text, #e7ebf1); font-size: 12px; }
+.registration-action span,
+.registration-session small { color: var(--muted, #68717f); font-size: 10px; line-height: 1.45; }
+.registration-action button,
+.registration-session button { white-space: nowrap; }
+@media (max-width: 640px) {
+  .registration-action,
+  .registration-session { align-items: stretch; flex-direction: column; }
+  .registration-action button,
+  .registration-session button { width: 100%; }
+}
