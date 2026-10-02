@@ -51,7 +51,8 @@ type NavGroup = {
 const NAV_GROUPS: NavGroup[] = [
   { label: "WORKSPACE", items: ["Overview"] },
   { label: "TRADE", items: ["Swap", "Portfolio"] },
-  { label: "LAUNCH", items: ["Launch NEARly token", "Create token"] },
+  { label: "LAUNCH", items: ["Launch NEARly token"] },
+  { label: "TOKEN", items: ["Create token"] },
   { label: "TOKEN TOOLS", items: ["Mint", "Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
 ];
 
