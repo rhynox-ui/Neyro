@@ -379,3 +379,21 @@ References:
 The web terminal now has a conservative gas-aware batch planner and refuses to construct batches that exceed the calculated prepaid-gas budget.
 
 Browser signing remains locked. Telegram code remains untouched.
+
+## 26. Transaction action boundary
+
+`web/src/execution/transaction-builder.ts` now converts an immutable planned FT batch into the web wallet connector's action format. It does not sign or broadcast anything.
+
+The builder enforces that the batch sender matches the signer account and keeps the token contract as the transaction receiver. Product fees are represented separately as native NEAR `Transfer` actions to the configured treasury.
+
+This separation is intentional: token transfers, native product fees, gas and any future sponsorship must remain independently visible in the pre-signing transaction summary.
+
+## 27. Current checkpoint
+
+The web terminal now has:
+- conservative gas-safe batch planning;
+- a provider-neutral browser wallet boundary;
+- fresh read-only sender preflight;
+- a transaction action adapter that still cannot sign.
+
+Browser wallet integration, revalidation immediately before signing, transaction submission, reconciliation and resume remain disabled. Telegram code remains untouched.
