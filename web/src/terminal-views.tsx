@@ -677,6 +677,55 @@ export function SwapView({
   const [notice, setNotice] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [inputDecimals, setInputDecimals] = useState(24);
+  const [inputSymbol, setInputSymbol] = useState("wNEAR");
+  const [inputBalance, setInputBalance] = useState<bigint | null>(null);
+  const [balanceBusy, setBalanceBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const contract = fromToken.trim().toLowerCase();
+    if (!accountId || !contract) {
+      setInputBalance(null);
+      setInputDecimals(24);
+      setInputSymbol(contract === "near" ? "NEAR" : "wNEAR");
+      setBalanceBusy(false);
+      return;
+    }
+    setBalanceBusy(true);
+    const rpc = new NearRpcClient();
+    const load = async () => {
+      try {
+        if (contract === "near") {
+          const account = await rpc.viewAccount(accountId);
+          if (cancelled) return;
+          setInputDecimals(24);
+          setInputSymbol("NEAR");
+          setInputBalance(BigInt(account.amount));
+        } else {
+          const [metadata, balance] = await Promise.all([
+            rpc.viewFunction<{decimals:number; symbol:string}>(contract, "ft_metadata", {}),
+            rpc.viewFunction<string>(contract, "ft_balance_of", { account_id: accountId })
+          ]);
+          if (!/^\d+$/.test(balance)) throw new Error("Token returned an invalid balance.");
+          if (cancelled) return;
+          setInputDecimals(metadata.decimals);
+          setInputSymbol(metadata.symbol);
+          setInputBalance(BigInt(balance));
+        }
+      } catch {
+        if (!cancelled) {
+          setInputBalance(null);
+          setInputDecimals(24);
+          setInputSymbol(contract === "near" ? "NEAR" : "Token");
+        }
+      } finally {
+        if (!cancelled) setBalanceBusy(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [accountId, fromToken]);
 
   useEffect(() => {
     if (!quote) {
@@ -707,11 +756,11 @@ export function SwapView({
 
     const rpc = new NearRpcClient();
     const inputContract = fromToken.trim().toLowerCase();
-    const inputDecimals = inputContract === "near" || inputContract === NEARLY_WNEAR
+    const resolvedInputDecimals = inputContract === "near"
       ? 24
-      : (await rpc.viewFunction<{decimals:number}>(inputContract, "ft_metadata", {}).catch(() => ({decimals: 24}))).decimals;
+      : (await rpc.viewFunction<{decimals:number}>(inputContract, "ft_metadata", {})).decimals;
     const outputDecimals = (await rpc.viewFunction<{decimals:number}>(target, "ft_metadata", {}).catch(() => ({decimals: 24}))).decimals;
-    const base = toBase(value, inputDecimals);
+    const base = toBase(value, resolvedInputDecimals);
     const bps = Math.round(Number(slippage) * 100);
     if (!Number.isInteger(bps) || bps < 0 || bps > 1000) throw new Error("Slippage must be between 0% and 10%.");
 
@@ -745,7 +794,7 @@ export function SwapView({
       throw new Error("RHEA returned an incomplete executable route.");
     }
 
-    setQuote({ amountIn, amountOut, minAmountOut: minimum, msg, signature, expiresAt: Date.now() + 45000, inputDecimals, outputDecimals });
+    setQuote({ amountIn, amountOut, minAmountOut: minimum, msg, signature, expiresAt: Date.now() + 45000, inputDecimals: resolvedInputDecimals, outputDecimals });
   }
 
   async function runQuote() {
@@ -787,7 +836,7 @@ export function SwapView({
           <div className="swap-token-box">
             <div className="swap-token-label">
               <span>From</span>
-              <span>NEAR / NEP-141</span>
+              <span>{inputSymbol} · {balanceBusy ? "Reading balance…" : inputBalance !== null ? formatBaseValue(inputBalance.toString(), inputDecimals) : "Balance unavailable"}</span>
             </div>
             <div className="swap-token-row">
               <input
@@ -806,7 +855,7 @@ export function SwapView({
                 aria-label="Input token contract"
               />
             </div>
-            <div className="swap-token-hint">Contract address · {fromToken || "not set"}</div>
+            <div className="swap-token-hint"><span>Contract · {fromToken || "not set"}</span>{inputBalance !== null && <button type="button" className="swap-max" onClick={() => { setAmount(formatBaseValue(inputBalance.toString(), inputDecimals)); setQuote(null); }}>MAX</button>}</div>
           </div>
 
           <button className="swap-switch" type="button" onClick={switchTokens} aria-label="Switch tokens">↓</button>
