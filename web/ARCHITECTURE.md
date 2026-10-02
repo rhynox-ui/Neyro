@@ -859,3 +859,8 @@ This is a presentation-only reset around the existing execution boundary; Telegr
 - Changing slippage invalidates the current quote.
 - No swap execution was enabled by this UI pass; RHEA signing remains gated until wrapping, token registration and multi-transaction reconciliation are verified.
 - Telegram bot and Worker code remain untouched.
+
+
+## Swap balance checkpoint
+
+The Swap screen now reads the connected account's live balance for the selected input asset. Native NEAR uses the account balance; NEP-141 assets use ft_metadata and ft_balance_of. The displayed token symbol and decimals come from live metadata, and a MAX control fills the exact live base-unit balance converted for display. Changing the input contract invalidates the quote. No balance, symbol, price, or execution state is hardcoded.
