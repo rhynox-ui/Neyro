@@ -8,7 +8,7 @@ import { UserFacingError } from "../errors.js";
 import { applyBuyTax } from "./tax.js";
 
 function applyOutputTax(amount: string, taxBps = 0): string {
-  if (!/^\\d+$/.test(amount)) throw new UserFacingError("RHEA returned an invalid quote amount; refresh and try again");
+  if (!/^\d+$/.test(amount)) throw new UserFacingError("RHEA returned an invalid quote amount; refresh and try again");
   if (!taxBps) return amount;
   const taxed = applyBuyTax(BigInt(amount), taxBps);
   if (taxed <= 0n) throw new UserFacingError("The quoted output is too small after NEARly tax; increase the trade size or refresh");
