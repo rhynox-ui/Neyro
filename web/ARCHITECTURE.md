@@ -2,143 +2,258 @@
 
 ## 1. Purpose
 
-The web/ directory is a separate, non-custodial web terminal for Neyro.
+The `web/` directory is a separate, non-custodial web terminal for Neyro.
 
 **Hard rule:** do not import, refactor, rename, or modify Telegram bot code to build the web terminal.
 
-The existing Telegram bot remains the production trading/launch application. The web terminal may use existing protocol behavior as a reference and may eventually share pure, dependency-light utilities, but signing/custody and Telegram state stay platform-specific.
+The existing Telegram bot remains the production trading/launch application. The web terminal may inspect it for protocol/configuration references, but signing, custody, execution state and web UI remain platform-specific.
 
 ## 2. Current branch
-Branch: web-terminal-2026-10-02
-Base: creator-fees-claim-2026-10-02
+Branch: `web-terminal-2026-10-02`  
+Base: `creator-fees-claim-2026-10-02`  
 Draft PR: #26
 
 ## 3. Current implementation
+
 - React + Vite + TypeScript.
-- Main entry: web/src/main.tsx.
-- Styling: web/src/styles.css.
+- Main entry: `web/src/main.tsx`.
 - No Telegram imports.
 - No Telegram Worker imports.
 - No encrypted Telegram wallet/private-key imports.
-- No database dependency.
 - No server-side signing.
+- IndexedDB campaign persistence.
+- Deterministic NEP-141 transfer planning.
+- Read-only NEAR RPC and FT helpers.
+- Hardened multi-sender allocation checks.
+- Mint/Lock product-fee model.
 
-### Bulk airdrop foundation
-- token contract input
-- token decimals
-- default amount
-- multiple sender-account input
-- CSV upload
-- TXT/delimited upload
-- JSON upload
-- streaming CSV/TXT processing when browser streaming APIs are available
-- NEAR account-id validation
-- duplicate detection
-- exact base-unit arithmetic using bigint
-- invalid-row reporting
-- total token requirement
-- 100-recipient batch planning
-- recipient preview
+The Start Airdrop button remains intentionally disabled.
 
-The current Start airdrop button is intentionally disabled.
+## 4. Bulk airdrop foundation
 
-## 4. Why batches exist
-NEAR transactions are action batches. The current runtime limit is 100 actions per receipt, and prepaid gas is also constrained. A million-recipient campaign must therefore be split into many transactions rather than attempting one giant transaction.
+Implemented:
+- token contract input;
+- token decimals;
+- default amount;
+- multiple sender-account input;
+- CSV/TXT/JSON recipient ingestion;
+- streaming CSV/TXT processing when browser streaming APIs are available;
+- NEAR account-id validation;
+- duplicate detection;
+- exact base-unit arithmetic with `bigint`;
+- invalid-row reporting;
+- total token requirement;
+- deterministic multi-sender allocation primitive;
+- deterministic transfer batch construction;
+- recipient preview.
 
-References:
-- NEAR transaction runtime specification: https://nomicon.io/RuntimeSpec/Transactions
-- NEP-141 FT transfer standard: https://github.com/near/NEPs/blob/master/neps/nep-0141.md
-
-Treat 100 as an upper action-count ceiling, not a guaranteed safe batch size. Gas, transaction size, and the specific token contract can require smaller batches.
+For very large files, the parser avoids loading CSV/TXT bytes as one giant string when `TextDecoderStream` is available. The UI still retains parsed rows for preview/planning, so true million-wallet execution will require further memory-bounded planning before production use.
 
 ## 5. NEP-141 transfer behavior
-A standard ft_transfer calls the token contract, requires sufficient sender balance, requires 1 yoctoNEAR attached deposit, and accepts receiver and amount as strings. Recipient registration is token-contract-specific; standard NEP-145 storage registration is common and must be checked before a large campaign.
 
-## 6. Planned execution architecture
+A standard `ft_transfer` calls the token contract, requires sufficient sender token balance and 1 yoctoNEAR attached deposit, and accepts receiver and amount as strings. Recipient registration is token-contract-specific; standard NEP-145 storage registration is common and must be checked before a large campaign.
 
-Browser -> wallet connection/signing -> airdrop planner -> campaign state -> NEAR RPC.
+References:
+- NEP-141: https://github.com/near/NEPs/blob/master/neps/nep-0141.md
+- NEAR runtime transactions: https://nomicon.io/RuntimeSpec/Transactions
 
-The planner owns recipient validation, deduplication, amount normalization, sender allocation and batch construction. RPC is used for metadata, balances, registration checks and transaction status.
+## 6. Multi-sender allocation safety
 
-## 7. Multi-sender design
-A campaign may have several sender accounts. The allocator should validate sender accounts, read fresh token balances, determine available balances, reserve campaign amounts in memory, allocate recipients deterministically, produce immutable batch plans, and require wallet signatures for each sender transaction.
+The allocator now performs two checks:
 
-The first implementation should use deterministic allocation rather than dynamically changing sender assignments while transactions are pending.
+1. **Aggregate check:** total sender token balance must cover the total campaign amount.
+2. **Individual allocation check:** recipients are assigned deterministically in sender insertion order; each recipient must fit within one sender's remaining balance.
+
+The output contains explicit sender allocations and each allocation's total amount.
+
+This is intentionally deterministic. It does not mutate assignments after a batch is signed or submitted.
+
+Future execution must still re-read balances immediately before signing each batch because on-chain balances can change after the initial plan.
+
+## 7. Why batches exist
+
+NEAR transactions have action-count and gas/runtime constraints. The runtime ceiling is not a promise that 100 token transfers are always safe.
+
+The current batch builder defaults to 50 `ft_transfer` actions and uses explicit prepaid gas. Gas-aware sizing still needs to be implemented using measured token behavior and transaction constraints.
 
 ## 8. Resumability
-A million-recipient campaign cannot depend on one browser tab remaining open forever. Campaign state needs a source-file fingerprint, token, sender set, recipient count, total amount, allocation and per-batch states: pending, signing, submitted, success or failed.
 
-The campaign must never silently skip a recipient.
+Campaign state is persisted in browser IndexedDB.
 
-## 9. Retry rules
-Retry only when transaction state is known to be safe. RPC/network failure before a transaction hash exists can be retried. A timeout after broadcast is potentially unsafe and must be reconciled before retrying. Never blindly resend an unknown batch because that can double-send tokens.
+Stored state includes:
+- campaign id;
+- source fingerprint;
+- token/sender metadata;
+- recipient and amount totals;
+- per-batch status;
+- transaction hash/error information.
 
-## 10. Token registration
-Before execution, determine whether each recipient is registered with the token contract where standard storage APIs are available. Support already registered, register-where-permitted, and blocked/unavailable states. Do not assume every NEP-141 contract has identical registration behavior.
+No private keys, seed phrases, encrypted Telegram wallet records or signer secrets are persisted.
 
-## 11. Gas and batch sizing
-Batch size must be calculated rather than hardcoded to exactly 100. Account for FunctionCall actions, prepaid gas, transaction/receipt limits, attached deposits and token-contract behavior. Start conservatively and increase only after verified execution behavior.
+Batch states:
+- pending
+- signing
+- submitted
+- success
+- failed
+- unknown
 
-## 12. Security requirements
-The web app must remain non-custodial.
+**Unknown is not retryable.** A timeout after broadcast does not prove failure. The future executor must reconcile the transaction before allowing a resend.
 
-Never ask users to paste seed phrases into the website, upload private keys, reuse Telegram encrypted wallet storage, decrypt Telegram wallet keys in browser code, store private keys in localStorage, or send private keys to a backend.
+## 9. Planned execution architecture
 
-The user's browser wallet should sign web transactions.
+Browser wallet -> preflight -> immutable campaign plan -> wallet signing -> NEAR RPC -> persisted reconciliation state.
 
-## 13. Planned product modules
-Dashboard: portfolio, connected account, recent transactions and campaign summaries.
-Trade: swap/quote interface using the appropriate NEAR/Rhea/NEAR Intents integration.
-Launch: NEARly token launch flow.
-Token Tools: Mint, Burn, Lock, Unlock/claim, Pause where supported, Batch transfer and Airdrop.
-Developer: Contract inspector, read-only calls, transaction builder and contract simulation/testing tools.
+Required execution gates:
+- connected browser wallet;
+- valid sender account;
+- fresh native and token balances;
+- token registration preflight;
+- conservative gas/batch sizing;
+- explicit transaction preview;
+- browser wallet signature;
+- transaction hash persistence;
+- status reconciliation;
+- safe retry only after known failure.
 
-## 14. Token lock requirement
-Token locks must be enforced by a smart contract. A database entry saying locked until date X is not a lock.
+The web terminal must never fall back to Telegram signing.
 
-The eventual lock contract should contain token, amount, beneficiary, unlock timestamp, lock identifier, claim operation and immutable on-chain state.
+## 10. Wallet and custody rules
 
-## 15. Token creation requirement
-Token creation should use a known NEP-141-compatible contract/factory pattern rather than inventing a token ABI in the frontend.
+Never:
+- ask for a seed phrase;
+- ask for a private key;
+- import Telegram encrypted wallet storage;
+- decrypt Telegram wallet keys in browser code;
+- store private keys in localStorage;
+- send private keys to a backend;
+- use the Telegram treasury key as a browser signer.
 
-Before implementation: identify the supported token contract; verify initialization arguments, metadata behavior, storage registration and mint/transfer/burn behavior; test on NEAR testnet; only then expose mainnet creation.
+The connected user's browser wallet is the only intended web signer.
 
-## 16. What remains
-### Phase A — web execution foundation
-- [ ] Wallet Selector
-- [ ] RPC client
-- [ ] FT metadata
-- [ ] FT balance
-- [ ] storage registration checks
-- [ ] sender balance allocator
-- [ ] deterministic batch builder
+## 11. Token-tool fees
+
+Product fees are defined in `web/src/token-tools/fees.ts`:
+
+- Mint fee: **1 NEAR**
+- Lock fee: **1 NEAR**
+- Denomination: native NEAR
+- Internal unit: yoctoNEAR
+
+The fee is separate from:
+- token amount;
+- contract-required storage deposit;
+- gas;
+- any future sponsorship mechanism.
+
+The pre-signing confirmation must display all four categories separately.
+
+## 12. Fee treasury
+
+The web terminal references the existing Neyro bot treasury:
+
+`widekingdom6862.near`
+
+Current web policy:
+- Mint: 1 NEAR -> `widekingdom6862.near`
+- Lock: 1 NEAR -> `widekingdom6862.near`
+
+This is a **reference to the configured fee recipient**, not a browser signing account.
+
+Before mainnet execution, verify the production treasury configuration again. If the treasury changes, update only web configuration and documentation; do not modify Telegram code for the web task.
+
+## 13. Gas sponsorship boundary
+
+Fee collection and gas sponsorship are separate.
+
+The repository currently provides evidence for the treasury account but does **not** provide evidence of a dedicated browser relayer/sponsor account or provider.
+
+Therefore:
+- current web mode: user pays gas;
+- relayer mode: blocked until a dedicated sponsor account and provider are explicitly configured;
+- treasury funds must not be exposed to the browser.
+
+The web sponsorship abstraction exists specifically to prevent an assumption that the fee treasury is automatically a gas sponsor.
+
+## 14. Token registration
+
+Before a campaign can execute, the executor must determine recipient registration where the token supports a standard storage API.
+
+States should distinguish:
+- registered;
+- not registered;
+- storage registration required and permitted;
+- registration unavailable/unknown.
+
+Do not automatically transfer to an unregistered account when the token contract would reject the transfer.
+
+## 15. Token lock requirement
+
+A token lock must be enforced by an on-chain smart contract.
+
+A database record saying “locked until date X” is not a lock.
+
+The eventual lock contract should contain:
+- token;
+- amount;
+- beneficiary;
+- unlock timestamp;
+- lock identifier;
+- claim operation;
+- immutable on-chain state.
+
+## 16. Token creation requirement
+
+Token creation must use a known NEP-141-compatible contract/factory pattern.
+
+Before implementation:
+1. identify the supported contract/factory;
+2. verify initialization arguments;
+3. verify metadata;
+4. verify storage registration;
+5. verify mint/transfer/burn behavior;
+6. test on testnet;
+7. only then expose mainnet creation.
+
+Do not invent an ABI in the frontend.
+
+## 17. Remaining work
+
+### Phase A — execution foundation
+- [x] RPC client
+- [x] FT metadata
+- [x] FT balance
+- [x] storage registration read
+- [x] deterministic sender allocation primitive
+- [x] deterministic batch builder
 - [ ] gas-aware batch sizing
+- [ ] browser wallet connector
 
 ### Phase B — campaign engine
-- [ ] campaign IDs
-- [ ] IndexedDB/local persistence
+- [x] campaign model
+- [x] IndexedDB persistence
 - [ ] resume after reload
-- [ ] per-batch state
 - [ ] transaction status polling
 - [ ] unknown-state reconciliation
-- [ ] safe retry
+- [ ] safe retry executor
 - [ ] CSV result export
+- [ ] memory-bounded million-wallet planner
 
 ### Phase C — multi-sender execution
-- [ ] sender-by-sender signing
+- [ ] sender-by-sender wallet signing
 - [ ] allocation locking
-- [ ] balance revalidation before every batch
+- [ ] fresh balance revalidation before every batch
 - [ ] insufficient-balance recovery
 - [ ] sender switching UI
 
 ### Phase D — token tools
-- [ ] token creation
+- [ ] supported token creation adapter
 - [ ] mint
 - [ ] burn
 - [ ] lock
 - [ ] unlock/claim
 - [ ] batch transfer
-- [ ] airdrop
+- [ ] airdrop execution
 
 ### Phase E — trading/launch
 - [ ] browser-wallet NEARly launch
@@ -147,205 +262,39 @@ Before implementation: identify the supported token contract; verify initializat
 - [ ] portfolio
 - [ ] transaction history
 
-## 17. Handoff rules
-1. Read this file first.
+## 18. Million-wallet readiness definition
+
+Parsing a million rows is not enough.
+
+The product is ready only when it can:
+1. ingest large files without an unbounded in-memory representation;
+2. deterministically allocate sender balances;
+3. build gas-safe batches;
+4. persist progress;
+5. survive reload/network interruptions;
+6. reconcile unknown transactions;
+7. prevent duplicate sends;
+8. resume safely;
+9. export complete results;
+10. handle failures without silently dropping recipients.
+
+Until those gates are implemented, production airdrop execution stays disabled.
+
+## 19. Handoff rules
+
+1. Read this document before continuing.
 2. Never modify Telegram files for web-only work.
-3. Keep web dependencies inside web/package.json unless there is a clear reason otherwise.
-4. Keep signing browser-side/non-custodial.
-5. Add tests for amount arithmetic, allocation, batching and retry state.
-6. Document protocol assumptions with links.
-7. Do not claim million-wallet support until resumability, transaction reconciliation and safe retries are implemented.
-8. Test mainnet-facing logic against testnet/sandbox first.
+3. Keep web dependencies under `web/package.json`.
+4. Keep signing browser-side and non-custodial.
+5. Test arithmetic, allocation, batching and state transitions.
+6. Document protocol assumptions and source references.
+7. Never claim million-wallet readiness prematurely.
+8. Test mainnet-facing logic on testnet/sandbox first.
+9. After every web code change, verify that the diff contains only web/workflow files.
+10. Do not merge PR #26 unless explicitly requested.
 
-## 18. Definition of million-wallet ready
-The product is not million-wallet ready merely because it can parse a million rows.
+## 20. Current checkpoint
 
-It is ready only when it can process a million recipients without requiring the entire file in memory, deterministically allocate senders, construct gas-safe batches, persist campaign progress, survive browser reloads/network interruptions, reconcile unknown transactions, prevent duplicate sends, resume safely, export complete results, and handle failures without silently dropping recipients.
+Latest work hardens the multi-sender allocator with aggregate-balance validation and explicit allocation totals. The web terminal remains planning/read-only for execution.
 
-## 19. Current status
-The current branch is the foundation only. The airdrop UI/planner is intentionally ahead of the signing layer.
-
-Telegram remains untouched.
-
-## 20. Phase A progress — read-only NEAR execution foundation
-
-Implemented on the web branch:
-
-### NEAR RPC client
-- `web/src/near/rpc.ts`
-- JSON-RPC POST client with typed request/response handling.
-- Account state reads through `view_account`.
-- Contract view calls through `call_function` with base64-encoded JSON arguments.
-- Transaction status lookup through the `tx` RPC method with `wait_until: FINAL`.
-- Mainnet and testnet public RPC URL lists are defined as web-only configuration.
-- No private credentials or signing material are handled by this client.
-
-### NEP-141 read helpers
-- `web/src/near/ft.ts`
-- `ft_metadata` validation.
-- `ft_balance_of` converted to exact `bigint`.
-- `storage_balance_of` detection.
-- Explicit distinction between registered, zero-storage, and unsupported/unknown storage APIs.
-
-### Deterministic transfer batch builder
-- `web/src/airdrop/batch-builder.ts`
-- Produces `ft_transfer` actions with exact string token amounts.
-- Attaches exactly 1 yoctoNEAR per NEP-141 transfer.
-- Uses an explicit prepaid-gas value.
-- Defaults to 50 transfers per batch rather than assuming the 100-action runtime ceiling is always safe.
-- Batch IDs are deterministic for a given sender and recipient ordering.
-
-### Tests
-- Read-only FT metadata/balance/storage helpers have unit coverage.
-- Batch construction, deterministic splitting and invalid-input checks have unit coverage.
-- CI now runs `npm test` before build.
-
-## 21. Phase A safety notes
-
-The batch builder is still a **planning primitive**, not a live execution engine.
-
-Before enabling the Start button, the web terminal still needs:
-- Wallet connection/signing integration.
-- A transaction-action adapter for the selected wallet API.
-- Fresh sender balance reads immediately before execution.
-- Gas-aware batch sizing based on measured token behavior.
-- Recipient storage-registration policy and preflight results.
-- Persistent campaign state and per-batch reconciliation.
-- Transaction hash/status reconciliation before any retry.
-- A final pre-signing summary showing sender, token, recipients, amounts, attached deposits and gas.
-
-The web terminal must not silently fall back to Telegram signing. If browser wallet signing is unavailable, execution remains blocked.
-
-## 22. Current handoff checkpoint
-
-Latest web branch includes the isolated foundation described above. Continue from the web branch only. Do not modify Telegram bot files, Telegram worker configuration, Telegram wallet storage, or Telegram execution code while implementing the web terminal.
-
-
-## 23. Phase B progress — campaign safety model
-
-Implemented:
-- `web/src/campaign/model.ts`
-- Explicit per-batch states: pending, signing, submitted, success, failed, unknown.
-- Explicit transition validation so the UI cannot accidentally jump from an unknown broadcast directly back to pending.
-- Unknown broadcast states are intentionally **not retryable** until reconciled.
-- Transaction hashes can be attached when a batch reaches submitted.
-- Campaign completion requires every batch to reach success.
-
-This is a pure state machine. It does not perform RPC calls, wallet signing, retries, or persistence yet.
-
-### Why "unknown" is a first-class state
-
-A wallet/RPC timeout after a transaction was submitted does not prove that the transaction failed. Treating that timeout as a normal failure and signing the same batch again could duplicate token transfers.
-
-The future execution engine must:
-1. persist the batch as unknown;
-2. reconcile the transaction using its hash when available, sender/account and receipt state;
-3. only move to success/failed after reconciliation;
-4. never automatically resend an unresolved unknown batch.
-
-## 24. Next implementation order
-
-1. IndexedDB campaign persistence.
-2. Wallet connector abstraction.
-3. Fresh token/native balance preflight.
-4. Registration preflight.
-5. Transaction action adapter.
-6. Conservative gas-aware batch planner.
-7. Signing and broadcast.
-8. Reconciliation/polling.
-9. Resume after reload.
-10. Only then enable the Start button.
-
-
-## 25. Token tool fee policy
-
-The web terminal product fee policy is now defined in `web/src/token-tools/fees.ts`:
-
-- **Mint fee: 1 NEAR**
-- **Lock fee: 1 NEAR**
-- Both fees are denominated in native NEAR and represented internally in yoctoNEAR.
-- The token being minted or locked is not used to pay this product fee.
-
-These are product-level fee requirements. The actual mint and lock contract adapters must still be verified against their deployed contract ABI before execution is enabled. Do not assume the fee is the same as the contract's required storage deposit or gas allowance.
-
-When the execution adapter is implemented, the pre-signing confirmation must show:
-- operation;
-- token contract;
-- token amount;
-- native NEAR fee;
-- any separate contract-required deposit;
-- gas;
-- connected signing account.
-
-The UI must never silently substitute token units for the 1 NEAR native fee.
-
-
-## 26. Token tool fee collection
-
-Mint and Lock fees use the same treasury account configured by the existing Neyro bot:
-
-`widekingdom6862.near`
-
-The web terminal references this account but does not import or modify Telegram code.
-
-Current policy:
-- Mint: 1 NEAR → `widekingdom6862.near`
-- Lock: 1 NEAR → `widekingdom6862.near`
-- Fee denomination: native NEAR
-- Fee recipient: fixed treasury account
-- User signing account: pays the fee; it must never be replaced by the treasury account.
-
-The fee transfer is represented separately from the token contract operation. When live transaction adapters are added, the final transaction must make the fee transfer explicit in the pre-signing summary.
-
-Before mainnet execution, verify the treasury account against the current production bot deployment configuration. If the treasury changes, update the web-only fee configuration through a dedicated commit; do not modify Telegram code as part of that change.
-
-
-## 27. Campaign persistence
-
-Implemented `web/src/campaign/storage.ts` using browser IndexedDB.
-
-Stored campaign records contain only campaign execution state:
-- campaign id;
-- source fingerprint;
-- token/sender metadata;
-- recipient and amount totals;
-- per-batch state;
-- transaction hashes/errors.
-
-No private keys, seed phrases, encrypted Telegram wallet records, or signer secrets are persisted.
-
-Campaign identifiers use SHA-256 over a caller-provided stable fingerprint. The fingerprint must include enough source information to prevent accidentally treating a different recipient file as the same campaign.
-
-## 28. Sponsorship boundary
-
-The existing Neyro configuration confirms:
-
-`TREASURY_ACCOUNT_ID=widekingdom6862.near`
-
-That account is the fee treasury.
-
-The repository does **not** currently provide evidence of a separate browser gas-sponsorship/relayer service or a dedicated sponsor credential. Therefore the web terminal does not claim that the treasury can sponsor arbitrary user transactions.
-
-The web sponsorship abstraction has two explicit modes:
-- `user-pays-gas` — current default;
-- `relayer` — disabled until an explicit sponsor account and relayer provider are configured.
-
-This separation is intentional:
-- **fee collection** = 1 NEAR Mint/Lock fee sent to the treasury;
-- **gas sponsorship** = a separate execution mechanism that requires a controlled relayer/sponsor.
-
-Do not put a Telegram private key or treasury private key into the browser to implement sponsorship.
-
-## 29. Updated implementation order
-
-1. IndexedDB campaign persistence — implemented.
-2. Browser wallet connector abstraction.
-3. Fresh token/native balance preflight.
-4. Registration preflight.
-5. Transaction action adapter.
-6. Conservative gas-aware batch planner.
-7. Explicit sponsorship adapter, only if a supported relayer is selected.
-8. Signing and broadcast.
-9. Reconciliation/polling.
-10. Resume after reload.
-11. Enable Start only after all safety gates pass.
+Telegram code remains untouched.
