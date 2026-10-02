@@ -457,3 +457,75 @@ A future contributor continuing execution work should start in:
 - `web/src/wallet/selector.ts` — browser-wallet boundary.
 
 Do not modify Telegram code to make web execution work.
+
+
+## 30. State audit — 2026-10-02
+
+This section records the state verified before continuing implementation.
+
+### Repository shape
+
+The web branch is currently **75 commits ahead** of `creator-fees-claim-2026-10-02`. The audited diff contains only:
+- `.github/workflows/web-ci.yml`;
+- `web/**`.
+
+No Telegram source path is part of this web-terminal diff.
+
+### Execution path now present
+
+The current web tree contains:
+- `web/src/execution/executor.ts`;
+- `web/src/execution/executor.test.ts`;
+- `web/src/execution/transaction-builder.ts`;
+- campaign model/storage;
+- gas planner;
+- NEAR RPC;
+- FT read helpers;
+- sender preflight;
+- Wallet Selector/My NEAR Wallet adapter.
+
+The executor is responsible for campaign creation/resume, per-batch fresh checks, browser-wallet signing, persistence of `signing` and `submitted` states, finality checking, and explicit reconciliation of `unknown`/submitted transactions.
+
+### Current wallet adapter correction
+
+The earlier CI failure identified three Wallet Selector typing problems. The current branch's selector implementation has since been adjusted to:
+- use `accounts: []` for the My NEAR Wallet sign-in path;
+- use Wallet Selector `actionCreators` instead of manually shaped action objects;
+- handle the selector wallet's returned signing result through the local execution-outcome shape.
+
+This needs a **new Web Terminal CI run** before being considered verified.
+
+### Last verified CI result
+
+The last audited Web Terminal CI run before the selector correction was:
+- Run `37028087667`;
+- `npm install`: passed;
+- `npm run typecheck`: failed;
+- tests/build: skipped.
+
+The failure was isolated to `web/src/wallet/selector.ts`.
+
+The main repository CI run for that same checkpoint succeeded, but it does not replace the web CI.
+
+### Execution safety status
+
+The web terminal is now architecturally wired for NEP-141 bulk execution, but production readiness still requires:
+1. green web typecheck/test/build;
+2. testnet end-to-end signing with a real test token;
+3. verification that Wallet Selector returns a usable transaction hash/outcome across its redirect/signing behavior;
+4. reconciliation tests against real final/failed transaction states;
+5. explicit reload/resume testing;
+6. safe retry testing after confirmed failure;
+7. sender-switching and insufficient-balance recovery testing.
+
+Until those are verified, this documentation should not be interpreted as a claim that production mainnet airdrops are fully validated.
+
+### Static-data rule
+
+The supplied Mango-style HTML references are design references only. Production UI must derive account, balance, transaction and campaign values from actual application state or verified chain reads. Do not copy their demo wallets, balances, transactions or fake status values.
+
+### Immediate next checkpoint
+
+Fix/verify CI first. Then run the execution path on NEAR testnet before enabling or expanding mainnet execution.
+
+**Telegram code remains off-limits.**
