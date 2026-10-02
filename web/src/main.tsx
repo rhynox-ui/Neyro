@@ -378,16 +378,25 @@ function App() {
     setPreflight(null);
     setMessage("Reading fresh sender balances from NEAR mainnet…");
     try {
+      const recipientIds = plan.rows
+        .filter((row): row is Row & { base: bigint } => row.valid && row.base !== undefined)
+        .map((row) => row.wallet);
+
       const result = await preflightSenders(
         new NearRpcClient(),
         token.trim(),
         senderList,
-        plan.total
+        plan.total,
+        recipientIds
       );
       setPreflight(result);
       setMessage(
         result.enoughTokenBalance
-          ? "Preflight passed for aggregate token balance. Execution remains locked."
+          ? result.recipientRegistration?.notRegistered
+            ? "Sender balances passed, but some recipients are not registered with the token."
+            : result.recipientRegistration?.unsupported
+              ? "Sender balances passed, but recipient registration could not be verified."
+              : "Preflight passed for sender balances and recipient registration. Execution remains locked."
           : "Preflight failed: sender pool does not cover the campaign total."
       );
     } catch (error) {
@@ -502,11 +511,16 @@ function App() {
     setMessage("Refreshing sender balances and building the execution plan…");
 
     try {
+      const recipientIds = plan.rows
+        .filter((row): row is Row & { base: bigint } => row.valid && row.base !== undefined)
+        .map((row) => row.wallet);
+
       const fresh = await preflightSenders(
         new NearRpcClient(),
         token.trim(),
         senderList,
-        plan.total
+        plan.total,
+        recipientIds
       );
 
       if (fresh.decimals !== Number(decimals)) {
@@ -519,6 +533,20 @@ function App() {
       }
       if (fresh.senders.some((sender) => sender.storage === "not-registered")) {
         throw new Error("At least one sender is not registered with the token contract.");
+      }
+      if (!fresh.recipientRegistration) {
+        throw new Error("Recipient registration could not be verified.");
+      }
+      if (fresh.recipientRegistration.notRegistered > 0) {
+        const sample = fresh.recipientRegistration.sampleNotRegistered.slice(0, 3).join(", ");
+        throw new Error(
+          `At least ${fresh.recipientRegistration.notRegistered.toLocaleString()} recipient(s) are not registered with the token contract${sample ? `: ${sample}` : ""}. Register them before starting the campaign.`
+        );
+      }
+      if (fresh.recipientRegistration.unsupported > 0) {
+        throw new Error(
+          `Recipient registration could not be verified for ${fresh.recipientRegistration.unsupported.toLocaleString()} recipient(s) because the token does not expose the standard storage API.`
+        );
       }
 
       const recipients: ValidRecipient[] = plan.rows
@@ -835,6 +863,18 @@ function App() {
                       <p className={preflight.enoughTokenBalance ? "ready" : "warning"}>
                         {preflight.enoughTokenBalance ? "Aggregate token balance is sufficient." : "Aggregate token balance is insufficient."}
                       </p>
+                      {preflight.recipientRegistration && (
+                        <p className={
+                          preflight.recipientRegistration.notRegistered > 0 ||
+                          preflight.recipientRegistration.unsupported > 0
+                            ? "warning"
+                            : "ready"
+                        }>
+                          Recipients: {preflight.recipientRegistration.registered.toLocaleString()} registered ·{" "}
+                          {preflight.recipientRegistration.notRegistered.toLocaleString()} not registered ·{" "}
+                          {preflight.recipientRegistration.unsupported.toLocaleString()} registration API unavailable
+                        </p>
+                      )}
                       <p className="muted">
                         Available: {preflight.totalTokenBalance.toString()} base units · Required: {preflight.totalRequired.toString()} base units
                       </p>
@@ -869,7 +909,10 @@ function App() {
                         !accountId ||
                         Boolean(plan.invalid) ||
                         !preflight?.enoughTokenBalance ||
-                        preflight.senders.some((sender) => sender.storage === "not-registered")
+                        preflight.senders.some((sender) => sender.storage === "not-registered") ||
+                        !preflight.recipientRegistration ||
+                        preflight.recipientRegistration.notRegistered > 0 ||
+                        preflight.recipientRegistration.unsupported > 0
                       }
                     >
                       {executionBusy ? "Executing…" : "Start airdrop"}
