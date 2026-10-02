@@ -774,7 +774,7 @@ function toNearYocto(value: string): bigint {
 }
 
 
-export function CreateTokenView({ accountId }: { accountId: string }) {
+export function MintView({ accountId }: { accountId: string }) {
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
   const [decimals, setDecimals] = useState("18");
@@ -794,18 +794,18 @@ export function CreateTokenView({ accountId }: { accountId: string }) {
     <section className="grid terminal-page">
       <div className="card hero full">
         <div>
-          <span className="eyebrow">TOKEN / CREATE</span>
-          <h2>Create a developer-owned NEP-141 token.</h2>
+          <span className="eyebrow">TOKEN / MINT</span>
+          <h2>Mint a fresh developer-owned NEP-141 token.</h2>
           <p>
-            This is the generic token-creation flow, separate from the NEARly launchpad. Define the token identity,
+            Mint is the generic token-creation flow, separate from the NEARly launchpad. Define the token identity,
             initial supply and receiving account first; Neyro will only enable deployment once its verified token factory is connected.
           </p>
         </div>
-        <div className="hero-state"><span className="status-dot" /><span>Factory deployment gate</span></div>
+        <div className="hero-state"><span className="status-dot" /><span>Fresh token deployment</span></div>
       </div>
 
       <div className="card create-token-form">
-        <div className="section-head"><div><span className="eyebrow">01 / TOKEN</span><h3>Token details</h3></div><span className="module-status">NEP-141</span></div>
+        <div className="section-head"><div><span className="eyebrow">01 / MINT</span><h3>New token</h3></div><span className="module-status">NEP-141</span></div>
 
         <div className="two">
           <div className="mint-field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Protocol Token" maxLength={64} /></div>
@@ -820,7 +820,7 @@ export function CreateTokenView({ accountId }: { accountId: string }) {
         <div className="mint-field">
           <label>Initial supply recipient</label>
           <div className="mint-recipient-row"><input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="your-account.near" spellCheck={false} />{accountId && <button type="button" onClick={() => setRecipient(accountId)}>My wallet</button>}</div>
-          <small>The creation transaction will define who receives the initial supply.</small>
+          <small>The mint transaction will create the token and assign its initial supply to this account.</small>
         </div>
 
         <div className="mint-field">
@@ -831,7 +831,7 @@ export function CreateTokenView({ accountId }: { accountId: string }) {
       </div>
 
       <div className="card create-token-review">
-        <div className="section-head"><div><span className="eyebrow">02 / REVIEW</span><h3>Deployment preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
+        <div className="section-head"><div><span className="eyebrow">02 / REVIEW</span><h3>Mint preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
 
         <div className="mint-review-list">
           <div><span>Name</span><strong>{name || "—"}</strong></div>
@@ -842,8 +842,8 @@ export function CreateTokenView({ accountId }: { accountId: string }) {
           <div><span>Metadata</span><strong>{metadata || "Not configured"}</strong></div>
         </div>
 
-        <div className="mint-interface-warning"><strong>Deployment is intentionally gated.</strong><span>Neyro does not currently have a verified generic token-factory contract address and interface in this web branch. No guessed contract call is exposed here.</span></div>
-        <button className="mint-submit" type="button" disabled={!ready}>Factory deployment not connected</button>
+        <div className="mint-interface-warning"><strong>Fresh-token deployment is intentionally gated.</strong><span>Neyro does not currently have a verified generic token-mint/factory contract address and interface in this web branch. No guessed contract call is exposed here.</span></div>
+        <button className="mint-submit" type="button" disabled={!ready}>Fresh token mint not connected</button>
       </div>
     </section>
   );
