@@ -1355,3 +1355,10 @@ html[data-theme="light"] .burn-warning {
 .mint-form-card .mint-field small{display:block;margin-top:7px}
 @media(max-width:900px){.mint-empty-steps{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.mint-recipient-row{grid-template-columns:1fr}.mint-supply-preview{grid-template-columns:1fr}.mint-supply-arrow{transform:rotate(90deg)}.mint-empty-steps{grid-template-columns:1fr}}
+
+
+.create-token-form,.create-token-review{align-self:start}
+.create-token-form{display:grid;gap:16px}
+.create-token-review{display:grid;gap:14px}
+.create-token-review .mint-submit{margin-top:2px}
+.create-token-review .mint-review-list{margin-bottom:2px}
