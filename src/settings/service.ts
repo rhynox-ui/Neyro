@@ -54,9 +54,12 @@ export function assertSlippagePct(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-/** Per-user default slippage for buys and sells, cached in memory. */
+/** Short TTL prevents stale settings when multiple Worker isolates serve a user. */
+const SETTINGS_CACHE_TTL_MS = 5_000;
+type CachedSettings = { prefs: SlippagePrefs; expiresAt: number };
+
 export class SettingsService {
-  private readonly cache = new Map<number, SlippagePrefs>();
+  private readonly cache = new Map<number, CachedSettings>();
 
   constructor(
     private readonly repository: SettingsRepository = config.DATABASE_URL
@@ -66,21 +69,22 @@ export class SettingsService {
 
   async slippage(userId: number): Promise<SlippagePrefs> {
     const cached = this.cache.get(userId);
-    if (cached) return cached;
+    if (cached && cached.expiresAt > Date.now()) return cached.prefs;
+    if (cached) this.cache.delete(userId);
     const stored = await this.repository.load(userId).catch((error) => {
       console.warn("Could not load settings", error);
       return null;
     });
     const prefs = { buy: stored?.buy ?? DEFAULT_SLIPPAGE_PCT, sell: stored?.sell ?? DEFAULT_SLIPPAGE_PCT };
-    this.cache.set(userId, prefs);
+    this.cache.set(userId, { prefs, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
     return prefs;
   }
 
   async setSlippage(userId: number, side: Side, value: number): Promise<number> {
     const rounded = assertSlippagePct(value);
     const prefs = { ...(await this.slippage(userId)), [side]: rounded };
-    this.cache.set(userId, prefs);
     await this.repository.save(userId, side, rounded);
+    this.cache.set(userId, { prefs, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
     return rounded;
   }
 }
