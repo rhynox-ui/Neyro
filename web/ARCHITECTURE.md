@@ -338,6 +338,20 @@ A successful preflight is not an execution authorization. Before signing, balanc
 
 ## 22. Current checkpoint
 
+Latest implementation adds:
+- a provider-neutral browser wallet boundary;
+- a locked/no-op connector so signing cannot occur accidentally;
+- fresh read-only sender native/token balance preflight;
+- token storage-registration status per sender;
+- aggregate campaign-balance verification;
+- a web UI control to run that preflight against NEAR mainnet.
+
+The preflight is informational and does not authorize execution. Browser signing, balance revalidation, gas-aware sizing and transaction reconciliation are still required before enabling Start.
+
+Telegram remains untouched.
+
+## 23. Current checkpoint
+
 Latest work adds the wallet boundary and fresh sender/token balance preflight. Browser signing remains locked.
 
 Telegram remains untouched.
