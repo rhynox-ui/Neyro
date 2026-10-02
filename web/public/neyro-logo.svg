@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+<defs>
+  <filter id="g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<circle cx="256" cy="256" r="190" fill="#06090f" stroke="#202733" stroke-width="10"/>
+<g stroke="#48ff98" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".95">
+<path d="M256 246L205 162L138 205L151 291L95 346"/>
+<path d="M256 246L304 154L365 205L425 208L376 278L407 344L322 365L256 246L203 371L151 291"/>
+<path d="M205 162L304 154M138 205L256 246M365 205L256 246M365 205L425 208M376 278L425 208M376 278L407 344M376 278L322 365M322 365L203 371M203 371L151 291M95 346L151 291"/>
+</g>
+<g fill="#48ff98" filter="url(#g)">
+<circle cx="256" cy="246" r="29"/><circle cx="205" cy="162" r="22"/><circle cx="138" cy="205" r="20"/><circle cx="151" cy="291" r="20"/><circle cx="95" cy="346" r="19"/><circle cx="304" cy="154" r="21"/><circle cx="365" cy="205" r="21"/><circle cx="425" cy="208" r="18"/><circle cx="376" cy="278" r="22"/><circle cx="407" cy="344" r="20"/><circle cx="322" cy="365" r="22"/><circle cx="203" cy="371" r="21"/>
+</g>
+<path d="M389 302C431 324 446 356 437 398" stroke="#48ff98" stroke-width="5" stroke-linecap="round" stroke-dasharray="12 13" opacity=".9"/>
+</svg>
