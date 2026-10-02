@@ -381,7 +381,11 @@ export class TradingService {
 
     // The protocol fee is price-derived. Revalidate it immediately before
     // signing so a stale quote cannot charge a materially different fee.
-    const plannedTotal = BigInt(trade.feeBaseAmount);
+    const plannedTotal = trade.feeBaseAmount
+      ? BigInt(trade.feeBaseAmount)
+      : (request.side === "buy"
+        ? BigInt(request.amountIn) + BigInt(trade.fee?.amount ?? "0")
+        : BigInt(request.amountIn));
     const freshFee = await this.planFee(request.side, plannedTotal, request.tokenIn);
     const sameFee =
       (trade.fee === undefined && freshFee === undefined) ||
