@@ -946,6 +946,45 @@ function App() {
                           {preflight.recipientRegistration.unsupported.toLocaleString()} registration API unavailable
                         </p>
                       )}
+                      {preflight.recipientRegistration?.notRegisteredRecipients.length ? (
+                        <div className="registration-action">
+                          <div>
+                            <strong>
+                              {preflight.recipientRegistration.notRegisteredRecipients.length.toLocaleString()} recipients need NEP-145 registration.
+                            </strong>
+                            <span>
+                              Neyro can register them from the connected browser wallet using the token's live storage minimum.
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => void registerRecipients()}
+                            disabled={registrationBusy || !wallet || !accountId}
+                          >
+                            {registrationBusy ? "Registering…" : "Register recipients"}
+                          </button>
+                        </div>
+                      ) : null}
+                      {registrationSession && (
+                        <div className="registration-session">
+                          <div className="row-title">
+                            <div>
+                              <span className="eyebrow">REGISTRATION SESSION</span>
+                              <h3>{registrationSession.batches.filter((batch) => batch.status === "success").length} / {registrationSession.batches.length} batches confirmed</h3>
+                            </div>
+                            <span className={registrationSession.status === "completed" ? "ready" : "warning"}>
+                              {registrationSession.status}
+                            </span>
+                          </div>
+                          {registrationSession.status !== "completed" && registrationSession.batches.some((batch) => batch.status === "unknown" || batch.status === "submitted") && (
+                            <button onClick={() => void reconcileRegistration()} disabled={registrationBusy}>
+                              {registrationBusy ? "Working…" : "Reconcile registration"}
+                            </button>
+                          )}
+                          <small>
+                            Registration uses the token's NEP-145 storage minimum and batches at most 10 function calls per transaction.
+                          </small>
+                        </div>
+                      )}
                       <p className="muted">
                         Available: {preflight.totalTokenBalance.toString()} base units · Required: {preflight.totalRequired.toString()} base units
                       </p>
