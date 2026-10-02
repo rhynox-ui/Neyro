@@ -1,4 +1,5 @@
 import { Account, KeyPair, keyToImplicitAddress, type KeyPairString } from "near-api-js";
+import { parseSeedPhrase } from "near-api-js/seed-phrase";
 import { config } from "../config.js";
 import { createNearConnection } from "../near/client.js";
 import { decryptSecret, encryptSecret } from "../security/secrets.js";
@@ -88,18 +89,30 @@ export class WalletService {
 
   /** Import an implicit NEAR wallet from an ed25519 private key. */
   async importWallet(telegramUserId: number, privateKeyInput: string): Promise<WalletInfo> {
-    const privateKey = privateKeyInput.trim();
-    if (!privateKey.startsWith("ed25519:")) {
-      throw new UserFacingError("Invalid NEAR private key. Send the full ed25519:... private key.");
-    }
+    const input = privateKeyInput.trim().replace(/\\s+/g, " ");
+    if (!input) throw new UserFacingError("Nothing was provided.");
 
     let keyPair: KeyPair;
     try {
-      keyPair = KeyPair.fromString(privateKey as KeyPairString);
+      // Accept the formats users commonly copy from NEAR wallets:
+      // - ed25519:<base58 private key>
+      // - raw base58 private key (we add the ed25519 prefix)
+      // - a NEAR BIP-39 seed phrase (converted to the canonical private key)
+      if (/^(?:ed25519:)?[1-9A-HJ-NP-Za-km-z]{80,100}$/.test(input)) {
+        const canonical = input.startsWith("ed25519:") ? input : `ed25519:${input}`;
+        keyPair = KeyPair.fromString(canonical as KeyPairString);
+      } else if (input.split(" ").length >= 12) {
+        keyPair = parseSeedPhrase(input);
+      } else {
+        throw new Error("unsupported wallet import format");
+      }
     } catch {
-      throw new UserFacingError("Invalid NEAR private key. Check that you copied the complete ed25519:... key.");
+      throw new UserFacingError(
+        "Invalid NEAR wallet. Send an ed25519 private key or a valid NEAR seed phrase."
+      );
     }
 
+    const canonicalPrivateKey = keyPair.toString();
     const accountId = keyToImplicitAddress(keyPair.getPublicKey());
     const existing = await this.repository.getByAccount(telegramUserId, accountId);
     if (existing) {
@@ -115,7 +128,7 @@ export class WalletService {
     const stored: StoredWallet = {
       telegramUserId,
       accountId,
-      encryptedKey: encryptSecret(privateKey, requireMasterKey(), walletKeyContext(accountId))
+      encryptedKey: encryptSecret(canonicalPrivateKey, requireMasterKey(), walletKeyContext(accountId))
     };
     await this.repository.save(stored);
 
