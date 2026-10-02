@@ -8,6 +8,9 @@ import {
 import { config } from "../config.js";
 import { UserFacingError } from "../errors.js";
 import { ftMetadata } from "../near/ft.js";
+import { withRpcFallback } from "../near/rpc.js";
+import { DCL_CONTRACT } from "../market/dcl.js";
+import { fetchLaunchByToken } from "../discovery/nearly.js";
 import { isValidAccountId, looksLikeContractId } from "../near/tokens.js";
 import type { DirectRheaNearQuote } from "../domain/trading.js";
 import type { NearTransaction } from "@rhea-finance/cross-chain-aggregation-dex";
@@ -160,6 +163,17 @@ export class RheaClient {
     const msg = stringField(data, "msg", "message");
     const signature = stringField(data, "signature");
     const tokens = normalizeRouteTokens(data?.tokens ?? data?.routeTokens ?? data?.pathTokens);
+
+    // RHEA's SmartRouter can return HTTP/business success with an empty route
+    // (amount_out=0, dexs=[], tokens=[]). NEARly launches are real Rhea DCL
+    // pools even when SmartRouter has not indexed the launch yet, so use the
+    // launch's authoritative 1% DCL pool as a bounded fallback. Never invent
+    // a quote: the fallback must return a positive on-chain DCL quote.
+    if (BigInt(amountOut || "0") === 0n && tokens.length === 0) {
+      const dcl = await this.nearlyDclQuote(request).catch(() => null);
+      if (dcl) return dcl;
+      throw new UserFacingError("RHEA has no executable route for this NEARly pool right now; refresh and try again");
+    }
     if (tokens.some((token) => !isValidAccountId(token))) {
       throw new UserFacingError("RHEA SmartRouter returned an invalid route token");
     }
@@ -192,6 +206,59 @@ export class RheaClient {
     return { kind: "rhea-smart-router", amountIn, amountOut, minAmountOut, msg, signature, tokens, receivedAt: Date.now(), expiresAt: Date.now() + SMART_ROUTER_TTL_MS };
   }
 
+  private async nearlyDclQuote(request: RheaQuoteRequest): Promise<DirectRheaNearQuote | null> {
+    const candidate = isNearNative(request.fromToken) ? request.toToken : request.fromToken;
+    const token = stripAssetPrefix(candidate.address);
+    if (!token.endsWith(".nearlytrade.near")) return null;
+
+    const launch = await fetchLaunchByToken(token).catch(() => null);
+    if (!launch || stripAssetPrefix(launch.token) !== token || stripAssetPrefix(launch.quote) !== "wrap.near") {
+      return null;
+    }
+
+    // NEARly launches use the Rhea DCL 1% tier. The factory's pool_id is
+    // authoritative, but validate its exact shape before using it.
+    const expectedPoolId = [token, "wrap.near"].sort().join("|") + "|10000";
+    const poolId = launch.poolId ?? expectedPoolId;
+    if (poolId !== expectedPoolId) return null;
+
+    const inputToken = stripAssetPrefix(toApiAsset(request.fromToken).address);
+    const outputToken = stripAssetPrefix(toApiAsset(request.toToken).address);
+    const inputDecimals = request.fromToken.decimals;
+    const outputDecimals = request.toToken.decimals;
+    if (!Number.isInteger(inputDecimals) || inputDecimals < 0 || inputDecimals > 64 ||
+        !Number.isInteger(outputDecimals) || outputDecimals < 0 || outputDecimals > 64) {
+      throw new UserFacingError("RHEA DCL token metadata is invalid; refresh the token and try again");
+    }
+
+    const raw = await withRpcFallback((provider) => provider.callFunction({
+      contractId: DCL_CONTRACT,
+      method: "quote",
+      args: {
+        pool_ids: [poolId],
+        input_token: { id: inputToken, decimals: inputDecimals },
+        output_token: { id: outputToken, decimals: outputDecimals },
+        input_amount: request.amountIn,
+        tag: null
+      }
+    }));
+    const amountOut = dclQuoteAmount(raw);
+    if (amountOut === null || amountOut <= 0n) return null;
+    const minAmountOut = deriveMinAmountOut(amountOut.toString(), request.slippageBps);
+    if (!minAmountOut || BigInt(minAmountOut) <= 0n || BigInt(minAmountOut) > amountOut) return null;
+
+    return {
+      kind: "rhea-dcl",
+      amountIn: request.amountIn,
+      amountOut: amountOut.toString(),
+      minAmountOut,
+      tokens: [inputToken, outputToken],
+      poolId,
+      receivedAt: Date.now(),
+      expiresAt: Date.now() + SMART_ROUTER_TTL_MS
+    };
+  }
+
   async quoteDirect(request: RheaQuoteRequest): Promise<DirectRheaNearQuote> {
     return this.smartRouterQuote(request);
   }
@@ -211,6 +278,39 @@ export class RheaClient {
     if (BigInt(quote.amountIn) !== BigInt(request.amountIn)) {
       throw new UserFacingError("RHEA SmartRouter quote input no longer matches the approved trade");
     }
+    if (quote.kind === "rhea-dcl") {
+      if (!quote.poolId || !/^.+\\|.+\\|10000$/.test(quote.poolId)) {
+        throw new UserFacingError("RHEA DCL quote has an invalid pool id; refresh the trade and try again");
+      }
+      const outputToken = isNearNative(request.toToken) ? "wrap.near" : stripAssetPrefix(request.toToken.address);
+      const msg = JSON.stringify({
+        Swap: {
+          pool_ids: [quote.poolId],
+          output_token: outputToken,
+          min_output_amount: quote.minAmountOut
+        }
+      });
+      const transfer = {
+        type: "FunctionCall" as const,
+        params: {
+          methodName: "ft_transfer_call",
+          args: { receiver_id: DCL_CONTRACT, amount: quote.amountIn, msg },
+          gas: "180000000000000",
+          deposit: "1"
+        }
+      };
+      if (isNearNative(request.fromToken)) {
+        return [
+          {
+            receiverId: "wrap.near",
+            actions: [{ methodName: "near_deposit", type: "FunctionCall" as const, params: { args: {}, gas: "180000000000000", deposit: quote.amountIn } }]
+          },
+          { receiverId: "wrap.near", actions: [transfer] }
+        ] as NearTransaction[];
+      }
+      return [{ receiverId: stripAssetPrefix(((request.fromToken as AssetRef & { contractAddress?: string | null }).contractAddress) || request.fromToken.address), actions: [transfer] }] as NearTransaction[];
+    }
+
     const msg = JSON.stringify({ msg: quote.msg, signature: quote.signature });
     const transfer = {
       type: "FunctionCall" as const,
@@ -337,6 +437,13 @@ function extractSmartRouterPayload(body: Record<string, unknown> | null): Record
     }
   }
   return body;
+}
+
+function dclQuoteAmount(value: unknown): bigint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const amount = (value as Record<string, unknown>).amount;
+  if (typeof amount !== "string" || !/^\\d+$/.test(amount)) return null;
+  try { return BigInt(amount); } catch { return null; }
 }
 
 function deriveMinAmountOut(amountOut: string, slippageBps: number): string {
