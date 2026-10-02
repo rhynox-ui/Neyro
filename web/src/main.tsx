@@ -676,9 +676,19 @@ function App() {
                   <div className="card full">
                     <div className="row-title">
                       <div><span className="eyebrow">EXECUTION</span><h3>Campaign progress</h3></div>
-                      <span className={executionCampaign.status === "completed" ? "ready" : "warning"}>
-                        {executionCampaign.status}
-                      </span>
+                      <div className="header-actions">
+                        {(executionCampaign.status === "paused" ||
+                          executionCampaign.batches.some((batch) =>
+                            batch.status === "unknown" || batch.status === "submitted"
+                          )) && (
+                          <button onClick={() => void reconcileExecution()} disabled={executionBusy}>
+                            {executionBusy ? "Working…" : "Reconcile"}
+                          </button>
+                        )}
+                        <span className={executionCampaign.status === "completed" ? "ready" : "warning"}>
+                          {executionCampaign.status}
+                        </span>
+                      </div>
                     </div>
                     <div className="table-wrap">
                       <table>
