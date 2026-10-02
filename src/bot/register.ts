@@ -28,7 +28,7 @@ import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/r
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
 import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
-import { claimCreatorLaunchFees, claimCreatorNearFees, formatCreatorFee, type CreatorFeeSummary } from "../launch/fees.js";
+import { claimCreatorLaunchFees, claimCreatorNearFees, formatCreatorFee, getCreatorFeeSummary, type CreatorFeeSummary } from "../launch/fees.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
