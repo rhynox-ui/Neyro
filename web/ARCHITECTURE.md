@@ -1053,3 +1053,5 @@ The Mint UI now includes:
 - optional buy/sell tax configuration.
 
 These are configuration surfaces only until the generic token implementation/factory is verified. Mint-authority revocation and buy/sell tax are implementation-specific and are not claimed as NEP-141 capabilities. No unverified transaction method is exposed.
+
+- Added freeze-authority and metadata-authority policy controls to the Mint UI. These remain implementation-specific and are not presented as NEP-141 guarantees.
