@@ -25,16 +25,16 @@ const { buildCreatorFeeClaimTransaction } = await import("../src/launch/fees.js"
 test("builds only approved NEARly creator fee claim methods", () => {
   const near = buildCreatorFeeClaimTransaction("near");
   assert.equal(near.receiverId, "nearlytrade.near");
-  assert.equal(near.actions[0]?.action.functionCall?.methodName, "claim_creator_fees");
+  assert.equal((near.actions[0] as { type: string; params: { methodName: string; args: Record<string, unknown> } }).params.methodName, "claim_creator_fees");
 
   const token = buildCreatorFeeClaimTransaction("token", 2256);
   assert.equal(token.receiverId, "nearlytrade.near");
-  assert.equal(token.actions[0]?.action.functionCall?.methodName, "claim_creator_token_fees");
-  assert.equal(token.actions[0]?.action.functionCall?.args, JSON.stringify({ launch_id: 2256 }));
+  assert.equal((token.actions[0] as { type: string; params: { methodName: string; args: Record<string, unknown> } }).params.methodName, "claim_creator_token_fees");
+  assert.equal(JSON.stringify((token.actions[0] as { type: string; params: { methodName: string; args: Record<string, unknown> } }).params.args), JSON.stringify({ launch_id: 2256 }));
 
   const quote = buildCreatorFeeClaimTransaction("quote", 2256);
   assert.equal(quote.receiverId, "nearlytrade.near");
-  assert.equal(quote.actions[0]?.action.functionCall?.methodName, "claim_creator_quote_fees");
+  assert.equal((quote.actions[0] as { type: string; params: { methodName: string; args: Record<string, unknown> } }).params.methodName, "claim_creator_quote_fees");
 });
 
 test("rejects malformed launch ids before signing", () => {
