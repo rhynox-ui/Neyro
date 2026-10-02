@@ -55,6 +55,7 @@ export function buildNativeFeeTransfer(
 
 
 export const STORAGE_DEPOSIT_GAS = 30_000_000_000_000n;
+export const MAX_STORAGE_REGISTRATION_ACTIONS = 10;
 
 export function buildStorageRegistrationTransaction(
   signerId: string,
@@ -65,6 +66,9 @@ export function buildStorageRegistrationTransaction(
   if (!signerId) throw new Error("signerId is required");
   if (!tokenContract) throw new Error("tokenContract is required");
   if (recipientIds.length === 0) throw new Error("recipientIds must not be empty");
+  if (recipientIds.length > MAX_STORAGE_REGISTRATION_ACTIONS) {
+    throw new Error(`registration batch cannot exceed ${MAX_STORAGE_REGISTRATION_ACTIONS} recipients`);
+  }
   if (deposit <= 0n) throw new Error("storage deposit must be greater than zero");
   if (recipientIds.some((accountId) => !accountId)) {
     throw new Error("recipientIds must contain valid account IDs");
