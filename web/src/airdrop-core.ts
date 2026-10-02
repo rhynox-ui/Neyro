@@ -66,18 +66,34 @@ export function allocateRecipientsDetailed(
     throw new Error("insufficient total sender token balance");
   }
 
+  // Best-fit decreasing reduces fragmentation while remaining deterministic:
+  // larger transfers are placed first, and ties preserve source order.
+  const orderedRecipients = recipients
+    .map((recipient, index) => ({ recipient, index }))
+    .sort((a, b) =>
+      b.recipient.amountBase === a.recipient.amountBase
+        ? a.index - b.index
+        : b.recipient.amountBase > a.recipient.amountBase ? 1 : -1
+    )
+    .map(({ recipient }) => recipient);
+
   const result = new Map<string, ValidRecipient[]>();
-  for (const recipient of recipients) {
+  for (const recipient of orderedRecipients) {
     let selected: string | undefined;
+    let selectedRemaining: bigint | undefined;
+
     for (const [sender, balance] of remaining) {
-      if (balance >= recipient.amountBase) {
+      if (balance >= recipient.amountBase &&
+          (selectedRemaining === undefined || balance < selectedRemaining)) {
         selected = sender;
-        break;
+        selectedRemaining = balance;
       }
     }
+
     if (!selected) {
       throw new Error("sender balances cannot satisfy recipient allocation");
     }
+
     remaining.set(selected, remaining.get(selected)! - recipient.amountBase);
     const bucket = result.get(selected) ?? [];
     bucket.push(recipient);
