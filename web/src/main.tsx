@@ -18,6 +18,7 @@ import {
   ContractInspectorView,
   PersistedTransactionsView,
   TerminalModuleView,
+  TokenBurnView,
   NearlyLaunchView,
   SwapView
 } from "./terminal-views";
@@ -707,6 +708,8 @@ function App() {
           <ContractInspectorView />
         ) : activeView === "Transactions" ? (
           <PersistedTransactionsView campaigns={campaigns} />
+        ) : activeView === "Burn" ? (
+          <TokenBurnView accountId={accountId} wallet={wallet} />
         ) : activeView === "Airdrop Campaigns" ? (
           <CampaignHistoryView
             campaigns={campaigns}
