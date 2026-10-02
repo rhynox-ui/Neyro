@@ -17,7 +17,9 @@ import {
   PortfolioView,
   ContractInspectorView,
   PersistedTransactionsView,
-  TerminalModuleView
+  TerminalModuleView,
+  NearlyLaunchView,
+  SwapView
 } from "./terminal-views";
 
 type Row = {
@@ -669,6 +671,10 @@ function App() {
           />
         ) : activeView === "Portfolio" ? (
           <PortfolioView accountId={accountId} tokenContract={token} />
+        ) : activeView === "Swap" ? (
+          <SwapView accountId={accountId} wallet={wallet} />
+        ) : activeView === "Launch NEARly token" ? (
+          <NearlyLaunchView accountId={accountId} wallet={wallet} />
         ) : activeView === "Contract Inspector" ? (
           <ContractInspectorView />
         ) : activeView === "Transactions" ? (
