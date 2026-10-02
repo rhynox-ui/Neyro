@@ -48,7 +48,7 @@ test("builds safe direct Rhea DCL transactions for NEARly pools", async () => {
     amountOut: "1900000000000000000000000",
     minAmountOut: "1881000000000000000000000",
     tokens: ["wrap.near", "babyninu.nearlytrade.near"],
-    poolId: "babyninu.nearlytrade.near|wrap.near|10000",
+    poolIds: ["babyninu.nearlytrade.near|wrap.near|10000"],
     receivedAt: Date.now(),
     expiresAt: Date.now() + 30_000
   };
@@ -80,4 +80,35 @@ test("quotes send RHEA plain contract ids: no nep141: prefix, NEAR as wrap.near"
   assert.equal(toApiAsset({ chain: "near", address: "near", isNative: true } as never).address, "wrap.near");
   assert.equal(toApiAsset({ chain: "near", address: "nep141:usdt.tether-token.near", contractAddress: null, isNative: false } as never).address, "usdt.tether-token.near");
   assert.equal(toApiAsset({ chain: "near", address: "rust-334.meme-cooking.near", isNative: false } as never).address, "rust-334.meme-cooking.near");
+});
+
+
+test("builds a two-pool DCL transaction path for NEARly pair launches", async () => {
+  const { RheaClient } = await import("../src/rhea/client.js");
+  const quote = {
+    kind: "rhea-dcl" as const,
+    amountIn: "100000000000000000000000",
+    amountOut: "1900000000000000000000000",
+    minAmountOut: "1881000000000000000000000",
+    tokens: ["wrap.near", "ninu-4.nearlytrade.near", "babyninu.nearlytrade.near"],
+    poolIds: [
+      "ninu-4.nearlytrade.near|wrap.near|10000",
+      "babyninu.nearlytrade.near|ninu-4.nearlytrade.near|10000"
+    ],
+    receivedAt: Date.now(),
+    expiresAt: Date.now() + 30_000
+  };
+  const txs = RheaClient.directTransactions({
+    fromToken: { chain: "near", address: "wrap.near", isNative: true, decimals: 24 } as never,
+    toToken: { chain: "near", address: "babyninu.nearlytrade.near", decimals: 18 } as never,
+    amountIn: quote.amountIn,
+    slippageBps: 100,
+    sender: "alice.near",
+    recipient: "alice.near"
+  }, quote);
+  const transfer = (txs[1]!.actions[0] as any).params;
+  const msg = JSON.parse(transfer.args.msg);
+  assert.deepEqual(msg.Swap.pool_ids, quote.poolIds);
+  assert.equal(transfer.gas, "250000000000000");
+  assert.equal((txs[0]!.actions[0] as any).params.gas, "250000000000000");
 });
