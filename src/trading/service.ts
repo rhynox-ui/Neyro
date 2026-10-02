@@ -156,6 +156,19 @@ export class TradingService {
 
     const fee = await this.planFee(side, BigInt(total), tokenIn);
 
+    // NEARly sell tax is taken from the token before it reaches Rhea. The
+    // pool must therefore be quoted with the post-tax amount. Buy tax is
+    // applied after the pool's min-output check and is handled by the
+    // protocol-aware quote/execution path below.
+    let swapTotal = BigInt(total);
+    const nearlyLaunch = isNearlyToken(contractOf(tokenIn))
+      ? await fetchLaunchByToken(contractOf(tokenIn)).catch(() => null)
+      : null;
+    if (side === "sell" && nearlyLaunch?.tax?.sellBps) {
+      swapTotal = (swapTotal * BigInt(10_000 - nearlyLaunch.tax.sellBps)) / 10_000n;
+      if (swapTotal <= 0n) throw new UserFacingError("The token sell tax leaves no amount to trade");
+    }
+
     // Buy fees are carved out of the NEAR amount being spent. Sell fees are
     // always native NEAR and therefore must not reduce the token amount sold.
     if (side === "sell" && fee) {
@@ -168,7 +181,7 @@ export class TradingService {
     }
     const amountIn = (side === "buy"
       ? BigInt(total) - BigInt(fee?.amount ?? "0")
-      : BigInt(total)).toString();
+      : swapTotal).toString();
 
     const request: TradeRequest = {
       accountId: wallet.accountId,
@@ -359,6 +372,25 @@ export class TradingService {
 
   private async executeTrade(userId: number, id: string, trade: PendingPayload): Promise<ExecutionResult> {
     const { request } = trade;
+
+    // The protocol fee is price-derived. Revalidate it immediately before
+    // signing so a stale quote cannot charge a materially different fee.
+    const plannedTotal = request.side === "buy"
+      ? BigInt(request.amountIn) + BigInt(trade.fee?.amount ?? "0")
+      : BigInt(request.amountIn);
+    const freshFee = await this.planFee(request.side, plannedTotal, request.tokenIn);
+    const sameFee =
+      (trade.fee === undefined && freshFee === undefined) ||
+      (trade.fee !== undefined && freshFee !== undefined &&
+       trade.fee.amount === freshFee.amount &&
+       trade.fee.treasury === freshFee.treasury &&
+       trade.fee.contractId === freshFee.contractId);
+    if (!sameFee) {
+      const reason = "Protocol fee changed while the quote was waiting. Refresh the quote before confirming.";
+      await this.repository.updateStatus(userId, id, { status: "failed", errorCode: "fee_changed" });
+      return { status: "failed", txHashes: [], reason };
+    }
+
     const ftContract = contractOf(request.side === "buy" ? request.tokenOut : request.tokenIn);
     const before = await ftBalanceOf(ftContract, request.accountId).catch(() => undefined);
 
