@@ -434,7 +434,7 @@ function isValidDclPoolId(poolId: string): boolean {
   return parts.length === 3
     && isValidAccountId(parts[0]!)
     && isValidAccountId(parts[1]!)
-    && /^\\d+$/.test(parts[2]!)
+    && /^\d+$/.test(parts[2]!)
     && Number(parts[2]) === 10000;
 }
 
@@ -516,7 +516,7 @@ function extractSmartRouterPayload(body: Record<string, unknown> | null): Record
 function dclQuoteAmount(value: unknown): bigint | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const amount = (value as Record<string, unknown>).amount;
-  if (typeof amount !== "string" || !/^\\d+$/.test(amount)) return null;
+  if (typeof amount !== "string" || !/^\d+$/.test(amount)) return null;
   try { return BigInt(amount); } catch { return null; }
 }
 
