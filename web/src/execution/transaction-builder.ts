@@ -52,3 +52,37 @@ export function buildNativeFeeTransfer(
     }]
   };
 }
+
+
+export const STORAGE_DEPOSIT_GAS = 30_000_000_000_000n;
+
+export function buildStorageRegistrationTransaction(
+  signerId: string,
+  tokenContract: string,
+  recipientIds: readonly string[],
+  deposit: bigint
+): SignAndSendRequest {
+  if (!signerId) throw new Error("signerId is required");
+  if (!tokenContract) throw new Error("tokenContract is required");
+  if (recipientIds.length === 0) throw new Error("recipientIds must not be empty");
+  if (deposit <= 0n) throw new Error("storage deposit must be greater than zero");
+  if (recipientIds.some((accountId) => !accountId)) {
+    throw new Error("recipientIds must contain valid account IDs");
+  }
+
+  return {
+    signerId,
+    receiverId: tokenContract,
+    actions: recipientIds.map((accountId) => ({
+      type: "FunctionCall",
+      receiverId: tokenContract,
+      methodName: "storage_deposit",
+      args: {
+        account_id: accountId,
+        registration_only: true
+      },
+      gas: STORAGE_DEPOSIT_GAS,
+      deposit
+    }))
+  };
+}
