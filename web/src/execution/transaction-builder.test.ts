@@ -22,7 +22,7 @@ describe("web transaction builder", () => {
       type: "FunctionCall",
       receiverId: "token.near",
       methodName: "ft_transfer",
-      args: { receiverId: "alice.near", amount: "123" },
+      args: { receiver_id: "alice.near", amount: "123" },
       gas: 30_000_000_000_000n,
       deposit: 1n
     }]);
