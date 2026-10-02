@@ -40,7 +40,7 @@ stream instead of parsing a giant JSON object tree.
 
 - Verified generic Mint deployment through a Neyro token factory/implementation.
 - Verified contract-specific Lock/Unlock execution.
-- In-terminal recipient registration execution using the token's verified NEP-145 storage bounds.
+- In-terminal recipient registration execution using the token's verified NEP-145 storage bounds (implemented; real-wallet verification remains).
 - Production-scale memory-bounded planning for large airdrops.
 - Verified liquidity creation/management flows.
 - Verified trade execution and Developer transaction-builder flows.
@@ -57,6 +57,6 @@ The current product surface is intentionally non-custodial, but generic Mint exe
 
 Bulk transfer execution is wired and safety-tested. Recipient NEP-145 registration is now checked before execution and unregistered/unknown recipients are blocked. In-terminal registration itself and million-wallet memory-bounded planning remain release gates.
 
-## 2026-10-02 — Recipient registration safety gate
+## 2026-10-02 — Recipient registration execution
 
-The bulk-transfer UI performs a bounded-concurrency NEP-145 registration preflight before signing. Unregistered recipients and tokens whose storage API cannot be verified are blocked. Registration itself is intentionally not guessed or silently funded; the next step is a dedicated persisted registration flow using the token-reported storage bounds.
+The bulk-transfer UI performs a bounded-concurrency NEP-145 registration preflight before signing. Unregistered recipients and tokens whose storage API cannot be verified are blocked. Registration uses the token-reported storage minimum, the connected browser wallet pays the storage deposit, registration sessions are persisted in IndexedDB, and unknown/submitted transactions require reconciliation before retry.
