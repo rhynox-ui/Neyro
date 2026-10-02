@@ -12,6 +12,7 @@ const baseBatch: CampaignBatch = {
   id: "sender.near:0",
   senderId: "sender.near",
   recipientWallets: ["alice.near"],
+  recipients: [{ wallet: "alice.near", amountBase: "100" }],
   totalAmount: "100",
   actionCount: 1,
   status: "pending",
