@@ -422,14 +422,38 @@ References:
 - Wallet Selector core: https://www.npmjs.com/package/@near-wallet-selector/core
 - Wallet Selector wallet API: https://github.com/near/wallet-selector/blob/main/packages/core/docs/api/wallet.md
 
-## 29. Current checkpoint
+## 29. Execution checkpoint — airdrop execution is now wired
 
-The web branch now has:
-- gas-safe batch planning;
-- fresh sender/token preflight;
-- immutable transaction action builders;
-- a concrete mainnet browser-wallet adapter;
-- adapter unit tests;
-- no Telegram code changes.
+The web terminal now has a complete execution path for NEP-141 bulk transfers:
 
-Execution remains disabled until the campaign state machine, balance revalidation and unknown-transaction reconciliation are connected around the signer.
+1. Build a deterministic campaign fingerprint from token, decimals, sender set and recipient amounts.
+2. Read fresh sender token balance, native NEAR balance, storage registration and current gas price immediately before each batch.
+3. Allocate recipients deterministically across the fresh sender balances.
+4. Build conservative FT transfer batches with exact base-unit strings and 1 yoctoNEAR per `ft_transfer`.
+5. Require the sender account to be connected to the browser wallet before that sender's batch can sign.
+6. Persist the batch as `signing` before opening the wallet.
+7. Submit through the browser-wallet connector.
+8. Persist the transaction hash as `submitted` before waiting for finality.
+9. Mark `success` only after the NEAR RPC reports a successful final transaction.
+10. Treat missing hashes, wallet interruptions and uncertain RPC outcomes as `unknown`; never automatically resend them.
+11. Persist exact recipient wallet + base-unit amount data inside every campaign batch so pending batches can be reconstructed after reload.
+12. Allow explicit reconciliation of `unknown`/`submitted` batches before retrying.
+
+Native gas safety is conservative: the executor checks the sender's current native NEAR balance against the batch's full prepaid-gas budget at the current RPC gas price plus the attached 1-yocto deposits. This is a safety ceiling, not an estimate of actual gas consumed.
+
+### What is still deliberately not implemented
+
+The terminal does not invent protocol methods for Mint, Burn, Lock, Unlock, Launch, Swap or Developer calls. Those modules remain foundation views until their exact contract interfaces are verified and implemented. The 1 NEAR Mint fee and 1 NEAR Lock fee are already modeled separately and route to `widekingdom6862.near`, but no token-tool transaction is enabled merely from the fee model.
+
+Gas sponsorship also remains separate from fee collection. The repository has evidence for the treasury fee recipient but no verified dedicated relayer/sponsor account. The web default therefore remains user-pays-gas.
+
+### Handoff rule
+
+A future contributor continuing execution work should start in:
+- `web/src/execution/executor.ts` — execution lifecycle, revalidation and reconciliation;
+- `web/src/execution/transaction-builder.ts` — wallet action construction;
+- `web/src/campaign/model.ts` — persisted safety state;
+- `web/src/campaign/storage.ts` — browser persistence;
+- `web/src/wallet/selector.ts` — browser-wallet boundary.
+
+Do not modify Telegram code to make web execution work.
