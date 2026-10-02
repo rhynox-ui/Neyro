@@ -27,7 +27,8 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";\nimport { claimCreatorLaunchFees, claimCreatorNearFees, formatCreatorFee, type CreatorFeeSummary } from "../launch/fees.js";
+import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
+import { claimCreatorLaunchFees, claimCreatorNearFees, formatCreatorFee, type CreatorFeeSummary } from "../launch/fees.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -1109,7 +1110,7 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
-  pm.callbackQuery(/^fees:claim:(token|quote):(\\d+)$/, async (ctx) => {
+  pm.callbackQuery(/^fees:claim:(token|quote):(\d+)$/, async (ctx) => {
     const kind = ctx.match[1] as "token" | "quote";
     const launchId = Number(ctx.match[2]);
     const wallet = await requireWallet(ctx);
