@@ -21,6 +21,10 @@ function rpcStub() {
           args.account_id === "a.near" ? "9000000" : "4000000";
       }
       if (method === "storage_balance_of") {
+        const accountId = args && typeof args === "object" && "account_id" in args
+          ? String(args.account_id)
+          : "";
+        if (accountId === "unregistered.near") return null;
         return { total: "125", available: "0" };
       }
       throw new Error("unexpected method");
@@ -34,7 +38,8 @@ describe("sender preflight", () => {
       rpcStub(),
       "token.near",
       ["a.near", "b.near", "a.near"],
-      12000000n
+      12000000n,
+      ["a.near", "unregistered.near", "a.near"]
     );
 
     expect(result.decimals).toBe(6);
@@ -45,6 +50,13 @@ describe("sender preflight", () => {
       senderId: "a.near",
       tokenBalance: 9000000n,
       storage: "registered"
+    });
+    expect(result.recipientRegistration).toEqual({
+      checked: 2,
+      registered: 1,
+      notRegistered: 1,
+      unsupported: 0,
+      sampleNotRegistered: ["unregistered.near"]
     });
   });
 });
