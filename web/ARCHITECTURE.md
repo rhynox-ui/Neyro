@@ -991,3 +991,10 @@ The generic Mint surface now keeps the submitted mint amount visible after signi
 This avoids presenting a just-submitted transaction as already reflected in `ft_total_supply` before finality. After submission, the UI shows the transaction hash and a deliberate **Reload token state** action so the user can re-read on-chain supply/balance after the transaction is final.
 
 No new token tool or protocol surface was added. This is a usability/safety clarification around the existing contract-specific mint workflow.
+
+
+## 2026-10-02 — Generic Create Token UX checkpoint
+
+The `Create token` route now represents the generic developer-owned token workflow separately from the NEARly launchpad. The form captures token name, symbol, decimals, initial supply, initial recipient and an optional metadata reference, then shows a deployment review.
+
+Deployment remains intentionally disabled until Neyro has a verified generic NEP-141 token-factory contract address and exact call interface. No factory address, authority model, fee, or contract method is invented in the web UI. This follows the observed token-creator pattern of separating token identity/supply configuration from launchpad-specific flows while keeping the actual deployment contract as the source of truth.
