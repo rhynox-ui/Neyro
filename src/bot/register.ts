@@ -166,7 +166,7 @@ export function renderNearlyLaunchReview(input: NearlyLaunchInput, accountId: st
     `Name: <b>${escapeHtml(input.name ?? "")}</b>`,
     `Symbol: <b>${escapeHtml(input.symbol ?? "")}</b>`,
     `Description: ${escapeHtml(input.description ?? "—")}`,
-    `First buy: ${escapeHtml(input.devBuyNear ?? "0")} ${escapeHtml(launchQuoteLabel(input.quote))}`,
+    `Creator buy: ${escapeHtml(input.devBuyNear ?? "0")} NEAR${input.quote && input.quote !== NEARLY_WNEAR ? " (after launch)" : ""}`,
     `Website: ${escapeHtml(input.website ?? "—")}`,
     `X: ${escapeHtml(input.twitter ?? "—")}`,
     `Telegram: ${escapeHtml(input.telegram ?? "—")}`,
