@@ -809,3 +809,15 @@ The visible terminal shell was rebuilt to remove prototype/static presentation:
 - wallet state remains live and execution data remains sourced from chain/IndexedDB state.
 
 This is a presentation-only reset around the existing execution boundary; Telegram code and the underlying execution modules remain unchanged.
+
+
+## 2026-10-02 — Terminal surface restored without demo state
+
+- Restored the Mango-style information architecture as navigation: Trade, Launch, Token Tools, Developer and History.
+- Kept protocol-specific write flows gated when their exact web transaction interfaces are not verified.
+- Added live Portfolio reads for the connected NEAR account and the token currently loaded in Bulk Transfer.
+- Added a live read-only Contract Inspector using final NEAR RPC.
+- Added persisted transaction history derived from campaign batch transaction hashes.
+- Unsupported modules now explain the real integration boundary instead of rendering fabricated balances, quotes, orders, fees or deployment results.
+- Removed illustrative sender account placeholders.
+- Telegram bot and Worker code remain untouched.
