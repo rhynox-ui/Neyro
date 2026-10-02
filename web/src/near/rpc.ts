@@ -128,7 +128,7 @@ export class NearRpcClient {
 
   async gasPrice(): Promise<bigint> {
     const result = await this.request<GasPriceResult>("gas_price", [null]);
-    if (!/^\\d+$/.test(result.gas_price)) {
+    if (!/^\d+$/.test(result.gas_price)) {
       throw new Error("NEAR RPC returned invalid gas price");
     }
     return BigInt(result.gas_price);
