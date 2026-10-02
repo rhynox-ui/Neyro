@@ -998,3 +998,29 @@ No new token tool or protocol surface was added. This is a usability/safety clar
 The `Create token` route now represents the generic developer-owned token workflow separately from the NEARly launchpad. The form captures token name, symbol, decimals, initial supply, initial recipient and an optional metadata reference, then shows a deployment review.
 
 Deployment remains intentionally disabled until Neyro has a verified generic NEP-141 token-factory contract address and exact call interface. No factory address, authority model, fee, or contract method is invented in the web UI. This follows the observed token-creator pattern of separating token identity/supply configuration from launchpad-specific flows while keeping the actual deployment contract as the source of truth.
+
+## 2026-10-02 — Navigation and generic token boundary checkpoint
+
+The visible navigation now separates the two token-creation concepts:
+
+- **Launch** contains only the NEARly launchpad flow.
+- **Token** contains the generic **Create token** flow.
+- **Token Tools** contains token operations such as Mint, Burn, Lock, Unlock, Airdrop and Bulk Transfer.
+
+This is a navigation clarification only; no new protocol capability was added.
+
+The generic Create Token surface remains a deployment configuration/review form. It does not claim that NEP-141 itself defines token deployment, mint authority, or a factory. Deployment stays gated until Neyro has a verified token implementation/factory and exact initialization interface.
+
+## 2026-10-02 — Web Terminal CI verification
+
+Commit `0c084d9283a912800369a76f1bc96fa9dbfffed3` completed Web Terminal CI run **#311** successfully.
+
+Verified checks:
+- `npm install --no-audit --no-fund`
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
+
+The latest selector typing correction is therefore CI-verified. This does not replace real-wallet/testnet execution testing; those remain release gates.
+
+Telegram bot and Worker code remain untouched.
