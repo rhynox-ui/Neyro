@@ -1077,3 +1077,60 @@ html[data-theme="light"] .mobile-nav:focus {
   .header-actions button { font-size: 12px; }
   .account-pill { max-width: 110px; }
 }
+
+
+/* Token-tool surfaces */
+.token-tool-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.token-tool-summary > div {
+  padding: 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+.token-tool-summary span,
+.tool-balance span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.token-tool-summary strong,
+.tool-balance strong { display: block; font-size: 14px; color: var(--text-strong); }
+.tool-balance {
+  padding: 11px 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+.tool-balance button {
+  margin-top: 9px;
+  padding: 7px 9px;
+  min-height: 34px;
+  font-size: 12px;
+}
+.burn-card { display: grid; gap: 14px; }
+.burn-warning {
+  padding: 11px 13px;
+  border: 1px solid #b7a26b;
+  border-radius: 8px;
+  background: rgba(176, 145, 59, .08);
+  color: #8a6c22;
+  font-size: 13px;
+  line-height: 1.5;
+}
+html[data-theme="light"] .burn-warning {
+  background: #fff8e6;
+  border-color: #e5cf91;
+  color: #735b1d;
+}
+@media (max-width: 700px) {
+  .token-tool-summary { grid-template-columns: 1fr; }
+}
