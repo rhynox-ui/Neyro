@@ -894,3 +894,11 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Removed the Orders entry from the visible Trade navigation.
 - The primary sidebar now exposes only currently relevant Web Terminal surfaces: Overview, Swap, Portfolio, Launch, and Token Tools.
 - No Telegram bot, Worker, wallet custody, or execution code was modified.
+
+
+## 2026-10-02 — Mobile navigation cleanup
+
+- Stabilized the compact mobile navigation container after removing obsolete Developer, History, and Orders entries.
+- Mobile navigation now has a constrained scroll region with hidden scrollbar chrome and no inherited horizontal overscroll behavior.
+- Specialized Mint, Burn, Lock, and Unlock writes remain intentionally gated because the repository does not contain a verified standard contract interface for those operations; no guessed write methods were added.
+- No Telegram bot, Worker, wallet custody, or execution code was modified.
