@@ -1,5 +1,12 @@
+import {
+  DEFAULT_PREPAID_GAS,
+  maxSafeActions,
+  planBatchGas
+} from "./gas-planner";
+
 export const YOCTONEAR = 1n;
-export const DEFAULT_PREPAID_GAS = 30_000_000_000_000n; // 30 Tgas
+export { DEFAULT_PREPAID_GAS };
+export const DEFAULT_MAX_ACTIONS = maxSafeActions(DEFAULT_PREPAID_GAS);
 
 export type FtTransferCall = {
   receiverId: string;
@@ -19,6 +26,7 @@ export type TransferBatch = {
   senderId: string;
   actions: FunctionCallAction[];
   totalAmount: bigint;
+  totalPrepaidGas: bigint;
 };
 
 export function buildFtTransferAction(
@@ -46,12 +54,19 @@ export function buildFtTransferAction(
 export function buildTransferBatches(
   senderId: string,
   recipients: Array<{ wallet: string; amountBase: bigint }>,
-  maxActions = 50,
+  maxActions = DEFAULT_MAX_ACTIONS,
   gasPerAction = DEFAULT_PREPAID_GAS
 ): TransferBatch[] {
   if (!senderId) throw new Error("senderId is required");
   if (!Number.isInteger(maxActions) || maxActions <= 0) {
     throw new Error("maxActions must be a positive integer");
+  }
+
+  const safeMaxActions = maxSafeActions(gasPerAction);
+  if (maxActions > safeMaxActions) {
+    throw new Error(
+      `maxActions ${maxActions} exceeds conservative gas-safe limit ${safeMaxActions}`
+    );
   }
 
   const batches: TransferBatch[] = [];
@@ -61,6 +76,7 @@ export function buildTransferBatches(
     const actions = slice.map((recipient) =>
       buildFtTransferAction(recipient.wallet, recipient.amountBase, gasPerAction)
     );
+    const gasPlan = planBatchGas(actions.length, gasPerAction);
 
     batches.push({
       batchId: `${senderId}:${batches.length}`,
@@ -69,7 +85,8 @@ export function buildTransferBatches(
       totalAmount: actions.reduce(
         (total, action) => total + BigInt(action.args.amount),
         0n
-      )
+      ),
+      totalPrepaidGas: gasPlan.totalPrepaidGas
     });
   }
 
