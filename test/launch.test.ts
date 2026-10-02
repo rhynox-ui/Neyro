@@ -25,3 +25,16 @@ test("NEARly launch quote bytes handle missing optional metadata", () => {
     new TextEncoder().encode("TestTEST").byteLength
   );
 });
+
+
+const { applyBuyTax, applySellTax } = await import("../src/trading/tax.js");
+
+test("NEARly buy tax reduces displayed output in base units", () => {
+  assert.equal(applyBuyTax(1_000n, 100), 990n);
+  assert.equal(applyBuyTax(9n, 400), 8n);
+});
+
+test("NEARly sell tax reduces the amount reaching Rhea", () => {
+  assert.equal(applySellTax(1_000n, 100), 990n);
+  assert.equal(applySellTax(1_000n, 400), 960n);
+});
