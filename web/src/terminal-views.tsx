@@ -1120,7 +1120,6 @@ export function TerminalModuleView({
         ))}
       </div>
       <div className="action-row">
-        {view === "Create token" && <button className="primary" onClick={() => onNavigate("Launch NEARly token")}>Open NEARly launch</button>}
         {view === "Burn" && <button className="primary" onClick={() => onNavigate("Burn")}>Open burn tool</button>}
       </div>
     </section>
