@@ -1036,3 +1036,9 @@ The Web Terminal now reflects that terminology:
 - The previous existing-token mint-call UI is no longer exposed as the Mint product surface.
 
 The fresh-token transaction remains gated until Neyro has a verified generic token implementation/factory and exact on-chain initialization interface. No guessed contract method or address was introduced.
+
+## 2026-10-02 — Token Locker calendar UI
+
+The Lock route now has a professional locker-oriented interface with a modern calendar/date-time selector for the unlock schedule. The calendar supports month navigation, disabled past dates, Today selection, and time selection.
+
+The interface is still execution-gated because the web branch does not have a verified generic token-locker contract/interface. It must not imply that a locker was created or that token balances/lockers exist when no live protocol data has been loaded.
