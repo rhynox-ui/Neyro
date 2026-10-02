@@ -872,3 +872,11 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Added responsive breakpoints at 900px and 640px for the terminal shell, sidebar, main content spacing and Swap surface.
 - Kept the conventional Swap layout, live quote/balance behavior and dark/light theme unchanged; this checkpoint is presentation-only.
 - No Telegram bot, Worker or signer code was modified.
+
+
+## 2026-10-02 — Stable Pages entry freshness
+
+- Added `web/public/_headers` so `/` and `/index.html` use `Cache-Control: no-store`.
+- This protects the stable `neyro-terminal.pages.dev` entry document from retaining an older SPA shell after a new Git-integrated Pages deployment.
+- Hash deployment URLs remain immutable snapshots; the stable project URL is the intended continuously updated entry point.
+- No Telegram bot, Worker, wallet custody, or execution code was modified.
