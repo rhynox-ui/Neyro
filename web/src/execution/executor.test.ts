@@ -4,7 +4,7 @@ import type { Campaign } from "../campaign/model";
 import type { CampaignStore } from "../campaign/storage";
 import type { NearRpcClient } from "../near/rpc";
 import type { WebWalletConnector } from "../wallet/connector";
-import { executeAirdrop } from "./executor";
+import { executeAirdrop, reconcileCampaign } from "./executor";
 
 class MemoryStore implements CampaignStore {
   private campaigns = new Map<string, Campaign>();
@@ -86,6 +86,39 @@ describe("web airdrop execution", () => {
     expect(hashes).toEqual(["100", "200"]);
     expect(result.campaign.status).toBe("completed");
     expect(result.campaign.batches.every((batch) => batch.status === "success")).toBe(true);
+  });
+
+  it("reconciles a submitted transaction after an RPC outcome interruption", async () => {
+    const store = new MemoryStore();
+    let statusReads = 0;
+    const rpc = rpcStub();
+    const originalStatus = rpc.transactionStatus;
+    rpc.transactionStatus = async (hash: string, senderId: string) => {
+      statusReads += 1;
+      if (statusReads === 1) throw new Error("temporary RPC failure");
+      return originalStatus(hash, senderId);
+    };
+
+    const wallet = walletStub(async () => ({ transactionHash: "tx-reconcile" }));
+
+    await expect(
+      executeAirdrop({
+        tokenContract: "token.near",
+        decimals: 0,
+        allocations: [allocation],
+        sourceFingerprint: "source-reconcile",
+        wallet,
+        rpc,
+        store,
+        maxActions: 1
+      })
+    ).rejects.toThrow("temporary RPC failure");
+
+    const campaigns = await store.list();
+    expect(campaigns[0].batches[0].status).toBe("unknown");
+
+    const reconciled = await reconcileCampaign(campaigns[0].id, store, rpc);
+    expect(reconciled.batches[0].status).toBe("success");
   });
 
   it("marks wallet execution as unknown instead of blindly retrying", async () => {
