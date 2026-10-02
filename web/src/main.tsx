@@ -822,7 +822,9 @@ function App() {
             campaigns={campaigns}
             tokenSymbol={tokenMetadata?.symbol}
           />
-        ) : activeView === "Docs" ? (\n          <DocsView />\n        ) : activeView === "Portfolio" ? (
+        ) : activeView === "Docs" ? (
+          <DocsView />
+        ) : activeView === "Portfolio" ? (
           <PortfolioView accountId={accountId} tokenContract={token} />
         ) : activeView === "Swap" ? (
           <SwapView accountId={accountId} wallet={wallet} />
