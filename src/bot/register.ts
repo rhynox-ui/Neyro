@@ -1,5 +1,6 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { mainMenu } from "./menu.js";
+import { BOT_COMMANDS } from "./commands.js";
 import { MAX_WALLETS, WalletService } from "../wallet/service.js";
 import { getNearBalance, type NearBalance } from "../near/account.js";
 import { ftBalanceOf } from "../near/ft.js";
@@ -508,7 +509,14 @@ export function registerBotHandlers(bot: Bot) {
     await replyScreen(ctx, "menu", "⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
   };
 
-  pm.command("start", showMainMenu);
+  pm.command("start", async (ctx) => {
+    // Refresh the Telegram command menu after deployment so /fees and any
+    // newly added commands are visible immediately to the user.
+    await ctx.api.setMyCommands(BOT_COMMANDS).catch((error) => {
+      console.error("Telegram command menu refresh failed:", error);
+    });
+    await showMainMenu(ctx);
+  });
   pm.command("help", showMainMenu);
 
   async function showWallet(ctx: Context, edit = false, note?: string) {
