@@ -39,6 +39,8 @@ type PendingTrade = {
   quote: TradeQuote;
   expiresAt: number;
   fee?: FeePlan;
+  /** Original user-entered amount before any NEARly sell tax adjustment. */
+  feeBaseAmount: string;
 };
 
 export type ExecutionResult = {
@@ -201,7 +203,7 @@ export class TradingService {
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
     const expiresAt = quoteDeadline(Date.now(), PENDING_TTL_MS, quote.raw?.expiresAt ?? quote.direct?.expiresAt);
 
-    pending.set(id, { userId, request, quote, expiresAt, fee });
+    pending.set(id, { userId, request, quote, expiresAt, fee, feeBaseAmount: total.toString() });
 
     await this.repository.create({
       userId,
@@ -216,7 +218,7 @@ export class TradingService {
       idempotencyKey: id,
       status: "quoted",
       expiresAt: new Date(expiresAt),
-      payload: { request, quote, fee },
+      payload: { request, quote, fee, feeBaseAmount: total.toString() },
       feeAmount: fee?.amount,
       feeAsset: fee?.contractId
     });
@@ -379,9 +381,7 @@ export class TradingService {
 
     // The protocol fee is price-derived. Revalidate it immediately before
     // signing so a stale quote cannot charge a materially different fee.
-    const plannedTotal = request.side === "buy"
-      ? BigInt(request.amountIn) + BigInt(trade.fee?.amount ?? "0")
-      : BigInt(request.amountIn);
+    const plannedTotal = BigInt(trade.feeBaseAmount);
     const freshFee = await this.planFee(request.side, plannedTotal, request.tokenIn);
     const sameFee =
       (trade.fee === undefined && freshFee === undefined) ||
