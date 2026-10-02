@@ -781,74 +781,111 @@ export function MintView({ accountId }: { accountId: string }) {
   const [supply, setSupply] = useState("");
   const [recipient, setRecipient] = useState(accountId);
   const [metadata, setMetadata] = useState("");
+  const [description, setDescription] = useState("");
+  const [logoPreview, setLogoPreview] = useState("");
+  const [logoName, setLogoName] = useState("");
+  const [keepMintAuthority, setKeepMintAuthority] = useState(true);
+  const [taxEnabled, setTaxEnabled] = useState(false);
+  const [buyTax, setBuyTax] = useState("0");
+  const [sellTax, setSellTax] = useState("0");
 
   useEffect(() => {
     if (!recipient && accountId) setRecipient(accountId);
   }, [accountId, recipient]);
 
+  useEffect(() => () => {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+  }, [logoPreview]);
+
   const validDecimals = /^\d+$/.test(decimals) && Number(decimals) >= 0 && Number(decimals) <= 24;
   const validSupply = /^\d+(?:\.\d+)?$/.test(supply.trim()) && !/^0+(?:\.0+)?$/.test(supply.trim());
-  const ready = Boolean(name.trim() && symbol.trim() && validDecimals && validSupply && recipient.trim());
+  const validTax = (value: string) => /^\d+(?:\.\d{1,2})?$/.test(value) && Number(value) >= 0 && Number(value) <= 100;
+  const ready = Boolean(name.trim() && symbol.trim() && validDecimals && validSupply && recipient.trim() && (!taxEnabled || (validTax(buyTax) && validTax(sellTax))));
+
+  function handleLogo(file: File | undefined) {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) return;
+    if (file.size > 2 * 1024 * 1024) return;
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoPreview(URL.createObjectURL(file));
+    setLogoName(file.name);
+  }
 
   return (
     <section className="grid terminal-page">
       <div className="card hero full">
         <div>
-          <span className="eyebrow">TOKEN / MINT</span>
-          <h2>Mint a fresh developer-owned NEP-141 token.</h2>
-          <p>
-            Mint is the generic token-creation flow, separate from the NEARly launchpad. Define the token identity,
-            initial supply and receiving account first; Neyro will only enable deployment once its verified token factory is connected.
-          </p>
+          <span className="eyebrow">NEAR MAINNET / TOKEN</span>
+          <h2>Mint</h2>
+          <p>Create a fresh developer-owned token. Set the identity, supply, logo, authority policy and optional tax configuration. NEARly remains a separate launch mechanism.</p>
         </div>
         <div className="hero-state"><span className="status-dot" /><span>Fresh token deployment</span></div>
       </div>
 
       <div className="card create-token-form">
-        <div className="section-head"><div><span className="eyebrow">01 / MINT</span><h3>New token</h3></div><span className="module-status">NEP-141</span></div>
+        <div className="section-head"><div><span className="eyebrow">01 / TOKEN</span><h3>Token details</h3></div><span className="module-status">NEP-141</span></div>
 
         <div className="two">
           <div className="mint-field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Protocol Token" maxLength={64} /></div>
           <div className="mint-field"><label>Symbol</label><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="MPT" maxLength={16} /></div>
         </div>
-
         <div className="two">
           <div className="mint-field"><label>Decimals</label><input inputMode="numeric" value={decimals} onChange={(e) => setDecimals(e.target.value.replace(/[^0-9]/g, ""))} placeholder="18" /><small>Fixed token precision chosen at creation.</small></div>
-          <div className="mint-field"><label>Initial supply</label><input inputMode="decimal" value={supply} onChange={(e) => setSupply(e.target.value)} placeholder="1000000" /><small>Whole-token amount. Base units are derived from decimals.</small></div>
+          <div className="mint-field"><label>Initial supply</label><input inputMode="decimal" value={supply} onChange={(e) => setSupply(e.target.value)} placeholder="1000000" /><small>Initial supply assigned on creation.</small></div>
         </div>
-
         <div className="mint-field">
           <label>Initial supply recipient</label>
           <div className="mint-recipient-row"><input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="your-account.near" spellCheck={false} />{accountId && <button type="button" onClick={() => setRecipient(accountId)}>My wallet</button>}</div>
-          <small>The mint transaction will create the token and assign its initial supply to this account.</small>
         </div>
-
         <div className="mint-field">
-          <label>Metadata reference <span className="optional">optional</span></label>
-          <input value={metadata} onChange={(e) => setMetadata(e.target.value)} placeholder="https://example.com/token.json" spellCheck={false} />
-          <small>Metadata handling will be finalized against the deployed token implementation.</small>
+          <label>Token logo <span className="optional">PNG / JPG / WEBP · max 2 MB</span></label>
+          <div className="logo-upload-row">
+            <div className="token-logo-preview">{logoPreview ? <img src={logoPreview} alt="Token logo preview" /> : <span>{symbol.slice(0, 2) || "TK"}</span>}</div>
+            <label className="upload-button">Upload image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => handleLogo(e.target.files?.[0])} /></label>
+            {logoName && <span className="upload-name">{logoName}</span>}
+          </div>
+          <small>The selected image is prepared as token metadata when the verified factory supports logo data.</small>
         </div>
+        <div className="mint-field"><label>Description <span className="optional">optional</span></label><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this token represent?" rows={3} maxLength={500} /></div>
+        <div className="mint-field"><label>Metadata reference <span className="optional">optional</span></label><input value={metadata} onChange={(e) => setMetadata(e.target.value)} placeholder="https://example.com/token.json" spellCheck={false} /></div>
       </div>
 
       <div className="card create-token-review">
-        <div className="section-head"><div><span className="eyebrow">02 / REVIEW</span><h3>Mint preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
+        <div className="section-head"><div><span className="eyebrow">02 / TOKEN POLICY</span><h3>Authorities & tax</h3></div><span className="module-status">CONFIGURABLE</span></div>
+        <div className="policy-option">
+          <div><strong>Mint authority</strong><span>{keepMintAuthority ? "Creator keeps authority to issue additional supply." : "Mint authority is revoked after the initial supply is created."}</span></div>
+          <button type="button" className={keepMintAuthority ? "toggle on" : "toggle"} onClick={() => setKeepMintAuthority((value) => !value)} aria-pressed={keepMintAuthority}><span /></button>
+        </div>
+        <div className="policy-note"><strong>{keepMintAuthority ? "Mintable token" : "Fixed-supply token"}</strong><span>Authority behavior depends on the verified token implementation. Neyro will not claim a revocation unless the deployed contract supports it.</span></div>
+        <div className="policy-option">
+          <div><strong>Token tax</strong><span>Optional buy/sell tax for implementations that support trading-tax configuration.</span></div>
+          <button type="button" className={taxEnabled ? "toggle on" : "toggle"} onClick={() => setTaxEnabled((value) => !value)} aria-pressed={taxEnabled}><span /></button>
+        </div>
+        {taxEnabled && <div className="two tax-fields">
+          <div className="mint-field"><label>Buy tax %</label><div className="suffix-input"><input inputMode="decimal" value={buyTax} onChange={(e) => setBuyTax(e.target.value)} /><span>%</span></div></div>
+          <div className="mint-field"><label>Sell tax %</label><div className="suffix-input"><input inputMode="decimal" value={sellTax} onChange={(e) => setSellTax(e.target.value)} /><span>%</span></div></div>
+        </div>}
+        <div className="mint-interface-warning"><strong>Implementation-specific options.</strong><span>Mint authority revocation and buy/sell tax are not defined by NEP-141 itself. These settings will only be sent when Neyro's verified token implementation explicitly supports them.</span></div>
+      </div>
 
+      <div className="card create-token-review">
+        <div className="section-head"><div><span className="eyebrow">03 / REVIEW</span><h3>Mint preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
         <div className="mint-review-list">
           <div><span>Name</span><strong>{name || "—"}</strong></div>
           <div><span>Symbol</span><strong>{symbol || "—"}</strong></div>
           <div><span>Initial supply</span><strong>{supply || "—"} {symbol || ""}</strong></div>
           <div><span>Decimals</span><strong>{validDecimals ? decimals : "—"}</strong></div>
           <div><span>Recipient</span><strong>{recipient || "—"}</strong></div>
-          <div><span>Metadata</span><strong>{metadata || "Not configured"}</strong></div>
+          <div><span>Logo</span><strong>{logoName || "Not uploaded"}</strong></div>
+          <div><span>Mint authority</span><strong>{keepMintAuthority ? "Keep" : "Revoke after creation"}</strong></div>
+          <div><span>Tax</span><strong>{taxEnabled ? ("Buy " + buyTax + "% · Sell " + sellTax + "%") : "Disabled"}</strong></div>
         </div>
-
         <div className="mint-interface-warning"><strong>Fresh-token deployment is intentionally gated.</strong><span>Neyro does not currently have a verified generic token-mint/factory contract address and interface in this web branch. No guessed contract call is exposed here.</span></div>
-        <button className="mint-submit" type="button" disabled={!ready}>Fresh token mint not connected</button>
+        <button className="mint-submit" type="button" disabled={!ready}>Mint token — factory not connected</button>
       </div>
     </section>
   );
 }
-
 
 export function TokenLockView({ accountId }: { accountId: string }) {
   const today = new Date();
