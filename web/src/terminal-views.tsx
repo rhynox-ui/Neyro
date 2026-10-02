@@ -620,7 +620,7 @@ export function TokenMintView({
   const [token, setToken] = useState("");
   const [recipient, setRecipient] = useState(accountId);
   const [amount, setAmount] = useState("");
-  const [profile, setProfile] = useState<MintProfile>("ft_mint");
+  const [profile, setProfile] = useState<MintProfile>("custom");
   const [customMethod, setCustomMethod] = useState("mint");
   const [customArgs, setCustomArgs] = useState("{}");
   const [gasTgas, setGasTgas] = useState("100");
@@ -705,7 +705,7 @@ export function TokenMintView({
         icon: metadata.icon
       });
       setRecipientStorage(storage);
-      setMessage("NEP-141 interface verified from live NEAR mainnet state. Mint authority is contract-specific.");
+      setMessage("NEP-141 interface verified from live NEAR mainnet state. Mint authority and mint method remain contract-specific.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Token verification failed.");
     } finally {
@@ -913,12 +913,19 @@ export function TokenMintView({
             <div className="mint-field">
               <label>Mint interface</label>
               <select value={profile} onChange={(event) => { setProfile(event.target.value as MintProfile); clearFeedback(); }}>
-                <option value="ft_mint">ft_mint · receiver_id + amount</option>
-                <option value="mint_receiver_id">mint · receiver_id + amount</option>
-                <option value="mint_account_id">mint · account_id + amount</option>
-                <option value="custom">Custom contract interface</option>
+                <option value="custom">Custom contract interface · recommended</option>
+                <option value="ft_mint">Common pattern · ft_mint(receiver_id, amount)</option>
+                <option value="mint_receiver_id">Common pattern · mint(receiver_id, amount)</option>
+                <option value="mint_account_id">Common pattern · mint(account_id, amount)</option>
               </select>
             </div>
+
+            {profile !== "custom" && (
+              <div className="mint-interface-warning">
+                <strong>Contract-specific call</strong>
+                <span>This is only a common NEAR implementation pattern. NEP-141 does not guarantee this method or its argument shape. Verify the token contract before signing.</span>
+              </div>
+            )}
 
             {profile === "custom" && (
               <div className="mint-custom-grid">
@@ -952,7 +959,7 @@ export function TokenMintView({
           <div className="card mint-review-card">
             <div className="section-head">
               <div><span className="eyebrow">03 / REVIEW</span><h3>Transaction preview</h3></div>
-              <span className="muted">{profile === "custom" ? "Custom interface" : "Call preset"}</span>
+              <span className={profile === "custom" ? "mint-interface-status" : "mint-interface-status warning"}>{profile === "custom" ? "CONTRACT-SPECIFIC" : "PATTERN — VERIFY"}</span>
             </div>
             <div className="mint-review-list">
               <div><span>Contract</span><strong>{shortId(token.trim().toLowerCase())}</strong></div>
@@ -963,7 +970,7 @@ export function TokenMintView({
               <div><span>Network</span><strong>NEAR mainnet</strong></div>
             </div>
             <div className="mint-note">
-              <strong>Important:</strong> NEP-141 does not define a universal mint method. The selected mint call must exist on this contract and its on-chain access control must authorize the connected signer.
+              <strong>Mint authority is not part of NEP-141.</strong> The standard exposes token metadata, balances and transfers; minting is an optional contract capability. Neyro cannot infer owner/role permissions from NEP-141 alone, so verify the token's source or documentation before signing.
             </div>
             <button className="primary mint-submit" onClick={() => void mint()} disabled={busy || !wallet || !accountId}>
               {busy ? "Submitting mint…" : "Mint tokens"}
