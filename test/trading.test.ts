@@ -40,6 +40,40 @@ test("cancel is delegated to the repository", async () => {
   assert.deepEqual(repository.cancelled, ["0123456789abcdef"]);
 });
 
+test("builds safe direct Rhea DCL transactions for NEARly pools", async () => {
+  const { RheaClient } = await import("../src/rhea/client.js");
+  const quote = {
+    kind: "rhea-dcl" as const,
+    amountIn: "100000000000000000000000",
+    amountOut: "1900000000000000000000000",
+    minAmountOut: "1881000000000000000000000",
+    tokens: ["wrap.near", "babyninu.nearlytrade.near"],
+    poolId: "babyninu.nearlytrade.near|wrap.near|10000",
+    receivedAt: Date.now(),
+    expiresAt: Date.now() + 30_000
+  };
+  const txs = RheaClient.directTransactions({
+    fromToken: { chain: "near", address: "wrap.near", isNative: true, decimals: 24 } as never,
+    toToken: { chain: "near", address: "babyninu.nearlytrade.near", decimals: 18 } as never,
+    amountIn: quote.amountIn,
+    slippageBps: 100,
+    sender: "alice.near",
+    recipient: "alice.near"
+  }, quote);
+  assert.equal(txs.length, 2);
+  assert.equal(txs[0]?.receiverId, "wrap.near");
+  assert.equal(txs[1]?.receiverId, "wrap.near");
+  const transfer = (txs[1]!.actions[0] as any).params;
+  assert.equal(transfer.methodName, "ft_transfer_call");
+  assert.equal(transfer.args.receiver_id, "dclv2.ref-labs.near");
+  const msg = JSON.parse(transfer.args.msg);
+  assert.deepEqual(msg.Swap.pool_ids, ["babyninu.nearlytrade.near|wrap.near|10000"]);
+  assert.equal(msg.Swap.output_token, "babyninu.nearlytrade.near");
+  assert.equal(msg.Swap.min_output_amount, quote.minAmountOut);
+  assert.equal(transfer.gas, "180000000000000");
+  assert.equal(transfer.deposit, "1");
+});
+
 test("quotes send RHEA plain contract ids: no nep141: prefix, NEAR as wrap.near", async () => {
   const { toApiAsset } = await import("../src/rhea/client.js");
   assert.equal(toApiAsset({ chain: "near", address: "nep141:wrap.near", isNative: true } as never).address, "wrap.near");
