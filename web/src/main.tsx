@@ -11,6 +11,7 @@ import { IndexedDbCampaignStore } from "./campaign/storage";
 import type { Campaign } from "./campaign/model";
 import { campaignResultsCsv } from "./campaign/export";
 import { getFtMetadata, type FtMetadata } from "./near/ft";
+import { OverviewView, CampaignHistoryView } from "./terminal-views";
 
 type Row = {
   line: number;
@@ -44,7 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
   { label: "HISTORY", items: ["Transactions", "Airdrop Campaigns", "Token Operations"] }
 ];
 
-const IMPLEMENTED_VIEWS = new Set(["Overview", "Airdrop", "Bulk Transfer"]);
+const IMPLEMENTED_VIEWS = new Set(["Overview", "Airdrop", "Bulk Transfer", "Airdrop Campaigns"]);
 
 const ACCOUNT_ID =
   /^(?=.{2,64}$)(?:[a-z\d]+(?:[-_][a-z\d]+)*\.)*[a-z\d]+(?:[-_][a-z\d]+)*$/;
@@ -237,7 +238,7 @@ async function parseFile(
 }
 
 function App() {
-  const [activeView, setActiveView] = useState("Bulk Transfer");
+  const [activeView, setActiveView] = useState("Overview");
   const [theme, setTheme] = useState<"dark" | "neyro">("dark");
   const [wallet, setWallet] = useState<WebWalletConnector | null>(null);
   const [accountId, setAccountId] = useState("");
@@ -258,13 +259,15 @@ function App() {
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [executionBusy, setExecutionBusy] = useState(false);
   const [executionCampaign, setExecutionCampaign] = useState<Campaign | null>(null);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   const campaignStore = useMemo(() => new IndexedDbCampaignStore(), []);
 
   useEffect(() => {
     void campaignStore.list()
-      .then((campaigns) => {
-        const latest = [...campaigns].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      .then((storedCampaigns) => {
+        setCampaigns(storedCampaigns);
+        const latest = [...storedCampaigns].sort((a, b) => b.updatedAt - a.updatedAt)[0];
         if (latest) setExecutionCampaign(latest);
       })
       .catch(() => {
@@ -667,6 +670,22 @@ function App() {
               transaction flows will be added from verified NEAR/NEARly integrations instead of mocked data.
             </p>
           </section>
+        ) : activeView === "Overview" ? (
+          <OverviewView
+            accountId={accountId}
+            campaignStore={campaignStore}
+            campaigns={campaigns}
+            tokenSymbol={tokenMetadata?.symbol}
+          />
+        ) : activeView === "Airdrop Campaigns" ? (
+          <CampaignHistoryView
+            campaigns={campaigns}
+            onOpen={(campaign) => {
+              setExecutionCampaign(campaign);
+              setActiveView("Bulk Transfer");
+              setMessage(`Loaded campaign ${campaign.id} from local history.`);
+            }}
+          />
         ) : (
           <section className="grid">
             <div className="card hero">
