@@ -898,6 +898,8 @@ function App() {
               </>
             )}
           </section>
+        ) : (
+          <TerminalModuleView view={activeView} onNavigate={setActiveView} />
         )}
 
         <footer>
