@@ -340,10 +340,10 @@ export default {
     return new Response("Neyro is running.");
   },
 
-  async queue(batch: QueueBatch): Promise<void> {
+  async queue(batch: QueueBatch, env: Env): Promise<void> {
     for (const message of batch.messages) {
       try {
-        await processUpdate(message.body, undefined);
+        await processUpdate(message.body, env);
       } catch (error) {
         console.error("Queued update failed:", { updateId: message.body.update_id, error });
       }
