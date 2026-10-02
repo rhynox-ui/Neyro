@@ -32,9 +32,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 }
 .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px; }
 .brand-mark {
-  width: 28px; height: 28px; display: grid; place-items: center;
-  border: 1px solid #2a303a; border-radius: 7px;
-  color: #e9edf2; font-size: 12px; font-weight: 700;
+  width: 28px; height: 28px; flex: 0 0 28px; display: block;
+  border: 1px solid #202733; border-radius: 7px; object-fit: cover;
+  background: #06090f;
+  box-shadow: 0 0 12px rgba(72, 255, 152, .08);
 }
 .brand strong { display: block; font-size: 11px; letter-spacing: .16em; }
 .brand small { display: block; margin-top: 2px; color: #525b68; font-size: 7px; letter-spacing: .18em; }
@@ -293,7 +294,7 @@ footer { padding: 12px 1px 2px; }
     border-bottom: 1px solid #1b2029;
   }
   .brand { padding: 0 2px; }
-  .brand-mark { width: 27px; height: 27px; }
+  .brand-mark { width: 27px; height: 27px; flex-basis: 27px; }
   .sidebar-bottom { display: none; }
   .nav-groups {
     display: flex;
