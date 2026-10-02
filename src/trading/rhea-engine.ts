@@ -5,6 +5,12 @@ import { buildRheaRegistrationPlan, extractRheaRouteTokens, requireRheaTokenRegi
 import { getNearBalance } from "../near/account.js";
 import { config } from "../config.js";
 import { UserFacingError } from "../errors.js";
+import { applyBuyTax } from "./tax.js";
+
+function applyOutputTax(amount: string, taxBps = 0): string {
+  if (!taxBps) return amount;
+  return applyBuyTax(BigInt(amount), taxBps).toString();
+}
 
 export class RheaTradingEngine implements TradingEngine {
   private readonly rhea: RheaClient;
@@ -46,8 +52,8 @@ export class RheaTradingEngine implements TradingEngine {
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
         amountIn: request.amountIn,
-        expectedOut: direct.amountOut,
-        minAmountOut: direct.minAmountOut,
+        expectedOut: applyOutputTax(direct.amountOut, request.outputTaxBps),
+        minAmountOut: applyOutputTax(direct.minAmountOut, request.outputTaxBps),
         router: "rhea-smart-router",
         direct
       };
@@ -69,8 +75,8 @@ export class RheaTradingEngine implements TradingEngine {
         tokenIn: request.tokenIn,
         tokenOut: request.tokenOut,
         amountIn: request.amountIn,
-        expectedOut: quote.estimatedOut,
-        minAmountOut: quote.minAmountOut,
+        expectedOut: applyOutputTax(quote.estimatedOut, request.outputTaxBps),
+        minAmountOut: applyOutputTax(quote.minAmountOut, request.outputTaxBps),
         router: quote.route?.router,
         raw: quote
       };
