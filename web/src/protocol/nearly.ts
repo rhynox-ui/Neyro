@@ -1,5 +1,8 @@
 
 
+import { NearRpcClient } from "../near/rpc";
+import type { WebWalletConnector } from "../wallet/connector";
+
 export type NearlyQuoteAsset = {
   accountId: string;
   symbol: string;
