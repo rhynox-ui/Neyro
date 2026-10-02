@@ -1,0 +1,6 @@
+# Keep the SPA entry document fresh so the stable Pages URL picks up new builds immediately.
+/index.html
+  Cache-Control: no-store
+
+/
+  Cache-Control: no-store
