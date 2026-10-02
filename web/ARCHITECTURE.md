@@ -74,7 +74,7 @@ Future execution must still re-read balances immediately before signing each bat
 
 NEAR transactions have action-count and gas/runtime constraints. The runtime ceiling is not a promise that 100 token transfers are always safe.
 
-The current batch builder defaults to 50 `ft_transfer` actions and uses explicit prepaid gas. Gas-aware sizing still needs to be implemented using measured token behavior and transaction constraints.
+The current batch builder uses a conservative gas-aware default of 8 `ft_transfer` actions when each call is configured for 30 Tgas. NEAR currently caps total prepaid gas at 300 Tgas per signed transaction, so the planner reserves 60 Tgas and also respects the 100-action receipt ceiling. Lower per-action gas can allow more actions, but the planner never exceeds either protocol limit.
 
 ## 8. Resumability
 
@@ -226,8 +226,8 @@ Do not invent an ABI in the frontend.
 - [x] storage registration read
 - [x] deterministic sender allocation primitive
 - [x] deterministic batch builder
-- [ ] gas-aware batch sizing
-- [ ] browser wallet connector
+- [x] conservative gas-aware batch sizing
+- [x] provider-neutral browser wallet connector boundary (signing still locked)
 
 ### Phase B — campaign engine
 - [x] campaign model
@@ -355,3 +355,27 @@ Telegram remains untouched.
 Latest work adds the wallet boundary and fresh sender/token balance preflight. Browser signing remains locked.
 
 Telegram remains untouched.
+
+
+## 24. Gas-safe batching checkpoint
+
+`web/src/airdrop/gas-planner.ts` now models the two relevant NEAR limits independently:
+
+- maximum actions per receipt: 100;
+- maximum total prepaid gas per signed transaction: 300 Tgas.
+
+The default NEP-141 transfer action attaches 30 Tgas. The web planner reserves 60 Tgas for fixed/runtime overhead, leaving 240 Tgas for transfer calls. That produces a conservative default of 8 transfers per transaction.
+
+The batch builder now rejects a requested batch size that exceeds the calculated gas-safe limit instead of silently constructing a transaction that can fail protocol validation.
+
+This is a conservative planner, not a claim that every token contract consumes exactly 30 Tgas. Before production execution, measured gas behavior for the supported token contracts should be used to tune the per-action gas and reserve.
+
+References:
+- NEAR gas: https://nomicon.io/architecture/how/gas.html
+- NEAR transaction limits: https://nomicon.io/RuntimeSpec/Transactions
+
+## 25. Current checkpoint
+
+The web terminal now has a conservative gas-aware batch planner and refuses to construct batches that exceed the calculated prepaid-gas budget.
+
+Browser signing remains locked. Telegram code remains untouched.
