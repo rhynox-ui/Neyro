@@ -982,3 +982,12 @@ The Mint surface was rebuilt around the actual token-tool use case rather than N
 - The next infrastructure requirement for Neyro's own generic token-creation flow is a verified Neyro token factory/implementation with an explicit mint-authority model. The UI must not invent a factory address or contract method until that on-chain interface is deployed and verified.
 
 Research basis: NEP-141, NEAR's official FT examples, NEAR factory examples, Smithii's NEAR Token Creator/Manager, and Smithii's NEAR liquidity tooling.
+
+
+## 2026-10-02 — Mint confirmation UX checkpoint
+
+The generic Mint surface now keeps the submitted mint amount visible after signing and does not immediately re-read token state.
+
+This avoids presenting a just-submitted transaction as already reflected in `ft_total_supply` before finality. After submission, the UI shows the transaction hash and a deliberate **Reload token state** action so the user can re-read on-chain supply/balance after the transaction is final.
+
+No new token tool or protocol surface was added. This is a usability/safety clarification around the existing contract-specific mint workflow.
