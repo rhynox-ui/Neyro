@@ -786,8 +786,8 @@ export function CreateTokenView({ accountId }: { accountId: string }) {
     if (!recipient && accountId) setRecipient(accountId);
   }, [accountId, recipient]);
 
-  const validDecimals = /^\\d+$/.test(decimals) && Number(decimals) >= 0 && Number(decimals) <= 24;
-  const validSupply = /^\\d+(?:\\.\\d+)?$/.test(supply.trim()) && Number(supply) > 0;
+  const validDecimals = /^\d+$/.test(decimals) && Number(decimals) >= 0 && Number(decimals) <= 24;
+  const validSupply = /^\d+(?:\.\d+)?$/.test(supply.trim()) && !/^0+(?:\.0+)?$/.test(supply.trim());
   const ready = Boolean(name.trim() && symbol.trim() && validDecimals && validSupply && recipient.trim());
 
   return (
