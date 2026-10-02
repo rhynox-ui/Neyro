@@ -910,3 +910,11 @@ The Swap screen now reads the connected account's live balance for the selected 
 - Light mode covers the shell, sidebar/navigation, cards, forms, selects, tables, status text, code output, drop zones, buttons, and swap-related surfaces.
 - Theme preference remains persisted through the existing `neyro-theme` localStorage key and `data-theme` attribute.
 - No Telegram bot, Worker, wallet custody, or execution code was modified.
+
+
+## 2026-10-02 — Mobile navigation section picker
+
+- Replaced the clipped horizontal mobile navigation with a native section picker.
+- Desktop keeps the grouped sidebar navigation; mobile uses the same NAV_GROUPS source without overflowing or truncating labels.
+- The selected terminal view stays synchronized with the mobile picker.
+- No Telegram bot, Worker, wallet custody, or execution code was modified.
