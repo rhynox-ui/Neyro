@@ -1,5 +1,6 @@
 import { InlineKeyboard, type Bot, type Context } from "grammy";
 import { mainMenu } from "./menu.js";
+import { BOT_COMMANDS } from "./commands.js";
 import { MAX_WALLETS, WalletService } from "../wallet/service.js";
 import { getNearBalance, type NearBalance } from "../near/account.js";
 import { ftBalanceOf } from "../near/ft.js";
@@ -27,7 +28,8 @@ import { fetchLaunch, fetchRecentLaunches, type NearlyLaunch } from "../discover
 import { buildRheaWithdrawTransaction, getRheaInternalBalances } from "../rhea/recovery.js";
 import { buildRheaRegistrationPlan } from "../rhea/registration.js";
 import { defaultStateStore } from "../state/store.js";
-import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
+import { getNearlyLaunchHistory, launchNearlyToken, recoverNearlyLaunch, saveNearlyLaunchHistory, getNearlyQuotes, getNearlyLaunchQuotes, launchQuoteLabel, NEARLY_WNEAR, NEARLY_INLINE_ICON_MAX_BYTES, type NearlyLaunchInput, type NearlyLaunchPending, type NearlyQuote, type NearlyLaunchHistoryEntry, type NearlyLaunchResult } from "../launch/nearly.js";
+import { claimCreatorLaunchFees, claimCreatorNearFees, formatCreatorFee, getCreatorFeeSummary, type CreatorFeeSummary } from "../launch/fees.js";
 
 const walletService = new WalletService();
 const tradingService = new TradingService(walletService);
@@ -135,7 +137,7 @@ function renderNearlyLaunchSuccess(result: Pick<NearlyLaunchResult, "txHash" | "
     `Launch ID: <code>${result.launch.id}</code>\n` +
     `Cost: ${formatNear(BigInt(result.cost.total))} NEAR\n` +
     `Pair: <b>${escapeHtml(launchQuoteLabel(result.launch.quote))}</b>\n` +
-    `First buy: ${result.launch.quote === NEARLY_WNEAR ? `${escapeHtml(result.devBuyNear)} NEAR` : "Not available for this pair"}\n` +
+    `Creator buy: ${escapeHtml(result.devBuyNear)} NEAR${result.launch.quote === NEARLY_WNEAR ? "" : " (after launch)"}\n` +
     `Status: <b>LIVE</b>\n\n` +
     `🔗 <a href="${explorerTx(result.txHash)}">View launch transaction</a>\n` +
     `🔗 <a href="https://nearly.trade/">Open NEARly</a>`
@@ -164,7 +166,7 @@ export function renderNearlyLaunchReview(input: NearlyLaunchInput, accountId: st
     `Name: <b>${escapeHtml(input.name ?? "")}</b>`,
     `Symbol: <b>${escapeHtml(input.symbol ?? "")}</b>`,
     `Description: ${escapeHtml(input.description ?? "—")}`,
-    `First buy: ${escapeHtml(input.devBuyNear ?? "0")} ${escapeHtml(launchQuoteLabel(input.quote))}`,
+    `Creator buy: ${escapeHtml(input.devBuyNear ?? "0")} NEAR${input.quote && input.quote !== NEARLY_WNEAR ? " (after launch)" : ""}`,
     `Website: ${escapeHtml(input.website ?? "—")}`,
     `X: ${escapeHtml(input.twitter ?? "—")}`,
     `Telegram: ${escapeHtml(input.telegram ?? "—")}`,
@@ -407,6 +409,75 @@ async function requireWallet(ctx: Context) {
   return wallet;
 }
 
+function renderCreatorFees(summary: CreatorFeeSummary): { text: string; keyboard: InlineKeyboard } {
+  const near = formatUnits(summary.nearAmount, 24);
+  const nearClaimable = BigInt(summary.nearAmount) > 0n;
+  const launchClaimable = summary.positions.length > 0;
+  const lines = [
+    "💰 <b>NEARly creator fees</b>",
+    "",
+    `Wallet: ${code(summary.accountId)}`,
+    `💰 <b>Claimable now: ${escapeHtml(near)} NEAR</b>`,
+    nearClaimable
+      ? "✅ Your NEAR creator balance is ready to withdraw."
+      : "ℹ️ No NEAR creator balance is waiting to withdraw.",
+    "",
+    launchClaimable
+      ? `📦 <b>${summary.positions.length}</b> per-launch fee position${summary.positions.length === 1 ? "" : "s"} can also be claimed.`
+      : "📦 No per-launch token or pair-asset fees are currently claimable.",
+    "",
+    "🔄 <b>Automatic payout:</b> NEARly collects and pays creator fees about hourly.",
+    "The balance above is the authoritative amount currently credited to your creator balance.",
+    "Neyro does not guess lifetime earned or uncollected pool fees from estimates."
+  ];
+
+  if (summary.positions.length > 0) {
+    lines.push("", "<b>Per-launch claimable fees</b>");
+    for (const position of summary.positions.slice(0, 30)) {
+      const amount = formatCreatorFee(position);
+      const asset = position.kind === "token" ? position.symbol : launchQuoteLabel(position.quote);
+      lines.push(
+        `• <b>${escapeHtml(position.symbol)}</b> · ${escapeHtml(amount)} ${escapeHtml(asset)}`
+      );
+    }
+    if (summary.positions.length > 30) {
+      lines.push(`…and ${summary.positions.length - 30} more fee positions. Use /fees again after claiming the visible ones.`);
+    }
+  }
+
+  lines.push(
+    "",
+    "Claims are sent directly to the active wallet by nearlytrade.near."
+  );
+
+  const keyboard = new InlineKeyboard();
+  if (nearClaimable) keyboard.text(`💰 Claim ${escapeHtml(near)} NEAR`, "fees:near");
+  if (nearClaimable) keyboard.row();
+  for (const position of summary.positions.slice(0, 30)) {
+    keyboard.text(
+      `Claim ${position.symbol} ${position.kind === "token" ? "token" : launchQuoteLabel(position.quote)}`,
+      `fees:claim:${position.kind}:${position.launchId}`
+    ).row();
+  }
+  keyboard.text("🔄 Refresh", "fees:refresh");
+  return { text: lines.join("\n"), keyboard };
+}
+
+async function showCreatorFees(ctx: Context): Promise<void> {
+  const wallet = await requireWallet(ctx);
+  if (!wallet) return;
+  try {
+    const summary = await getCreatorFeeSummary(wallet.accountId);
+    const rendered = renderCreatorFees(summary);
+    await replyScreen(ctx, "fees", rendered.text, { ...HTML, reply_markup: rendered.keyboard });
+  } catch (error) {
+    console.error("NEARly creator fee read error:", error);
+    await replyNotice(ctx, `❌ ${userMessage(error, "Creator fees are temporarily unavailable")}`);
+  }
+}
+
+const activeFeeClaims = new Set<string>();
+
 async function showPortfolio(ctx: Context) {
   const wallet = await requireWallet(ctx);
   if (!wallet) return;
@@ -443,7 +514,14 @@ export function registerBotHandlers(bot: Bot) {
     await replyScreen(ctx, "menu", "⚡ Neyro\n\nNEAR trading terminal.\n\nChoose an action:", { reply_markup: mainMenu() });
   };
 
-  pm.command("start", showMainMenu);
+  pm.command("start", async (ctx) => {
+    // Refresh the Telegram command menu after deployment so /fees and any
+    // newly added commands are visible immediately to the user.
+    await ctx.api.setMyCommands(BOT_COMMANDS).catch((error) => {
+      console.error("Telegram command menu refresh failed:", error);
+    });
+    await showMainMenu(ctx);
+  });
   pm.command("help", showMainMenu);
 
   async function showWallet(ctx: Context, edit = false, note?: string) {
@@ -896,16 +974,19 @@ export function registerBotHandlers(bot: Bot) {
       await ctx.answerCallbackQuery("That pair is no longer available");
       return;
     }
-    const nextStep = quote === NEARLY_WNEAR ? "devBuyNear" : "website";
+    const nextStep = "devBuyNear";
     const nextState: LaunchWizard = { ...wizard, quote, step: nextStep };
     delete nextState.pairOptions;
     await defaultStateStore().set(ctx.from.id, "launch-wizard", nextState, 30 * 60 * 1000);
     await ctx.answerCallbackQuery(`Pair: ${launchQuoteLabel(quote)}`);
-    if (nextStep === "devBuyNear") {
-      await replyScreen(ctx, "launch", "Enter your optional <b>first buy in NEAR</b>, or send <code>0</code> for none.", HTML);
-    } else {
-      await replyScreen(ctx, "launch", "Website URL, or <code>skip</code>.", HTML);
-    }
+    await replyScreen(
+      ctx,
+      "launch",
+      quote === NEARLY_WNEAR
+        ? "Enter your optional <b>first buy in NEAR</b>, or send <code>0</code> for none."
+        : "Enter your optional <b>creator buy in NEAR</b>, or send <code>0</code> for none.\n\nNEARly will launch the token first, then Neyro will route this NEAR amount through the selected pair.",
+      HTML
+    );
   });
 
   pm.command("launch_status", async (ctx) => {
@@ -932,7 +1013,7 @@ export function registerBotHandlers(bot: Bot) {
         await defaultStateStore().delete(userId, "launch-executing");
         return void await ctx.reply(
           `↩️ <b>NEARly launch did not complete</b>\n\nTransaction: ${code(pending.txHash)}\nYou can start a new launch with /launch.`,
-          { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") }
+          { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") }
         );
       }
       return void await ctx.reply(
@@ -945,11 +1026,15 @@ export function registerBotHandlers(bot: Bot) {
     }
   });
 
+  pm.command("fees", async (ctx) => {
+    await showCreatorFees(ctx);
+  });
+
   pm.command("launch_history", async (ctx) => {
     const history = await getNearlyLaunchHistory(ctx.from.id, 20);
     await ctx.reply(renderNearlyLaunchHistory(history), {
       ...HTML,
-      reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start")
+      reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start")
     });
   });
 
@@ -985,7 +1070,7 @@ export function registerBotHandlers(bot: Bot) {
     const pending = await defaultStateStore().get<NearlyLaunchPending>(userId, "launch-pending");
     if (!pending) {
       const history = await getNearlyLaunchHistory(userId, 10);
-      return void await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start") });
+      return void await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start") });
     }
     const status = await recoverNearlyLaunch(pending).catch(() => "unknown" as const);
     if (status === "live") {
@@ -996,7 +1081,7 @@ export function registerBotHandlers(bot: Bot) {
     if (status === "reverted" || status === "failed") {
       await defaultStateStore().delete(userId, "launch-pending");
       await defaultStateStore().delete(userId, "launch-executing");
-      return void await ctx.reply("↩️ <b>Previous launch did not complete.</b> You can start a new launch.", { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") });
+      return void await ctx.reply("↩️ <b>Previous launch did not complete.</b> You can start a new launch.", { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start").text("📜 Previous", "launch:history") });
     }
     return void await ctx.reply(`⏳ <b>Still pending</b>\nTransaction: ${code(pending.txHash)}\n\nDo not launch again yet.`, { ...HTML, reply_markup: new InlineKeyboard().text("🔄 Refresh", "launch:status").text("❌ Cancel flow", "launch:pending-cancel") });
   });
@@ -1012,10 +1097,71 @@ export function registerBotHandlers(bot: Bot) {
     );
   });
 
+  pm.callbackQuery("fees:refresh", async (ctx) => {
+    await ctx.answerCallbackQuery("Refreshing…");
+    await showCreatorFees(ctx);
+  });
+
+  pm.callbackQuery("fees:near", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    const key = `${ctx.from.id}:near`;
+    if (activeFeeClaims.has(key)) {
+      await ctx.answerCallbackQuery("Claim already in progress…");
+      return;
+    }
+    activeFeeClaims.add(key);
+    try {
+      await ctx.answerCallbackQuery("Claiming NEAR fees…");
+      const txHash = await claimCreatorNearFees(walletService, ctx.from.id, wallet.accountId);
+      const summary = await getCreatorFeeSummary(wallet.accountId);
+      const rendered = renderCreatorFees(summary);
+      await ctx.editMessageText(
+        `✅ <b>NEAR creator fees claimed</b>\\n\\n${code(txHash)}\\n<a href="${explorerTx(txHash)}">View on NearBlocks</a>\\n\\n${rendered.text}`,
+        { ...HTML, reply_markup: rendered.keyboard }
+      );
+    } catch (error) {
+      console.error("NEARly NEAR fee claim error:", error);
+      await ctx.answerCallbackQuery({ text: "Claim failed", show_alert: false }).catch(() => {});
+      await ctx.reply(`❌ ${userMessage(error, "NEAR creator fee claim failed")}`, HTML);
+    } finally {
+      activeFeeClaims.delete(key);
+    }
+  });
+
+  pm.callbackQuery(/^fees:claim:(token|quote):(\d+)$/, async (ctx) => {
+    const kind = ctx.match[1] as "token" | "quote";
+    const launchId = Number(ctx.match[2]);
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
+    const key = `${ctx.from.id}:${kind}:${launchId}`;
+    if (activeFeeClaims.has(key)) {
+      await ctx.answerCallbackQuery("Claim already in progress…");
+      return;
+    }
+    activeFeeClaims.add(key);
+    try {
+      await ctx.answerCallbackQuery("Claiming creator fees…");
+      const txHash = await claimCreatorLaunchFees(walletService, ctx.from.id, wallet.accountId, kind, launchId);
+      const summary = await getCreatorFeeSummary(wallet.accountId);
+      const rendered = renderCreatorFees(summary);
+      await ctx.editMessageText(
+        `✅ <b>Creator fees claimed</b>\\n\\nLaunch ID: <code>${launchId}</code>\\n${code(txHash)}\\n<a href="${explorerTx(txHash)}">View on NearBlocks</a>\\n\\n${rendered.text}`,
+        { ...HTML, reply_markup: rendered.keyboard }
+      );
+    } catch (error) {
+      console.error("NEARly creator fee claim error:", error);
+      await ctx.answerCallbackQuery({ text: "Claim failed", show_alert: false }).catch(() => {});
+      await ctx.reply(`❌ ${userMessage(error, "Creator fee claim failed")}`, HTML);
+    } finally {
+      activeFeeClaims.delete(key);
+    }
+  });
+
   pm.callbackQuery("launch:history", async (ctx) => {
     await ctx.answerCallbackQuery();
     const history = await getNearlyLaunchHistory(ctx.from.id, 20);
-    await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("🚀 New launch", "launch:start") });
+    await ctx.reply(renderNearlyLaunchHistory(history), { ...HTML, reply_markup: new InlineKeyboard().text("💰 Creator fees", "fees:refresh").text("🚀 New launch", "launch:start") });
   });
 
   // Telegram photo reviews must be edited as captions, not as text messages.
@@ -1044,9 +1190,39 @@ export function registerBotHandlers(bot: Bot) {
       const wallet = await requireWallet(ctx);
       if (!wallet) throw new Error("Wallet not found");
       const result = await launchNearlyToken(walletService, userId, wizard);
-      await defaultStateStore().delete(userId, "launch-executing");
       await saveNearlyLaunchHistory(userId, result);
-      await editLaunchReview(ctx, renderNearlyLaunchSuccess(result));
+
+      let creatorBuyMessage = "";
+      const requestedCreatorBuy = wizard.devBuyNear && wizard.devBuyNear !== "0" ? wizard.devBuyNear : undefined;
+
+      if (requestedCreatorBuy && wizard.quote && wizard.quote !== NEARLY_WNEAR) {
+        try {
+          await editLaunchReview(
+            ctx,
+            renderNearlyLaunchSuccess(result) +
+            "\n\n⏳ <b>Creator buy</b>\nLaunching is complete. Routing your " +
+            escapeHtml(requestedCreatorBuy) +
+            " NEAR into the selected pair…"
+          );
+          const prepared = await tradingService.prepare(userId, "buy", result.launch.token, requestedCreatorBuy);
+          const buyResult = await tradingService.execute(userId, prepared.id);
+          creatorBuyMessage =
+            "\n\n<b>Creator buy</b>\n" +
+            renderExecution(buyResult);
+        } catch (error) {
+          console.error("NEARly post-launch creator buy error:", error);
+          creatorBuyMessage =
+            "\n\n⚠️ <b>Launch succeeded, but the creator buy was not completed.</b>" +
+            "\nYou can retry it manually with /buy " +
+            code(result.launch.token) +
+            " " +
+            escapeHtml(requestedCreatorBuy) +
+            ".";
+        }
+      }
+
+      await defaultStateStore().delete(userId, "launch-executing");
+      await editLaunchReview(ctx, renderNearlyLaunchSuccess(result) + creatorBuyMessage);
     } catch (error) {
       await defaultStateStore().delete(userId, "launch-executing");
       console.error("NEARly launch execution error:", error);
@@ -1208,9 +1384,9 @@ export function registerBotHandlers(bot: Bot) {
         }
         case "tax": {
           const finishTax = async (tax: LaunchWizard["tax"]) => {
-            const quotes = await getNearlyQuotes(true);
-            const pairOptions = quotes.map((quote) => quote.accountId);
-            const state: LaunchWizard = { ...wizard, tax, step: "pair", pairOptions };
+            const quotes = await getNearlyLaunchQuotes(true);
+            if (quotes.length === 0) throw new UserFacingError("NEARly returned no supported launch pairs.");
+            const state: LaunchWizard = { ...wizard, tax, step: "pair", pairOptions: quotes.map((quote) => quote.accountId) };
             await save(state);
             const keyboard = new InlineKeyboard();
             quotes.forEach((quote, index) => {
@@ -1255,8 +1431,8 @@ export function registerBotHandlers(bot: Bot) {
           const options = wizard.pairOptions ?? [];
           const quote = options.find((accountId) => accountId.toLowerCase() === text.toLowerCase())
             ?? options.find((accountId) => launchQuoteLabel(accountId).toLowerCase() === text.toLowerCase());
-          if (!quote) throw new UserFacingError("Choose one of the approved NEARly pairs shown above.");
-          const nextStep = quote === NEARLY_WNEAR ? "devBuyNear" : "website";
+          if (!quote) throw new UserFacingError("Choose one of the supported NEARly launch pairs shown above.");
+          const nextStep = "devBuyNear";
           const state: LaunchWizard = { ...wizard, quote, step: nextStep };
           delete state.pairOptions;
           await save(state, nextStep === "devBuyNear"

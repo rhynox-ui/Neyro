@@ -15,6 +15,19 @@ export const NEARLY_WNEAR = "wrap.near";
 /** NEARLY's current native token. */
 export const NEARLY_TOKEN = "nearly-993927.nearlytrade.near";
 export const NEARLY_DEFAULT_QUOTE = NEARLY_WNEAR;
+
+/** Launch pairs documented and supported by NEARly's launch contract/UI. */
+export const NEARLY_LAUNCH_QUOTE_IDS = [
+  NEARLY_WNEAR,
+  NEARLY_TOKEN,
+  "token.rhealab.near",
+  "zec.omft.near",
+  "kat.token0.near",
+  "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+  "2260fac5e5542a773aa44fbcfedf7c193bc2c599.factory.bridge.near",
+  "eth.bridge.near"
+] as const;
+
 const LAUNCH_GAS = 300_000_000_000_000n;
 /** NEARly's factory limit is measured on the stored UTF-8 icon string. */
 export const NEARLY_INLINE_ICON_MAX_BYTES = 16 * 1024;
@@ -255,10 +268,21 @@ export async function getNearlyQuotes(forceRefresh = false): Promise<readonly Ne
   return quotes;
 }
 
+/** Only expose the launch pairs documented by NEARly, not arbitrary factory quote records. */
+export async function getNearlyLaunchQuotes(forceRefresh = false): Promise<readonly NearlyQuote[]> {
+  const quotes = await getNearlyQuotes(forceRefresh);
+  const allowed = new Map(quotes.map((quote) => [quote.accountId, quote]));
+  return NEARLY_LAUNCH_QUOTE_IDS.flatMap((accountId) => {
+    const quote = allowed.get(accountId);
+    return quote ? [quote] : [];
+  });
+}
+
 function validateQuote(value: string | undefined, quotes: readonly NearlyQuote[]): string {
   const quote = cleanOptional(value) ?? NEARLY_DEFAULT_QUOTE;
-  if (!quotes.some((item) => item.accountId === quote)) {
-    throw new UserFacingError("That NEARly launch pair is not currently approved");
+  if (!NEARLY_LAUNCH_QUOTE_IDS.includes(quote as typeof NEARLY_LAUNCH_QUOTE_IDS[number]) ||
+      !quotes.some((item) => item.accountId === quote)) {
+    throw new UserFacingError("That NEARly launch pair is not currently supported by Neyro");
   }
   return quote;
 }
@@ -492,9 +516,6 @@ export async function launchNearlyToken(
 
   let devBuy = 0n;
   const requested = cleanOptional(clean.devBuyNear);
-  if (requested && quote !== NEARLY_WNEAR) {
-    throw new UserFacingError("NEARly first buys are available only on the NEAR pair");
-  }
   if (requested) {
     if (!/^\d+(?:\.\d+)?$/.test(requested)) {
       throw new UserFacingError("First buy must be a NEAR amount such as 0, 0.05 or 0.1");
@@ -524,9 +545,13 @@ export async function launchNearlyToken(
     }
   }
 
+  // NEARly's native dev_buy is available only for a NEAR-paired launch.
+  // For every other supported pair, the same user-entered NEAR amount is
+  // executed as a normal routed buy after the launch is live.
+  const launchDevBuy = quote === NEARLY_WNEAR ? devBuy : 0n;
   const cost = parseCost(await view("quote_launch", {
     icon_bytes: iconBytes,
-    dev_buy: devBuy.toString(),
+    dev_buy: launchDevBuy.toString(),
     tax: Boolean(clean.tax)
   }));
 

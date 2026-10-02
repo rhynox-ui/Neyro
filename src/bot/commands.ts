@@ -1,5 +1,6 @@
 export const BOT_COMMANDS = [
   { command: "start", description: "Open the Neyro trading terminal" },
+  { command: "fees", description: "View available NEARly fees and claim them" },
   { command: "help", description: "Show all Neyro commands" },
   { command: "wallet", description: "Create or view your wallet" },
   { command: "import", description: "Import a NEAR wallet by private key" },
