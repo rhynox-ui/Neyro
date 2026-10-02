@@ -1160,6 +1160,10 @@ export function registerBotHandlers(bot: Bot) {
           HTML
         );
       } catch (error) {
+        // The secret message was already deleted. Restore the short-lived
+        // import state so a bad format can be corrected without asking the
+        // user to start the import flow again.
+        await defaultStateStore().set(ctx.from.id, "wallet-import", importState, 5 * 60 * 1000);
         await replyNotice(ctx, `❌ ${userMessage(error, "Couldn't import that wallet")}`);
       }
       return;
