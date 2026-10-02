@@ -37,15 +37,11 @@ type NavGroup = {
 };
 
 const NAV_GROUPS: NavGroup[] = [
-  { items: ["Overview"] },
-  { label: "TRADE", items: ["Swap", "Portfolio", "Orders"] },
-  { label: "LAUNCH", items: ["Launch NEARly token", "Create token"] },
-  { label: "TOKEN TOOLS", items: ["Mint", "Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
-  { label: "DEVELOPER", items: ["Contract Inspector", "Contract Call", "Transaction Builder"] },
-  { label: "HISTORY", items: ["Transactions", "Airdrop Campaigns", "Token Operations"] }
+  { label: "WORKSPACE", items: ["Overview", "Bulk Transfer"] },
+  { label: "HISTORY", items: ["Airdrop Campaigns"] }
 ];
 
-const IMPLEMENTED_VIEWS = new Set(["Overview", "Airdrop", "Bulk Transfer", "Airdrop Campaigns"]);
+const IMPLEMENTED_VIEWS = new Set(["Overview", "Bulk Transfer", "Airdrop Campaigns"]);
 
 const ACCOUNT_ID =
   /^(?=.{2,64}$)(?:[a-z\d]+(?:[-_][a-z\d]+)*\.)*[a-z\d]+(?:[-_][a-z\d]+)*$/;
@@ -239,7 +235,6 @@ async function parseFile(
 
 function App() {
   const [activeView, setActiveView] = useState("Overview");
-  const [theme, setTheme] = useState<"dark" | "neyro">("dark");
   const [wallet, setWallet] = useState<WebWalletConnector | null>(null);
   const [accountId, setAccountId] = useState("");
   const [walletBusy, setWalletBusy] = useState(false);
@@ -592,7 +587,7 @@ function App() {
   const currentViewImplemented = IMPLEMENTED_VIEWS.has(activeView);
 
   return (
-    <div className="shell" data-theme={theme}>
+    <div className="shell">
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">N</div>
@@ -633,17 +628,7 @@ function App() {
             )}
           </div>
 
-          <div className="theme-switcher">
-            <span>THEME</span>
-            <div>
-              <button className={theme === "dark" ? "theme active" : "theme"} onClick={() => setTheme("dark")}>
-                Dark
-              </button>
-              <button className={theme === "neyro" ? "theme active" : "theme"} onClick={() => setTheme("neyro")}>
-                Neyro
-              </button>
-            </div>
-          </div>
+/div>
         </div>
       </aside>
 
@@ -669,16 +654,7 @@ function App() {
           </div>
         </header>
 
-        {!currentViewImplemented ? (
-          <section className="card module-placeholder">
-            <span className="eyebrow">{activeView.toUpperCase()}</span>
-            <h2>This module is not wired yet.</h2>
-            <p>
-              The terminal shell is ready for this section. Its protocol logic, wallet actions and
-              transaction flows will be added from verified NEAR/NEARly integrations instead of mocked data.
-            </p>
-          </section>
-        ) : activeView === "Overview" ? (
+        {!currentViewImplemented ? null : activeView === "Overview" ? (
           <OverviewView
             accountId={accountId}
             campaigns={campaigns}
@@ -697,11 +673,10 @@ function App() {
           <section className="grid">
             <div className="card hero">
               <div>
-                <span className="eyebrow">MULTI-SENDER TRANSFER</span>
-                <h2>Send one token to many accounts.</h2>
+                <span className="eyebrow">NEP-141 / BULK TRANSFER</span>
+                <h2>Build and execute a multi-sender transfer.</h2>
                 <p>
-                  Load the token from NEAR, upload recipients, validate the campaign and review
-                  the real sender balances before anything reaches the wallet for signing.
+                  Load a verified token, add senders and recipients, then run fresh preflight checks before the browser wallet is asked to sign.
                 </p>
               </div>
               <div className="hero-state">
@@ -733,7 +708,7 @@ function App() {
                 </div>
                 <div>
                   <label>Default amount <span className="optional">optional</span></label>
-                  <input value={defaultAmount} onChange={(e) => setDefaultAmount(e.target.value)} placeholder="Use file amount" />
+                  <input value={defaultAmount} onChange={(e) => setDefaultAmount(e.target.value)} placeholder={tokenMetadata ? "Used when file has no amount" : "Load token first"} disabled={!tokenMetadata} />
                 </div>
               </div>
               {tokenMetadata && (
@@ -753,7 +728,7 @@ function App() {
                 </div>
                 {senderList.length > 0 && <span className="live-label">On-chain balances</span>}
               </div>
-              <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={4} placeholder={"alice.near\nbob.near"} />
+              <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={4} placeholder={"sender-one.near\nsender-two.near"} />
               <small>Fresh token, storage and NEAR balances are read before execution.</small>
             </div>
 
