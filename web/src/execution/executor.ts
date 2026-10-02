@@ -3,6 +3,8 @@ import {
   buildFtTransferAction,
   buildTransferBatches,
   DEFAULT_MAX_ACTIONS,
+  DEFAULT_PREPAID_GAS,
+  YOCTONEAR,
   type TransferBatch
 } from "../airdrop/batch-builder";
 import { getFtBalance, getStorageBalance, isRegistered } from "../near/ft";
@@ -137,9 +139,11 @@ async function freshSenderCheck(
   tokenContract: string,
   batch: CampaignBatch
 ): Promise<void> {
-  const [tokenBalance, storage] = await Promise.all([
+  const [tokenBalance, storage, account, gasPrice] = await Promise.all([
     getFtBalance(rpc, tokenContract, batch.senderId),
-    getStorageBalance(rpc, tokenContract, batch.senderId)
+    getStorageBalance(rpc, tokenContract, batch.senderId),
+    rpc.viewAccount(batch.senderId),
+    rpc.gasPrice()
   ]);
 
   if (storage !== null && !isRegistered(storage)) {
@@ -152,6 +156,16 @@ async function freshSenderCheck(
   if (tokenBalance < required) {
     throw new Error(
       `Sender ${batch.senderId} has insufficient token balance for batch ${batch.id}`
+    );
+  }
+
+  const maximumGasCost =
+    BigInt(batch.actionCount) * DEFAULT_PREPAID_GAS * gasPrice +
+    BigInt(batch.actionCount) * YOCTONEAR;
+
+  if (BigInt(account.amount) < maximumGasCost) {
+    throw new Error(
+      `Sender ${batch.senderId} does not have enough native NEAR for the batch gas budget`
     );
   }
 }
@@ -245,7 +259,10 @@ export async function executeAirdrop(
     if (index < 0) throw new Error(`Batch ${batch.id} is missing from campaign state`);
 
     const current = campaign.batches[index];
-    campaign.batches[index] = transitionBatch(current, "signing");
+    if (current.status === "failed") {
+      campaign.batches[index] = transitionBatch(current, "pending");
+    }
+    campaign.batches[index] = transitionBatch(campaign.batches[index], "signing");
     await persist(input.store, campaign, input.onProgress);
 
     const transferBatch = batchToTransferBatch(batch);
@@ -316,4 +333,58 @@ export async function executeAirdrop(
   campaign.status = campaignIsComplete(campaign) ? "completed" : "paused";
   await input.store.put(campaign);
   return { campaign, campaignId };
+}
+
+
+export async function reconcileCampaign(
+  campaignId: string,
+  store: CampaignStore,
+  rpc: NearRpcClient,
+  onProgress?: (progress: ExecutionProgress) => void
+): Promise<Campaign> {
+  const campaign = await store.get(campaignId);
+  if (!campaign) throw new Error(`Campaign ${campaignId} was not found`);
+
+  for (let index = 0; index < campaign.batches.length; index += 1) {
+    const batch = campaign.batches[index];
+    if (
+      (batch.status !== "unknown" && batch.status !== "submitted") ||
+      !batch.transactionHash
+    ) {
+      continue;
+    }
+
+    try {
+      const result = await rpc.transactionStatus(
+        batch.transactionHash,
+        batch.senderId
+      );
+
+      if (hasFailure(result.status)) {
+        campaign.batches[index] = transitionBatch(
+          batch,
+          "failed",
+          { error: `Transaction ${batch.transactionHash} failed on-chain` }
+        );
+      } else if (hasSuccess(result.status)) {
+        campaign.batches[index] = transitionBatch(
+          batch,
+          "success",
+          { error: undefined }
+        );
+      }
+    } catch (error) {
+      campaign.batches[index] = {
+        ...batch,
+        error: error instanceof Error ? error.message : "Reconciliation failed",
+        updatedAt: Date.now()
+      };
+    }
+
+    campaign.status = campaignIsComplete(campaign) ? "completed" : "paused";
+    await store.put(campaign);
+    onProgress?.({ campaign, batch: campaign.batches[index] });
+  }
+
+  return campaign;
 }
