@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { formatTokenToolFee } from "./token-tools/fees";
+import { TOKEN_TOOL_FEE_RECIPIENT } from "./token-tools/fee-recipient";
 
 type Row = {
   line: number;
@@ -294,6 +295,7 @@ function App() {
             <div className="tool-fees">
               <span className="badge">Mint fee: {formatTokenToolFee("mint")}</span>
               <span className="badge">Lock fee: {formatTokenToolFee("lock")}</span>
+              <span className="badge">Fees → {TOKEN_TOOL_FEE_RECIPIENT}</span>
             </div>
           </div>
 
