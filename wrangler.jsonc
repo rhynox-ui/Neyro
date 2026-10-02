@@ -44,7 +44,7 @@
     "TREASURY_ACCOUNT_ID": "widekingdom6862.near",
     // Serves token icons at /icon/<token> for Telegram link previews.
     "PUBLIC_BASE_URL": "https://neyro.aliyumansurkwalli92-52b.workers.dev"
-  }
+  },
 
   "queues": {
     "producers": [
