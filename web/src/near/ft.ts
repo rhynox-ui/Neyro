@@ -18,7 +18,7 @@ export type StorageBalance = {
 const ZERO_STORAGE = "0";
 
 function isStorageMethodUnavailable(error: unknown): boolean {
-  return error instanceof Error && /method\\s+(?:not found|does not exist)|unknown method|unknown function|not a function/i.test(error.message);
+  return error instanceof Error && /method\s+(?:not found|does not exist)|unknown method|unknown function|not a function/i.test(error.message);
 }
 
 export async function getFtMetadata(
@@ -99,7 +99,7 @@ export async function getStorageRegistrationState(
       ? "registered"
       : "not-registered";
   } catch (error) {
-    if (error instanceof Error && /method|does not exist|unknown/i.test(error.message)) {
+    if (isStorageMethodUnavailable(error)) {
       return "unsupported";
     }
     throw error;
