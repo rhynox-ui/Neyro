@@ -987,7 +987,7 @@ export function TokenLockView({ accountId }: { accountId: string }) {
 
         <div className="locker-summary">
           <span>Unlock</span>
-          <strong>{selectedDate ? selectedDate.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Not scheduled"}</strong>
+          <strong>{selectedDate ? `${selectedDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · ${selectedDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "Not scheduled"}</strong>
         </div>
 
         <div className="mint-interface-warning">
