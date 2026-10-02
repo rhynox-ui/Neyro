@@ -298,3 +298,46 @@ Until those gates are implemented, production airdrop execution stays disabled.
 Latest work hardens the multi-sender allocator with aggregate-balance validation and explicit allocation totals. The web terminal remains planning/read-only for execution.
 
 Telegram code remains untouched.
+
+
+## 21. Browser wallet boundary and sender preflight
+
+A web-only wallet connector boundary now exists at `web/src/wallet/connector.ts`.
+
+The interface intentionally exposes:
+- connect;
+- disconnect;
+- account discovery;
+- sign-and-send.
+
+The default `LockedWalletConnector` cannot sign. This prevents the UI from accidentally gaining a private-key or Telegram-signing fallback while the real browser wallet integration is being selected.
+
+Current research confirms NEAR Wallet Selector v10 remains usable and exposes wallet signing through its wallet abstraction. The current Wallet Selector project also recommends evaluating HOT Connect for longer-term integration. We will keep the Neyro interface provider-neutral so either can be adapted without changing campaign logic.
+
+References:
+- NEAR Wallet Selector: https://github.com/near/wallet-selector
+- Wallet Selector wallet API: https://github.com/near/wallet-selector/blob/main/packages/core/docs/api/wallet.md
+
+### Fresh sender preflight
+
+`web/src/preflight.ts` now performs a read-only preflight for a campaign:
+- token metadata;
+- native NEAR balance for every unique sender;
+- token balance for every unique sender;
+- storage registration state;
+- aggregate token balance versus campaign requirement.
+
+This is deliberately a fresh read immediately before execution planning. It does not reserve funds, sign, broadcast, or mutate anything.
+
+The preflight returns:
+- `registered`;
+- `not-registered`;
+- `unknown` storage status.
+
+A successful preflight is not an execution authorization. Before signing, balances must be revalidated again and gas/registration/signer checks must pass.
+
+## 22. Current checkpoint
+
+Latest work adds the wallet boundary and fresh sender/token balance preflight. Browser signing remains locked.
+
+Telegram remains untouched.
