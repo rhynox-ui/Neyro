@@ -177,15 +177,14 @@ The web sponsorship abstraction exists specifically to prevent an assumption tha
 
 ## 14. Token registration
 
-Before a campaign can execute, the executor must determine recipient registration where the token supports a standard storage API.
+Before a campaign can execute, the web preflight now checks recipient registration where the token exposes the NEP-145 storage API.
 
-States should distinguish:
+The preflight distinguishes:
 - registered;
 - not registered;
-- storage registration required and permitted;
-- registration unavailable/unknown.
+- storage API unavailable/unknown.
 
-Do not automatically transfer to an unregistered account when the token contract would reject the transfer.
+The campaign is blocked when any recipient is unregistered or registration cannot be verified. The current web branch does not yet perform the registration transaction itself; the next step is a dedicated, persisted registration flow that reads storage_balance_bounds instead of guessing a deposit.
 
 ## 15. Token lock requirement
 
@@ -581,7 +580,7 @@ This roadmap is the implementation order for the separate Neyro web terminal. It
 - [x] Finality verification
 - [x] Unknown outcome protection
 - [x] Explicit reconciliation path
-- [ ] Green Web Terminal CI after the latest Wallet Selector correction
+- [x] Green Web Terminal CI after the latest Wallet Selector correction
 - [ ] Real NEAR testnet signing with a test token
 - [ ] Verify wallet redirect/signing return behavior
 - [ ] Verify final/failed transaction reconciliation against live RPC
@@ -602,6 +601,8 @@ This roadmap is the implementation order for the separate Neyro web terminal. It
 - [ ] Sender switching when multiple browser accounts are required
 - [ ] Insufficient-balance recovery without silently dropping recipients
 - [ ] Complete per-recipient result tracking
+- [x] Recipient NEP-145 registration preflight
+- [ ] Persisted in-terminal recipient registration transaction
 - [ ] CSV result export
 - [ ] Network/RPC interruption recovery
 - [ ] Unknown transaction reconciliation UI
@@ -1067,8 +1068,19 @@ Verified:
 Open release risks identified by the audit:
 1. Generic Mint execution is not production-ready because there is no verified Neyro token factory/implementation and no exact deployment ABI in this branch.
 2. Token tax, freeze authority, metadata authority and mint-authority revocation are configuration UI only until the token implementation defines their exact semantics.
-3. Bulk transfer currently preflights sender registration/balances but does not preflight every recipient's NEP-145 registration. Unregistered recipients can therefore cause execution failure depending on the token implementation; a recipient-registration strategy should be added before production-scale campaigns.
+3. Bulk transfer now preflights every validated recipient's NEP-145 registration with bounded concurrency and blocks unregistered/unknown recipients. The missing piece is a persisted in-terminal registration transaction using the token's verified storage_balance_bounds and storage_deposit interface.
 4. The bulk-transfer parser still materializes parsed recipient rows in browser memory. Million-wallet scale is not yet proven.
-5. Burn currently submits a transaction and immediately reloads token state instead of waiting/reconciling final transaction status. This should be changed to avoid misleading post-submit state.
+5. Burn post-submit state was corrected: the UI no longer immediately reloads token state before finality; the user explicitly reloads token state after the submitted transaction.
 6. Liquidity creation/management is not yet implemented in the web terminal. This is a product gap for developers who want to create a generic token and then make it tradable.
 7. The historical Mint/Create Token notes above are retained as implementation history; the current navigation/product semantics are the authoritative definition: **Mint creates a fresh token** and NEARly is a separate launch mechanism.
+
+
+## 2026-10-02 — Recipient registration preflight checkpoint
+
+- Added a bounded-concurrency NEP-145 recipient registration audit to bulk-transfer preflight.
+- Neyro now distinguishes registered recipients, unregistered recipients, and tokens where the standard storage API cannot be verified.
+- Start Airdrop remains blocked until every validated recipient is registered and the storage API is verifiable.
+- The preflight does not guess a storage deposit and does not perform registration itself.
+- The next implementation stage is a dedicated persisted registration flow using the token's live storage_balance_bounds and standard storage_deposit interface.
+- This is a safety improvement, not a claim of million-wallet readiness; the current browser planner still retains parsed rows in memory.
+- Telegram bot and Worker code remain untouched.
