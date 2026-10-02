@@ -19,7 +19,6 @@ import {
   PersistedTransactionsView,
   TerminalModuleView,
   TokenBurnView,
-  TokenMintView,
   CreateTokenView,
   NearlyLaunchView,
   SwapView
@@ -52,8 +51,8 @@ const NAV_GROUPS: NavGroup[] = [
   { label: "WORKSPACE", items: ["Overview"] },
   { label: "TRADE", items: ["Swap", "Portfolio"] },
   { label: "LAUNCH", items: ["Launch NEARly token"] },
-  { label: "TOKEN", items: ["Create token"] },
-  { label: "TOKEN TOOLS", items: ["Mint", "Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
+  { label: "TOKEN", items: ["Mint"] },
+  { label: "TOKEN TOOLS", items: ["Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
 ];
 
 const ACCOUNT_ID =
@@ -714,8 +713,6 @@ function App() {
         ) : activeView === "Burn" ? (
           <TokenBurnView accountId={accountId} wallet={wallet} />
         ) : activeView === "Mint" ? (
-          <TokenMintView accountId={accountId} wallet={wallet} />
-        ) : activeView === "Create token" ? (
           <CreateTokenView accountId={accountId} />
         ) : activeView === "Airdrop Campaigns" ? (
           <CampaignHistoryView
