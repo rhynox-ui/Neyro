@@ -1,10 +1,19 @@
 import type { Campaign } from "./model";
+import type { RegistrationSession } from "../execution/registration";
 
 const DB_NAME = "neyro-web-terminal";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "campaigns";
+const REGISTRATION_STORE_NAME = "registrations";
 
-export interface CampaignStore {
+export interface RegistrationStore {
+  getRegistration(id: string): Promise<RegistrationSession | null>;
+  putRegistration(session: RegistrationSession): Promise<void>;
+  deleteRegistration(id: string): Promise<void>;
+  listRegistrations(): Promise<RegistrationSession[]>;
+}
+
+export interface CampaignStore extends RegistrationStore {
   get(id: string): Promise<Campaign | null>;
   put(campaign: Campaign): Promise<void>;
   delete(id: string): Promise<void>;
@@ -24,6 +33,9 @@ function openDatabase(): Promise<IDBDatabase> {
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE_NAME)) {
         database.createObjectStore(STORE_NAME, { keyPath: "id" });
+      }
+      if (!database.objectStoreNames.contains(REGISTRATION_STORE_NAME)) {
+        database.createObjectStore(REGISTRATION_STORE_NAME, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -56,6 +68,51 @@ export class IndexedDbCampaignStore implements CampaignStore {
     try {
       const transaction = database.transaction(STORE_NAME, "readwrite");
       await requestResult(transaction.objectStore(STORE_NAME).put(campaign));
+    } finally {
+      database.close();
+    }
+  }
+
+  async getRegistration(id: string): Promise<RegistrationSession | null> {
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(REGISTRATION_STORE_NAME, "readonly");
+      const result = await requestResult<RegistrationSession | undefined>(
+        transaction.objectStore(REGISTRATION_STORE_NAME).get(id)
+      );
+      return result ?? null;
+    } finally {
+      database.close();
+    }
+  }
+
+  async putRegistration(session: RegistrationSession): Promise<void> {
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(REGISTRATION_STORE_NAME, "readwrite");
+      await requestResult(transaction.objectStore(REGISTRATION_STORE_NAME).put(session));
+    } finally {
+      database.close();
+    }
+  }
+
+  async deleteRegistration(id: string): Promise<void> {
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(REGISTRATION_STORE_NAME, "readwrite");
+      await requestResult(transaction.objectStore(REGISTRATION_STORE_NAME).delete(id));
+    } finally {
+      database.close();
+    }
+  }
+
+  async listRegistrations(): Promise<RegistrationSession[]> {
+    const database = await openDatabase();
+    try {
+      const transaction = database.transaction(REGISTRATION_STORE_NAME, "readonly");
+      return await requestResult<RegistrationSession[]>(
+        transaction.objectStore(REGISTRATION_STORE_NAME).getAll()
+      );
     } finally {
       database.close();
     }
