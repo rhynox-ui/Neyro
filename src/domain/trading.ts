@@ -6,13 +6,15 @@ import type {
 export type TradeSide = "buy" | "sell";
 
 export type DirectRheaNearQuote = {
-  kind: "rhea-smart-router";
+  kind: "rhea-smart-router" | "rhea-dcl";
   amountIn: string;
   amountOut: string;
   minAmountOut: string;
-  msg: string;
-  signature: string;
+  msg?: string;
+  signature?: string;
   tokens: string[];
+  /** Authoritative Rhea DCL pool id for direct NEARly execution. */
+  poolId?: string;
   receivedAt: number;
   expiresAt: number;
 };
