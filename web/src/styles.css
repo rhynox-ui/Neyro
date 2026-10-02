@@ -1321,6 +1321,26 @@ html[data-theme="light"] .burn-warning {
 
 .mint-recipient-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:stretch}
 .mint-recipient-row button{white-space:nowrap}
+.mint-confirmation{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:10px;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--panel-soft);
+}
+.mint-confirmation>div{display:grid;gap:3px;min-width:0}
+.mint-confirmation span{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
+.mint-confirmation strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mint-confirmation button{white-space:nowrap}
+@media(max-width:640px){
+  .mint-confirmation{align-items:stretch;flex-direction:column}
+  .mint-confirmation button{width:100%}
+}
+
 .mint-supply-preview{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:14px;align-items:center;margin-top:18px;padding:16px;border:1px solid var(--border);border-radius:14px;background:var(--panel-soft)}
 .mint-supply-preview>div{display:grid;gap:5px}
 .mint-supply-preview span{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
