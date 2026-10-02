@@ -947,3 +947,25 @@ The Swap screen now reads the connected account's live balance for the selected 
 - The wallet sidebar card is hidden at tablet/mobile widths so the actual terminal content gets the full viewport.
 - Tablet views use a single-column card grid; smaller screens stack module details and hero state cleanly.
 - This corrects the narrow 768px browser layout shown during the light-mode review.
+
+## 18. Generic token mint tool
+
+The Mint terminal is intentionally **not coupled to NEARly**.
+
+The web UI first verifies a live fungible-token surface by reading:
+- `ft_metadata` and requiring `spec = ft-1.0.0`;
+- `ft_total_supply`;
+- `ft_balance_of` for the connected account;
+- `storage_balance_of` for the selected recipient when the token exposes NEP-145.
+
+Minting itself is not part of the NEP-141 core interface. The UI therefore treats the mint method as contract-specific instead of falsely claiming that every NEP-141 token has a standard mint call.
+
+Supported call templates currently include:
+- `ft_mint({ receiver_id, amount })`;
+- `mint({ receiver_id, amount })`;
+- `mint({ account_id, amount })`;
+- custom method + JSON arguments for a mint interface verified from the token's own documentation/source.
+
+Amounts are converted to exact base units with `bigint`. The transaction preview shows the contract, method, recipient, amount, attached deposit and gas before browser signing.
+
+The connected wallet remains the only signer. NEARly-specific fixed-supply behavior is kept inside the NEARly launch/burn surfaces and does not gate generic NEAR token development.
