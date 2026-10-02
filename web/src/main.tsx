@@ -5,6 +5,8 @@ import { formatTokenToolFee } from "./token-tools/fees";
 import { TOKEN_TOOL_FEE_RECIPIENT } from "./token-tools/fee-recipient";
 import { NearRpcClient } from "./near/rpc";
 import { preflightSenders, type CampaignPreflight } from "./preflight";
+import { createMyNearWalletConnector } from "./wallet/selector";
+import type { WebWalletConnector } from "./wallet/connector";
 
 type Row = {
   line: number;
@@ -23,6 +25,22 @@ type Plan = {
   total: bigint;
   batches: number;
 };
+
+type NavGroup = {
+  label?: string;
+  items: string[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
+  { items: ["Overview"] },
+  { label: "TRADE", items: ["Swap", "Portfolio", "Orders"] },
+  { label: "LAUNCH", items: ["Launch NEARly token", "Create token"] },
+  { label: "TOKEN TOOLS", items: ["Mint", "Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
+  { label: "DEVELOPER", items: ["Contract Inspector", "Contract Call", "Transaction Builder"] },
+  { label: "HISTORY", items: ["Transactions", "Airdrop Campaigns", "Token Operations"] }
+];
+
+const IMPLEMENTED_VIEWS = new Set(["Overview", "Airdrop", "Bulk Transfer"]);
 
 const ACCOUNT_ID =
   /^(?=.{2,64}$)(?:[a-z\d]+(?:[-_][a-z\d]+)*\.)*[a-z\d]+(?:[-_][a-z\d]+)*$/;
@@ -66,7 +84,8 @@ function amountToBase(value: string, decimals: number): bigint {
   const parts = clean.split(".");
   const fraction = parts[1] ?? "";
   if (fraction.length > decimals) throw new Error("too many decimals");
-  const base = BigInt(parts[0]) * 10n ** BigInt(decimals) +
+  const base =
+    BigInt(parts[0]) * 10n ** BigInt(decimals) +
     BigInt(fraction.padEnd(decimals, "0") || "0");
   if (base <= 0n) throw new Error("amount must be greater than zero");
   return base;
@@ -153,7 +172,7 @@ async function parseFile(
 
     for (let i = 0; i < parsed.length; i += 1) {
       const item = parsed[i];
-      const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
       const wallet = String(
         record.wallet ?? record.address ?? record.account ?? record.account_id ?? ""
       ).trim().toLowerCase();
@@ -214,6 +233,12 @@ async function parseFile(
 }
 
 function App() {
+  const [activeView, setActiveView] = useState("Bulk Transfer");
+  const [theme, setTheme] = useState<"dark" | "neyro">("dark");
+  const [wallet, setWallet] = useState<WebWalletConnector | null>(null);
+  const [accountId, setAccountId] = useState("");
+  const [walletBusy, setWalletBusy] = useState(false);
+
   const [token, setToken] = useState("");
   const [decimals, setDecimals] = useState("24");
   const [defaultAmount, setDefaultAmount] = useState("");
@@ -230,6 +255,36 @@ function App() {
     () => senders.split(/\r?\n/).map((v) => v.trim().toLowerCase()).filter(Boolean),
     [senders]
   );
+
+  async function connectWallet() {
+    setWalletBusy(true);
+    try {
+      const connector = wallet ?? await createMyNearWalletConnector();
+      const account = await connector.connect();
+      setWallet(connector);
+      setAccountId(account.accountId);
+      setMessage("Browser wallet connected. Signing remains gated by campaign safety checks.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not connect browser wallet");
+    } finally {
+      setWalletBusy(false);
+    }
+  }
+
+  async function disconnectWallet() {
+    if (!wallet) return;
+    setWalletBusy(true);
+    try {
+      await wallet.disconnect();
+      setAccountId("");
+      setWallet(null);
+      setMessage("Browser wallet disconnected.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not disconnect browser wallet");
+    } finally {
+      setWalletBusy(false);
+    }
+  }
 
   async function runPreflight() {
     if (!token.trim()) {
@@ -271,17 +326,13 @@ function App() {
   async function upload(file: File) {
     setBusy(true);
     setPlan(null);
+    setPreflight(null);
     setFileName(file.name);
     setProcessed(0);
     setMessage("Streaming and validating recipients…");
 
     try {
-      const result = await parseFile(
-        file,
-        Number(decimals),
-        defaultAmount,
-        setProcessed
-      );
+      const result = await parseFile(file, Number(decimals), defaultAmount, setProcessed);
       setPlan(result);
       setMessage(
         result.invalid
@@ -296,143 +347,211 @@ function App() {
   }
 
   const preview = plan?.rows.filter((row) => row.valid).slice(0, 12) ?? [];
+  const currentViewImplemented = IMPLEMENTED_VIEWS.has(activeView);
 
   return (
-    <div className="shell">
+    <div className="shell" data-theme={theme}>
       <aside className="sidebar">
-        <div className="brand"><b>N</b><div><strong>NEYRO</strong><small>TERMINAL</small></div></div>
-        <nav>
-          <button className="nav active">Overview</button>
-          <button className="nav">Trade</button>
-          <button className="nav">Launch</button>
-          <button className="nav">Token Tools</button>
-          <button className="nav">Airdrops</button>
-          <button className="nav">History</button>
+        <div className="brand">
+          <div className="brand-mark">N</div>
+          <div><strong>NEYRO</strong><small>TERMINAL</small></div>
+        </div>
+
+        <nav className="nav-groups">
+          {NAV_GROUPS.map((group) => (
+            <div className="nav-group" key={group.label ?? "root"}>
+              {group.label && <div className="nav-label">{group.label}</div>}
+              {group.items.map((item) => (
+                <button
+                  key={item}
+                  className={activeView === item ? "nav active" : "nav"}
+                  onClick={() => setActiveView(item)}
+                >
+                  <span className="nav-dot" />
+                  <span>{item}</span>
+                </button>
+              ))}
+            </div>
+          ))}
         </nav>
-        <div className="wallet-box">
-          <span>WEB WALLET</span>
-          <strong>Not connected</strong>
-          <small>Browser-wallet signing is kept separate from Telegram custody.</small>
-          <button disabled>Connect wallet</button>
+
+        <div className="sidebar-bottom">
+          <div className="wallet-box">
+            <span>WEB WALLET</span>
+            <strong>{accountId || "Not connected"}</strong>
+            <small>Browser-wallet custody stays separate from Telegram signing.</small>
+            {accountId ? (
+              <button onClick={() => void disconnectWallet()} disabled={walletBusy}>
+                {walletBusy ? "Working…" : "Disconnect"}
+              </button>
+            ) : (
+              <button onClick={() => void connectWallet()} disabled={walletBusy}>
+                {walletBusy ? "Connecting…" : "Connect wallet"}
+              </button>
+            )}
+          </div>
+
+          <div className="theme-switcher">
+            <span>THEME</span>
+            <div>
+              <button className={theme === "dark" ? "theme active" : "theme"} onClick={() => setTheme("dark")}>
+                Dark
+              </button>
+              <button className={theme === "neyro" ? "theme active" : "theme"} onClick={() => setTheme("neyro")}>
+                Neyro
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 
       <main>
         <header>
-          <div><span className="eyebrow">NEAR MAINNET</span><h1>Bulk Airdrop</h1></div>
-          <span className="pill">Foundation build</span>
+          <div>
+            <span className="eyebrow">NEAR MAINNET</span>
+            <h1>{activeView}</h1>
+          </div>
+          <div className="header-actions">
+            {accountId && <span className="account-pill">{accountId}</span>}
+            <span className="pill">{currentViewImplemented ? "Ready" : "Module foundation"}</span>
+          </div>
         </header>
 
-        <section className="grid">
-          <div className="card hero">
-            <div>
-              <span className="eyebrow">MULTI-SENDER</span>
-              <h2>Bulk send any NEP-141 token.</h2>
-              <p>
-                Upload a large recipient list, validate it locally, remove duplicates,
-                calculate the exact token requirement and prepare resumable batches.
-              </p>
-            </div>
-            <div className="tool-fees">
-              <span className="badge">Mint fee: {formatTokenToolFee("mint")}</span>
-              <span className="badge">Lock fee: {formatTokenToolFee("lock")}</span>
-              <span className="badge">Fees → {TOKEN_TOOL_FEE_RECIPIENT}</span>
-            </div>
-          </div>
-
-          <div className="card">
-            <label>Token contract</label>
-            <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="token.near" />
-            <div className="two">
-              <div><label>Decimals</label><input type="number" min="0" max="24" value={decimals} onChange={(e) => setDecimals(e.target.value)} /></div>
-              <div><label>Default amount</label><input value={defaultAmount} onChange={(e) => setDefaultAmount(e.target.value)} placeholder="1000" /></div>
-            </div>
-          </div>
-
-          <div className="card">
-            <label>Sender pool</label>
-            <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={5} placeholder={"sender-a.near\nsender-b.near\nsender-c.near"} />
-            <small>Later the executor will verify each sender balance and allocate batches deterministically.</small>
-          </div>
-
-          <div className="card full">
-            <div className="row-title"><div><label>Recipients</label><h3>{fileName || "No file selected"}</h3></div><span className="muted">CSV / TXT / JSON</span></div>
-            <label className="drop">
-              <input type="file" accept=".csv,.txt,.json" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
-              <b>Upload recipient file</b>
-              <span>CSV/TXT uses streaming parsing and is the preferred format for very large lists.</span>
-            </label>
-            {busy && <div className="progress"><div style={{ width: Math.min(100, processed / Math.max(processed, 1) * 100) + "%" }} /></div>}
-            <p className="message">{message}</p>
-          </div>
-
-          {plan && <>
-            <div className="stats">
-              <Stat name="Recipients" value={plan.valid.toLocaleString()} />
-              <Stat name="Invalid" value={plan.invalid.toLocaleString()} />
-              <Stat name="Duplicates" value={plan.duplicates.toLocaleString()} />
-              <Stat name="Batches" value={plan.batches.toLocaleString()} />
+        {!currentViewImplemented ? (
+          <section className="card module-placeholder">
+            <span className="eyebrow">{activeView.toUpperCase()}</span>
+            <h2>This module is not wired yet.</h2>
+            <p>
+              The terminal shell is ready for this section. Its protocol logic, wallet actions and
+              transaction flows will be added from verified NEAR/NEARly integrations instead of mocked data.
+            </p>
+          </section>
+        ) : (
+          <section className="grid">
+            <div className="card hero">
+              <div>
+                <span className="eyebrow">MULTI-SENDER</span>
+                <h2>Bulk send any NEP-141 token.</h2>
+                <p>
+                  Upload a large recipient list, validate it locally, remove duplicates,
+                  calculate the exact token requirement and prepare resumable batches.
+                </p>
+              </div>
+              <div className="tool-fees">
+                <span className="badge">Mint fee: {formatTokenToolFee("mint")}</span>
+                <span className="badge">Lock fee: {formatTokenToolFee("lock")}</span>
+                <span className="badge">Fees → {TOKEN_TOOL_FEE_RECIPIENT}</span>
+              </div>
             </div>
 
             <div className="card">
-              <div className="row-title">
-                <div><span className="eyebrow">CAMPAIGN TOTAL</span><h2>{formatBase(plan.total, Number(decimals))}</h2></div>
-                <span className={plan.invalid ? "warning" : "ready"}>{plan.invalid ? "Needs review" : "Ready"}</span>
+              <label>Token contract</label>
+              <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="token.near" />
+              <div className="two">
+                <div><label>Decimals</label><input type="number" min="0" max="24" value={decimals} onChange={(e) => setDecimals(e.target.value)} /></div>
+                <div><label>Default amount</label><input value={defaultAmount} onChange={(e) => setDefaultAmount(e.target.value)} placeholder="1000" /></div>
               </div>
-              <p className="muted">Token: {token || "not specified"} · Sender accounts: {senderList.length}</p>
+            </div>
+
+            <div className="card">
+              <label>Sender pool</label>
+              <textarea value={senders} onChange={(e) => setSenders(e.target.value)} rows={5} placeholder={"sender-a.near\nsender-b.near\nsender-c.near"} />
+              <small>Sender balances are read from NEAR before execution planning.</small>
             </div>
 
             <div className="card full">
               <div className="row-title">
-                <div><span className="eyebrow">READ-ONLY PREFLIGHT</span><h3>Fresh sender balances</h3></div>
-                <button
-                  onClick={() => void runPreflight()}
-                  disabled={preflightBusy || Boolean(plan.invalid) || !token.trim() || senderList.length === 0}
-                >
-                  {preflightBusy ? "Checking…" : "Check balances"}
-                </button>
+                <div><label>Recipients</label><h3>{fileName || "No file selected"}</h3></div>
+                <span className="muted">CSV / TXT / JSON</span>
               </div>
-              {preflight ? (
-                <>
-                  <p className={preflight.enoughTokenBalance ? "ready" : "warning"}>
-                    {preflight.enoughTokenBalance ? "Aggregate token balance is sufficient." : "Aggregate token balance is insufficient."}
-                  </p>
-                  <p className="muted">
-                    Available: {preflight.totalTokenBalance.toString()} base units · Required: {preflight.totalRequired.toString()} base units
-                  </p>
+              <label className="drop">
+                <input type="file" accept=".csv,.txt,.json" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
+                <b>Upload recipient file</b>
+                <span>CSV/TXT uses streaming parsing for large lists.</span>
+              </label>
+              {busy && <div className="progress"><div /></div>}
+              <p className="message">{message}</p>
+            </div>
+
+            {plan && (
+              <>
+                <div className="stats">
+                  <Stat name="Recipients" value={plan.valid.toLocaleString()} />
+                  <Stat name="Invalid" value={plan.invalid.toLocaleString()} />
+                  <Stat name="Duplicates" value={plan.duplicates.toLocaleString()} />
+                  <Stat name="Batches" value={plan.batches.toLocaleString()} />
+                </div>
+
+                <div className="card">
+                  <div className="row-title">
+                    <div><span className="eyebrow">CAMPAIGN TOTAL</span><h2>{formatBase(plan.total, Number(decimals))}</h2></div>
+                    <span className={plan.invalid ? "warning" : "ready"}>{plan.invalid ? "Needs review" : "Ready"}</span>
+                  </div>
+                  <p className="muted">Token: {token || "not specified"} · Sender accounts: {senderList.length}</p>
+                </div>
+
+                <div className="card full">
+                  <div className="row-title">
+                    <div><span className="eyebrow">READ-ONLY PREFLIGHT</span><h3>Fresh sender balances</h3></div>
+                    <button
+                      onClick={() => void runPreflight()}
+                      disabled={preflightBusy || Boolean(plan.invalid) || !token.trim() || senderList.length === 0}
+                    >
+                      {preflightBusy ? "Checking…" : "Check balances"}
+                    </button>
+                  </div>
+                  {preflight ? (
+                    <>
+                      <p className={preflight.enoughTokenBalance ? "ready" : "warning"}>
+                        {preflight.enoughTokenBalance ? "Aggregate token balance is sufficient." : "Aggregate token balance is insufficient."}
+                      </p>
+                      <p className="muted">
+                        Available: {preflight.totalTokenBalance.toString()} base units · Required: {preflight.totalRequired.toString()} base units
+                      </p>
+                      <div className="table-wrap">
+                        <table>
+                          <thead><tr><th>Sender</th><th>Token</th><th>NEAR</th><th>Storage</th></tr></thead>
+                          <tbody>{preflight.senders.map((sender) => (
+                            <tr key={sender.senderId}>
+                              <td>{sender.senderId}</td>
+                              <td>{sender.tokenBalance.toString()}</td>
+                              <td>{sender.nativeBalance.toString()}</td>
+                              <td className={sender.storage === "registered" ? "ready" : "warning"}>{sender.storage}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                      <small>Read-only. No transaction has been signed or broadcast.</small>
+                    </>
+                  ) : (
+                    <p className="muted">Run this after entering the token, sender pool and validated recipient file.</p>
+                  )}
+                </div>
+
+                <div className="card full">
+                  <div className="row-title">
+                    <div><span className="eyebrow">PREVIEW</span><h3>First {preview.length} valid recipients</h3></div>
+                    <button disabled>Start airdrop</button>
+                  </div>
                   <div className="table-wrap">
-                    <table><thead><tr><th>Sender</th><th>Token</th><th>NEAR</th><th>Storage</th></tr></thead>
-                      <tbody>{preflight.senders.map((sender) => (
-                        <tr key={sender.senderId}>
-                          <td>{sender.senderId}</td>
-                          <td>{sender.tokenBalance.toString()}</td>
-                          <td>{sender.nativeBalance.toString()}</td>
-                          <td className={sender.storage === "registered" ? "ready" : "warning"}>{sender.storage}</td>
+                    <table>
+                      <thead><tr><th>#</th><th>Wallet</th><th>Amount</th><th>Status</th></tr></thead>
+                      <tbody>{preview.map((row) => (
+                        <tr key={row.line + row.wallet}>
+                          <td>{row.line}</td><td>{row.wallet}</td><td>{row.amount}</td><td className="ready">Valid</td>
                         </tr>
                       ))}</tbody>
                     </table>
                   </div>
-                  <small>Read-only. No transaction has been signed or broadcast.</small>
-                </>
-              ) : (
-                <p className="muted">Run this after entering the token, sender pool and validated recipient file.</p>
-              )}
-            </div>
-
-            <div className="card full">
-              <div className="row-title"><div><span className="eyebrow">PREVIEW</span><h3>First {preview.length} valid recipients</h3></div><button disabled>Start airdrop</button></div>
-              <div className="table-wrap">
-                <table><thead><tr><th>#</th><th>Wallet</th><th>Amount</th><th>Status</th></tr></thead>
-                  <tbody>{preview.map((row) => <tr key={row.line + row.wallet}><td>{row.line}</td><td>{row.wallet}</td><td>{row.amount}</td><td className="ready">Valid</td></tr>)}</tbody>
-                </table>
-              </div>
-            </div>
-          </>}
-        </section>
+                </div>
+              </>
+            )}
+          </section>
+        )}
 
         <footer>
-          This web app is isolated from the Telegram bot. It does not import Telegram handlers,
-          encrypted signer storage, Telegram wallet services, or the Worker entrypoint.
+          Web terminal execution is isolated from the Telegram bot. No Telegram handlers, encrypted signer storage,
+          Telegram wallet services or Worker entrypoint are imported here.
         </footer>
       </main>
     </div>
