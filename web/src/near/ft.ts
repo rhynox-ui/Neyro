@@ -15,6 +15,11 @@ export type StorageBalance = {
   available?: string;
 };
 
+export type StorageBalanceBounds = {
+  min: string;
+  max: string | null;
+};
+
 const ZERO_STORAGE = "0";
 
 function isStorageMethodUnavailable(error: unknown): boolean {
@@ -104,6 +109,32 @@ export async function getStorageRegistrationState(
     }
     throw error;
   }
+}
+
+export async function getStorageBalanceBounds(
+  rpc: NearRpcClient,
+  tokenContract: string
+): Promise<StorageBalanceBounds> {
+  const bounds = await rpc.viewFunction<StorageBalanceBounds>(
+    tokenContract,
+    "storage_balance_bounds",
+    {}
+  );
+
+  if (
+    !bounds ||
+    !/^\d+$/.test(bounds.min) ||
+    BigInt(bounds.min) <= 0n ||
+    (bounds.max !== null && !/^\d+$/.test(bounds.max))
+  ) {
+    throw new Error("Token returned invalid storage_balance_bounds");
+  }
+
+  if (bounds.max !== null && BigInt(bounds.max) < BigInt(bounds.min)) {
+    throw new Error("Token returned invalid storage balance bounds");
+  }
+
+  return bounds;
 }
 
 export function isRegistered(storage: StorageBalance | null): boolean {
