@@ -524,9 +524,8 @@ export function TokenBurnView({
       });
       if (!result.transactionHash) throw new Error("Wallet did not return a transaction hash.");
       setTxHash(result.transactionHash);
-      setMessage("Burn transaction submitted. Verify the final transaction before treating the balance as reduced.");
+      setMessage("Burn transaction submitted. Wait for finality, then use Verify token to refresh the on-chain balance.");
       setAmount("");
-      await loadToken();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Burn transaction failed.");
     } finally {
