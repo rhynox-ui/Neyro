@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { formatTokenToolFee } from "./token-tools/fees";
@@ -258,6 +258,17 @@ function App() {
   const [executionCampaign, setExecutionCampaign] = useState<Campaign | null>(null);
 
   const campaignStore = useMemo(() => new IndexedDbCampaignStore(), []);
+
+  useEffect(() => {
+    void campaignStore.list()
+      .then((campaigns) => {
+        const latest = [...campaigns].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        if (latest) setExecutionCampaign(latest);
+      })
+      .catch(() => {
+        // IndexedDB may be unavailable in private/restricted browser contexts.
+      });
+  }, [campaignStore]);
 
   const senderList = useMemo(
     () => senders.split(/\r?\n/).map((v) => v.trim().toLowerCase()).filter(Boolean),
