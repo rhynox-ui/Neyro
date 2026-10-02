@@ -614,7 +614,7 @@ function App() {
           <div><strong>NEYRO</strong><small>TERMINAL</small></div>
         </div>
 
-        <nav className="nav-groups">
+        <nav className="nav-groups" aria-label="Terminal navigation">
           {NAV_GROUPS.map((group) => (
             <div className="nav-group" key={group.label ?? "root"}>
               {group.label && <div className="nav-label">{group.label}</div>}
@@ -631,6 +631,21 @@ function App() {
             </div>
           ))}
         </nav>
+        <label className="mobile-nav-wrap">
+          <span className="sr-only">Terminal section</span>
+          <select
+            className="mobile-nav"
+            value={activeView}
+            onChange={(event) => setActiveView(event.target.value)}
+            aria-label="Terminal section"
+          >
+            {NAV_GROUPS.map((group) => (
+              <optgroup key={group.label ?? "root"} label={group.label ?? "Terminal"}>
+                {group.items.map((item) => <option key={item} value={item}>{item}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </label>
 
         <div className="sidebar-bottom">
           <div className="wallet-box">
