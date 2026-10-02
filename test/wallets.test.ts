@@ -86,11 +86,13 @@ test("a private key can be imported into a new wallet", async () => {
 });
 
 test("a NEAR seed phrase can be imported", async () => {
-  const { generateSeedPhrase } = await import("near-seed-phrase");
-  const generated = generateSeedPhrase();
+  const phrase = "witch collapse practice feed shame open despair creek road again ice least";
+  const { parseSeedPhrase } = await import("near-api-js/seed-phrase");
+  const { keyToImplicitAddress } = await import("near-api-js");
+  const expected = keyToImplicitAddress(parseSeedPhrase(phrase).getPublicKey());
   const target = new WalletService(new InMemoryWalletRepository());
-  const imported = await target.importWallet(70, generated.seedPhrase);
-  assert.equal(imported.accountId, keyToImplicitAddress((await import("near-api-js")).KeyPair.fromString(generated.secretKey as `ed25519:${string}`).getPublicKey()));
+  const imported = await target.importWallet(70, phrase);
+  assert.equal(imported.accountId, expected);
 });
 
 test("exported private key controls the active wallet and is shown hidden", async () => {
