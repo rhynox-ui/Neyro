@@ -1,4 +1,5 @@
 import {
+  actionCreators,
   setupWalletSelector,
   type Wallet,
   type WalletSelector
@@ -28,7 +29,9 @@ export class WalletSelectorConnector implements WebWalletConnector {
   async connect() {
     let accounts = await this.wallet.getAccounts();
     if (accounts.length === 0) {
-      accounts = await this.wallet.signIn({});
+      // Wallet Selector v10's core type intersects hardware-wallet params with
+      // browser-wallet params. MyNearWallet does not require a contractId.
+      accounts = await this.wallet.signIn({ accounts: [] } as never);
     }
     const account = accounts[0];
     if (!account?.accountId) {
@@ -61,23 +64,15 @@ export class WalletSelectorConnector implements WebWalletConnector {
 
     const actions = request.actions.map((action) => {
       if (action.type === "FunctionCall") {
-        return {
-          type: "FunctionCall" as const,
-          params: {
-            methodName: action.methodName,
-            args: action.args,
-            gas: action.gas.toString(),
-            deposit: action.deposit.toString()
-          }
-        };
+        return actionCreators.functionCall(
+          action.methodName,
+          action.args,
+          action.gas,
+          action.deposit
+        );
       }
 
-      return {
-        type: "Transfer" as const,
-        params: {
-          deposit: action.deposit.toString()
-        }
-      };
+      return actionCreators.transfer(action.deposit);
     });
 
     const outcome = await this.wallet.signAndSendTransaction({
@@ -97,5 +92,6 @@ export async function createMyNearWalletConnector(): Promise<WalletSelectorConne
     network: "mainnet",
     modules: [setupMyNearWallet()]
   });
-  return new WalletSelectorConnector(selector, selector.wallet(WALLET_ID));
+  const wallet = await selector.wallet(WALLET_ID);
+  return new WalletSelectorConnector(selector, wallet);
 }
