@@ -1237,3 +1237,15 @@ Airdrop fee safety (`web/src/execution/service-fee.ts`):
 - Campaigns stored before fees existed have no `serviceFee` and are never charged retroactively.
 - UI: the Airdrop page shows the fee in the stats row and next to Start airdrop. The campaign table lists the fee as its own `service-fee` step, with Reconcile and Verify hash.
 - Tests cover single charge across a failed run and resume, blocking while the fee is unresolved, and fee-hash verification.
+
+## 2026-10-03 — Wallet connector and RPC audit (critical fixes)
+Checked with real headless Chromium clicks, not only unit tests:
+1. **Connect wallet never opened the wallet.** When signed out, My NEAR Wallet's `getAccounts()` returns `[{ accountId: "" }]`. `connect()` only called `signIn` for an empty list, so it threw "No NEAR account was returned", and that message was shown only on the Airdrop page. Fixed: empty ids are filtered. Verified that the click now opens `https://app.mynearwallet.com/login/…`.
+2. **Every chain read failed in browsers with "Illegal invocation".** `NearRpcClient` stored the global `fetch` and called it as `this.fetchImpl(...)`; browsers reject `fetch` called on a non-window receiver. Unit tests passed only because they inject their own fetch. Fixed by wrapping it as `(input, init) => globalThis.fetch(input, init)`. Verified in Chromium: Contract Inspector now reaches the provider. The container itself has no NEAR network access, so it shows "unreachable" here.
+3. **Deprecated RPC.** The default was `rpc.mainnet.near.org`, deprecated by NEAR in 2025 and rate-limited to about 60 requests per minute and 150 per 10 minutes, far too few for registration preflight. The defaults are now the free providers from the official list, `free.rpc.fastnear.com` then `near.drpc.org`, with failover on network errors, HTTP 429 and 5xx. RPC-level errors are answers and are never retried on another provider. Only reads go through this client, so failover can never duplicate a transaction.
+4. **Blocked pop-ups were treated as unknown.** My NEAR Wallet signs in a pop-up. If the browser blocked it, the batch became `unknown` and stayed locked until the nonce validity window expired (about a day). A blocked pop-up now raises `WalletPopupBlockedError`; airdrop batches, the service fee and registration batches mark the attempt `failed` (retryable), because nothing was shown or signed.
+5. **Session restore and errors.** On page load a signed-in wallet is restored without opening any window. Creating the connector up front also keeps the Connect click fast enough for pop-up permission. Wallet errors now show on every page.
+
+Still to verify with a real wallet: the sign-in pop-up round trip, and that `signAndSendTransaction(s)` return transaction hashes. My NEAR Wallet looks results up with `txStatus(hash, …, "NONE")`; if a transaction is not yet included, that response may lack `transaction.hash`, and Neyro then marks the step `unknown` and offers Verify hash.
+
+Known limitation: only My NEAR Wallet is wired. Meteor, HOT, Intear and others need their Wallet Selector modules, which is the next wallet task.

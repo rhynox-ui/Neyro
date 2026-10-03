@@ -327,6 +327,25 @@ function App() {
   const [wallet, setWallet] = useState<WebWalletConnector | null>(null);
   const [accountId, setAccountId] = useState("");
   const [walletBusy, setWalletBusy] = useState(false);
+  const [walletNotice, setWalletNotice] = useState("");
+
+  // Restore an existing wallet session without opening any window. Creating
+  // the connector up front also keeps the Connect click fast enough for the
+  // browser to allow the sign-in pop-up.
+  useEffect(() => {
+    let cancelled = false;
+    void createMyNearWalletConnector()
+      .then(async (connector) => {
+        const [account] = await connector.getAccounts();
+        if (cancelled) return;
+        setWallet((current) => current ?? connector);
+        if (account) setAccountId((current) => current || account.accountId);
+      })
+      .catch((error) => {
+        if (!cancelled) setWalletNotice(error instanceof Error ? `Wallet unavailable: ${error.message}` : "Wallet unavailable.");
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const [token, setToken] = useState("");
   const [decimals, setDecimals] = useState("");
@@ -421,9 +440,12 @@ function App() {
       const account = await connector.connect();
       setWallet(connector);
       setAccountId(account.accountId);
+      setWalletNotice("");
       setMessage("Browser wallet connected. Signing remains gated by campaign safety checks.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not connect browser wallet");
+      const text = error instanceof Error ? error.message : "Could not connect browser wallet";
+      setWalletNotice(text);
+      setMessage(text);
     } finally {
       setWalletBusy(false);
     }
@@ -435,10 +457,12 @@ function App() {
     try {
       await wallet.disconnect();
       setAccountId("");
-      setWallet(null);
+      setWalletNotice("");
       setMessage("Browser wallet disconnected.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not disconnect browser wallet");
+      const text = error instanceof Error ? error.message : "Could not disconnect browser wallet";
+      setWalletNotice(text);
+      setMessage(text);
     } finally {
       setWalletBusy(false);
     }
@@ -884,6 +908,12 @@ function App() {
             )}
           </div>
         </header>
+        {walletNotice && (
+          <p className="message warning wallet-notice" role="alert">
+            {walletNotice}
+            <button type="button" onClick={() => setWalletNotice("")} aria-label="Dismiss">✕</button>
+          </p>
+        )}
 
         {activeView === "Overview" ? (
           <OverviewView

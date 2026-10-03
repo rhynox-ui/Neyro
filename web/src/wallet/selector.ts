@@ -5,12 +5,21 @@ import {
   type WalletSelector
 } from "@near-wallet-selector/core";
 import { setupMyNearWallet } from "@near-wallet-selector/my-near-wallet";
-import type {
-  SignAndSendRequest,
-  WebWalletConnector
+import {
+  WalletPopupBlockedError,
+  type SignAndSendRequest,
+  type WebWalletConnector
 } from "./connector";
 
 const WALLET_ID = "my-near-wallet";
+
+/** My NEAR Wallet signs in a pop-up; a blocked pop-up means nothing was signed. */
+function rethrowWalletError(error: unknown): never {
+  if (error instanceof Error && /popup window blocked/i.test(error.message)) {
+    throw new WalletPopupBlockedError();
+  }
+  throw error;
+}
 
 type ExecutionOutcome = {
   transaction?: {
@@ -27,11 +36,16 @@ export class WalletSelectorConnector implements WebWalletConnector {
   ) {}
 
   async connect() {
-    let accounts = await this.wallet.getAccounts();
+    let accounts = await this.getAccounts();
     if (accounts.length === 0) {
       // Wallet Selector v10's core type intersects hardware-wallet params with
       // browser-wallet params. MyNearWallet does not require a contractId.
-      accounts = await this.wallet.signIn({ accounts: [] } as never);
+      try {
+        accounts = (await this.wallet.signIn({ accounts: [] } as never))
+          .filter((account) => Boolean(account.accountId));
+      } catch (error) {
+        rethrowWalletError(error);
+      }
     }
     const account = accounts[0];
     if (!account?.accountId) {
@@ -45,9 +59,11 @@ export class WalletSelectorConnector implements WebWalletConnector {
   }
 
   async getAccounts() {
-    return (await this.wallet.getAccounts()).map((account) => ({
-      accountId: account.accountId
-    }));
+    // My NEAR Wallet reports `[{ accountId: "" }]` when nobody is signed in,
+    // so an empty id must be treated as "no account", not as an account.
+    return (await this.wallet.getAccounts())
+      .filter((account) => Boolean(account.accountId))
+      .map((account) => ({ accountId: account.accountId }));
   }
 
   private async assertSignable(request: SignAndSendRequest): Promise<void> {
@@ -78,7 +94,7 @@ export class WalletSelectorConnector implements WebWalletConnector {
     await this.assertSignable(request);
     const outcome = await this.wallet.signAndSendTransaction(
       this.toSelectorTransaction(request)
-    ) as ExecutionOutcome | void;
+    ).catch(rethrowWalletError) as ExecutionOutcome | void;
 
     return {
       transactionHash: outcome?.transaction?.hash
@@ -90,7 +106,7 @@ export class WalletSelectorConnector implements WebWalletConnector {
     for (const request of requests) await this.assertSignable(request);
     const outcomes = await this.wallet.signAndSendTransactions({
       transactions: requests.map((request) => this.toSelectorTransaction(request))
-    }) as Array<ExecutionOutcome | undefined> | void;
+    }).catch(rethrowWalletError) as Array<ExecutionOutcome | undefined> | void;
 
     return requests.map((_, index) => ({
       transactionHash: outcomes?.[index]?.transaction?.hash

@@ -14,7 +14,7 @@ import { campaignIsComplete, transitionBatch } from "../campaign/model";
 import type { CampaignStore } from "../campaign/storage";
 import { campaignIdFromFingerprint } from "../campaign/storage";
 import { buildAirdropTransaction } from "./transaction-builder";
-import type { WebWalletConnector } from "../wallet/connector";
+import { WalletPopupBlockedError, type WebWalletConnector } from "../wallet/connector";
 import { withCampaignLock } from "./campaign-lock";
 import {
   attachFeeTransactionHash,
@@ -367,6 +367,13 @@ async function executeLocked(
       campaign.status = campaignIsComplete(campaign) ? "completed" : "running";
       await persist(input.store, campaign, input.onProgress);
     } catch (error) {
+      if (error instanceof WalletPopupBlockedError && campaign.batches[index].status === "signing") {
+        // The wallet never opened, so nothing was signed: safe to retry.
+        campaign.batches[index] = transitionBatch(campaign.batches[index], "failed", { error: error.message });
+        campaign.status = "paused";
+        await persist(input.store, campaign, input.onProgress);
+        throw error;
+      }
       if (campaign.batches[index].status === "submitted") {
         campaign.batches[index] = transitionBatch(
           campaign.batches[index],

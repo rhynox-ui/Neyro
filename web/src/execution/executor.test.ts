@@ -6,6 +6,7 @@ import type { NearRpcClient } from "../near/rpc";
 import type { WebWalletConnector } from "../wallet/connector";
 import { attachTransactionHash, executeAirdrop, reconcileCampaign } from "./executor";
 import { testLocks } from "./test-support";
+import { WalletPopupBlockedError } from "../wallet/connector";
 
 class MemoryStore implements CampaignStore {
   private campaigns = new Map<string, Campaign>();
@@ -469,5 +470,24 @@ describe("web airdrop execution", () => {
     });
     const updated = await attachTransactionHash(campaign.id, "service-fee", HASH, store, rpc, testLocks());
     expect(updated.serviceFee?.status).toBe("success");
+  });
+
+  it("marks a batch retryable when the wallet pop-up was blocked, because nothing was signed", async () => {
+    const store = new MemoryStore();
+    await expect(executeAirdrop({
+      tokenContract: "token.near", decimals: 0, allocations: [allocation],
+      sourceFingerprint: "source-popup", rpc: rpcStub(), store, maxActions: 1, locks: testLocks(),
+      wallet: walletStub(async () => { throw new WalletPopupBlockedError(); })
+    })).rejects.toBeInstanceOf(WalletPopupBlockedError);
+
+    const [campaign] = await store.list();
+    expect(campaign.batches[0].status).toBe("failed");
+
+    const retried = await executeAirdrop({
+      tokenContract: "token.near", decimals: 0, allocations: [allocation],
+      sourceFingerprint: "source-popup", rpc: rpcStub(), store, maxActions: 1, locks: testLocks(),
+      wallet: walletStub(async () => ({ transactionHash: "ok" }))
+    });
+    expect(retried.campaign.status).toBe("completed");
   });
 });

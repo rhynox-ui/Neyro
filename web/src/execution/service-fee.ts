@@ -1,7 +1,7 @@
 import type { ServiceFee, BatchStatus } from "../campaign/model";
 import { canTransitionBatch } from "../campaign/model";
 import type { NearRpcClient, TxStatusResult } from "../near/rpc";
-import type { SignAndSendRequest, WebWalletConnector } from "../wallet/connector";
+import { WalletPopupBlockedError, type SignAndSendRequest, type WebWalletConnector } from "../wallet/connector";
 import { TOKEN_TOOL_FEE_RECIPIENT } from "../token-tools/fee-recipient";
 import { getAirdropFee } from "../token-tools/fees";
 import { captureSigningEvidence, checkNotExecuted } from "./signing-evidence";
@@ -113,6 +113,11 @@ export async function payServiceFee(
   try {
     hash = (await wallet.signAndSend(buildServiceFeeTransaction(current))).transactionHash;
   } catch (error) {
+    if (error instanceof WalletPopupBlockedError) {
+      current = transitionFee(current, "failed", { error: error.message });
+      await save(current);
+      throw error;
+    }
     current = transitionFee(current, "unknown", {
       error: error instanceof Error ? error.message : "Wallet result unknown"
     });

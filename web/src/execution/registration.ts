@@ -1,4 +1,4 @@
-import type { SignAndSendRequest, WebWalletConnector } from "../wallet/connector";
+import { WalletPopupBlockedError, type SignAndSendRequest, type WebWalletConnector } from "../wallet/connector";
 import type { NearRpcClient } from "../near/rpc";
 import {
   buildStorageRegistrationTransaction,
@@ -242,7 +242,9 @@ async function executeRegistrationLocked(
       await input.store.putRegistration(session);
     } catch (error) {
       const current = session.batches[index];
-      if (current.status === "submitted" || current.status === "signing") {
+      if (error instanceof WalletPopupBlockedError && current.status === "signing") {
+        session.batches[index] = transition(current, "failed", { error: error.message });
+      } else if (current.status === "submitted" || current.status === "signing") {
         session.batches[index] = transition(current, "unknown", {
           error: error instanceof Error ? error.message : "Registration outcome is unknown"
         });

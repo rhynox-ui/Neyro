@@ -1553,3 +1553,5 @@ html[data-theme="light"] .upload-button { background: #f6f8fa; border-color: #d0
 html[data-theme="light"] .upload-button:hover { background: #eaeef2; }
 html[data-theme="light"] .token-preview,
 html[data-theme="light"] .mint-facts > div { background: #f6f8fa; border-color: #d8dee5; }
+.wallet-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 0; }
+.wallet-notice button { min-height: 28px; padding: 0 10px; }

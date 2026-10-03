@@ -1,3 +1,15 @@
+/**
+ * The wallet window could not be opened (blocked by the browser), so nothing
+ * was shown to the user and nothing can have been signed. Callers may treat
+ * the attempt as definitely not executed.
+ */
+export class WalletPopupBlockedError extends Error {
+  constructor() {
+    super("The wallet window was blocked by the browser, so nothing was signed. Allow pop-ups for this site and try again.");
+    this.name = "WalletPopupBlockedError";
+  }
+}
+
 export type WalletAccount = {
   accountId: string;
 };

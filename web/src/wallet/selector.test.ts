@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { WalletSelectorConnector } from "./selector";
+import { WalletPopupBlockedError } from "./connector";
 
 function fakeWallet(accounts: Array<{ accountId: string }> = []) {
   return {
@@ -80,5 +81,29 @@ describe("WalletSelectorConnector", () => {
       { signerId: "alice.near", receiverId: "b.near", actions: [{ type: "Transfer", receiverId: "b.near", deposit: 1n }] }
     ])).resolves.toEqual([{ transactionHash: "first" }, { transactionHash: undefined }]);
     expect(wallet.signAndSendTransactions).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats My NEAR Wallet's empty account entry as signed out and opens sign-in", async () => {
+    const wallet = fakeWallet([{ accountId: "" }]);
+    wallet.signIn = vi.fn(async () => [{ accountId: "alice.near" }]);
+    const connector = new WalletSelectorConnector({} as never, wallet as never);
+
+    await expect(connector.getAccounts()).resolves.toEqual([]);
+    await expect(connector.connect()).resolves.toEqual({ accountId: "alice.near" });
+    expect(wallet.signIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a blocked wallet pop-up as a typed not-signed error", async () => {
+    const wallet = fakeWallet([{ accountId: "alice.near" }]);
+    wallet.signAndSendTransaction = vi.fn(async () => {
+      throw new Error("Popup window blocked. Please allow popups for this site.");
+    });
+    const connector = new WalletSelectorConnector({} as never, wallet as never);
+
+    await expect(connector.signAndSend({
+      signerId: "alice.near",
+      receiverId: "a.near",
+      actions: [{ type: "Transfer", receiverId: "a.near", deposit: 1n }]
+    })).rejects.toBeInstanceOf(WalletPopupBlockedError);
   });
 });
