@@ -157,7 +157,7 @@ export function renderWithdrawTokenScreen(
     "",
     "<b>2. Choose token</b>",
     "",
-    `From: W${source.indexLabel ?? ""} · ${code(shortAccount(source.accountId))}`,
+    `From: ${code(shortAccount(source.accountId))}`,
     `NEAR: <b>${escapeHtml(shortNear(withdrawMaxNear(near.available)))}</b> available`,
     "",
     "Select the asset you want to withdraw."
@@ -1423,9 +1423,18 @@ export function registerBotHandlers(bot: Bot) {
 
       try {
         if (withdrawWizard.step === "destination") {
-          if (!withdrawWizard.sourceAccountId || !withdrawWizard.assetQuery || !withdrawWizard.assetSymbol || !withdrawWizard.assetDecimals || !withdrawWizard.assetBalanceBaseUnits) {
+          if (
+            !withdrawWizard.sourceAccountId ||
+            !withdrawWizard.assetQuery ||
+            !withdrawWizard.assetSymbol ||
+            withdrawWizard.assetDecimals === undefined ||
+            !withdrawWizard.assetBalanceBaseUnits
+          ) {
             throw new UserFacingError("Withdrawal session is incomplete. Start again with /withdraw.");
           }
+          const assetSymbol = withdrawWizard.assetSymbol;
+          const assetDecimals = withdrawWizard.assetDecimals;
+          const assetBalanceBaseUnits = withdrawWizard.assetBalanceBaseUnits;
           if (!isValidAccountId(text)) throw new UserFacingError("That is not a valid NEAR wallet address.");
 
           const source = (await walletService.listWallets(ctx.from.id)).find((w) => w.accountId === withdrawWizard.sourceAccountId);
@@ -1434,15 +1443,23 @@ export function registerBotHandlers(bot: Bot) {
             throw new UserFacingError("That is the source wallet. Enter a different recipient.");
           }
 
-          const state: WithdrawWizard = { ...withdrawWizard, to: text.toLowerCase(), step: "destination" };
+          const recipient = text.toLowerCase();
+          const state: WithdrawWizard = {
+            ...withdrawWizard,
+            to: recipient,
+            step: "destination",
+            assetSymbol,
+            assetDecimals,
+            assetBalanceBaseUnits
+          };
           await withdrawWizardStore().set(ctx.from.id, WITHDRAW_WIZARD_KEY, state, 10 * 60 * 1000);
 
-          const balance = BigInt(state.assetBalanceBaseUnits);
+          const balance = BigInt(assetBalanceBaseUnits);
           const screen = renderWithdrawAmountScreen(
-            state.to,
-            state.assetSymbol,
+            recipient,
+            assetSymbol,
             balance,
-            state.assetDecimals
+            assetDecimals
           );
           await replyScreen(ctx, "withdraw", screen.text, { ...HTML, reply_markup: screen.keyboard });
           return;
@@ -1452,6 +1469,9 @@ export function registerBotHandlers(bot: Bot) {
           if (!withdrawWizard.to || !withdrawWizard.sourceAccountId || !withdrawWizard.assetQuery) {
             throw new UserFacingError("Withdrawal session is incomplete. Start again with /withdraw.");
           }
+          const recipient = withdrawWizard.to;
+          const sourceAccountId = withdrawWizard.sourceAccountId;
+          const assetQuery = withdrawWizard.assetQuery;
           if (!/^\d+(\.\d+)?$/.test(text) || !(Number(text) > 0)) {
             throw new UserFacingError("Enter a valid positive amount.");
           }
@@ -1459,9 +1479,9 @@ export function registerBotHandlers(bot: Bot) {
           const plan = await withdrawService.prepare(
             ctx.from.id,
             text,
-            withdrawWizard.assetQuery,
-            withdrawWizard.to,
-            withdrawWizard.sourceAccountId
+            assetQuery,
+            recipient,
+            sourceAccountId
           );
           await withdrawWizardStore().delete(ctx.from.id, WITHDRAW_WIZARD_KEY).catch(() => {});
           await replyScreen(ctx, "withdraw", renderWithdrawConfirm(plan), {
@@ -1598,56 +1618,3 @@ export function registerBotHandlers(bot: Bot) {
           if (value && value.length > 16 * 1024) throw new UserFacingError("Logo URL exceeds the 16 KB limit.");
           const ready: LaunchWizard = { ...wizard, icon: value, step: "review" };
           await save(ready);
-          const wallet = await requireWallet(ctx);
-          if (!wallet) return;
-          await replyScreen(ctx, "launch", renderNearlyLaunchReview(ready, wallet.accountId), {
-            ...HTML,
-            reply_markup: new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel")
-          });
-          return;
-        case "review":
-          await replyNotice(ctx, "Use the Confirm Launch or Cancel button above.");
-          return;
-      }
-    } catch (error) {
-      await replyNotice(ctx, `❌ ${userMessage(error, "Invalid launch input")}`);
-    }
-  });
-
-  pm.command("new", async (ctx) => { await showLaunchFeed(ctx, false); });
-  pm.callbackQuery("discover", async (ctx) => { await ctx.answerCallbackQuery(); await showLaunchFeed(ctx, false); });
-  pm.callbackQuery("nl:feed", async (ctx) => { await ctx.answerCallbackQuery("Refreshing…"); await showLaunchFeed(ctx, true); });
-  pm.callbackQuery(/^nl:(\d{1,12})$/, async (ctx) => {
-    await ctx.answerCallbackQuery();
-    try {
-      const launch = await fetchLaunch(Number(ctx.match[1]));
-      if (!launch) return void await replyNotice(ctx, "That launch isn't tradable yet.");
-      await tokenPanel.open(ctx, launch.token);
-    } catch (error) {
-      console.error("NEARly launch error:", error);
-      await replyNotice(ctx, "❌ Couldn't load that launch right now.");
-    }
-  });
-  pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await showWallet(ctx, false); });
-  async function showSettings(ctx: Context, edit: boolean) {
-    const { text, keyboard } = renderSettings(await settingsService.slippage(ctx.from!.id));
-    const options = { ...HTML, reply_markup: keyboard };
-    if (edit) await ctx.editMessageText(text, options).catch(() => {});
-    else await replyScreen(ctx, "settings", text, options);
-  }
-  pm.command("settings", (ctx) => showSettings(ctx, false));
-  pm.callbackQuery("settings", async (ctx) => { await ctx.answerCallbackQuery(); await showSettings(ctx, false); });
-  pm.callbackQuery("st:noop", (ctx) => ctx.answerCallbackQuery());
-  pm.callbackQuery(/^st:(buy|sell):(\d+(?:\.\d+)?)$/, async (ctx) => {
-    try {
-      const value = await settingsService.setSlippage(ctx.from.id, ctx.match[1] as "buy" | "sell", Number(ctx.match[2]));
-      await ctx.answerCallbackQuery(`${ctx.match[1] === "buy" ? "Buy" : "Sell"} slippage set to ${value}%`);
-      await showSettings(ctx, true);
-    } catch (error) {
-      await ctx.answerCallbackQuery(userMessage(error, "Couldn't save that setting"));
-    }
-  });
-
-  // Registered last: its text handler falls through to nothing else.
-  tokenPanel.register(bot);
-}
