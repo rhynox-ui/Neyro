@@ -1618,3 +1618,56 @@ export function registerBotHandlers(bot: Bot) {
           if (value && value.length > 16 * 1024) throw new UserFacingError("Logo URL exceeds the 16 KB limit.");
           const ready: LaunchWizard = { ...wizard, icon: value, step: "review" };
           await save(ready);
+          const wallet = await requireWallet(ctx);
+          if (!wallet) return;
+          await replyScreen(ctx, "launch", renderNearlyLaunchReview(ready, wallet.accountId), {
+            ...HTML,
+            reply_markup: new InlineKeyboard().text("🚀 Confirm Launch", "launch:confirm").text("❌ Cancel", "launch:cancel")
+          });
+          return;
+        case "review":
+          await replyNotice(ctx, "Use the Confirm Launch or Cancel button above.");
+          return;
+      }
+    } catch (error) {
+      await replyNotice(ctx, `❌ ${userMessage(error, "Invalid launch input")}`);
+    }
+  });
+
+  pm.command("new", async (ctx) => { await showLaunchFeed(ctx, false); });
+  pm.callbackQuery("discover", async (ctx) => { await ctx.answerCallbackQuery(); await showLaunchFeed(ctx, false); });
+  pm.callbackQuery("nl:feed", async (ctx) => { await ctx.answerCallbackQuery("Refreshing…"); await showLaunchFeed(ctx, true); });
+  pm.callbackQuery(/^nl:(\d{1,12})$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    try {
+      const launch = await fetchLaunch(Number(ctx.match[1]));
+      if (!launch) return void await replyNotice(ctx, "That launch isn't tradable yet.");
+      await tokenPanel.open(ctx, launch.token);
+    } catch (error) {
+      console.error("NEARly launch error:", error);
+      await replyNotice(ctx, "❌ Couldn't load that launch right now.");
+    }
+  });
+  pm.callbackQuery("wallet", async (ctx) => { await ctx.answerCallbackQuery(); await showWallet(ctx, false); });
+  async function showSettings(ctx: Context, edit: boolean) {
+    const { text, keyboard } = renderSettings(await settingsService.slippage(ctx.from!.id));
+    const options = { ...HTML, reply_markup: keyboard };
+    if (edit) await ctx.editMessageText(text, options).catch(() => {});
+    else await replyScreen(ctx, "settings", text, options);
+  }
+  pm.command("settings", (ctx) => showSettings(ctx, false));
+  pm.callbackQuery("settings", async (ctx) => { await ctx.answerCallbackQuery(); await showSettings(ctx, false); });
+  pm.callbackQuery("st:noop", (ctx) => ctx.answerCallbackQuery());
+  pm.callbackQuery(/^st:(buy|sell):(\d+(?:\.\d+)?)$/, async (ctx) => {
+    try {
+      const value = await settingsService.setSlippage(ctx.from.id, ctx.match[1] as "buy" | "sell", Number(ctx.match[2]));
+      await ctx.answerCallbackQuery(`${ctx.match[1] === "buy" ? "Buy" : "Sell"} slippage set to ${value}%`);
+      await showSettings(ctx, true);
+    } catch (error) {
+      await ctx.answerCallbackQuery(userMessage(error, "Couldn't save that setting"));
+    }
+  });
+
+  // Registered last: its text handler falls through to nothing else.
+  tokenPanel.register(bot);
+}
