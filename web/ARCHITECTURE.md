@@ -1195,3 +1195,17 @@ What the owner must do (this cannot be done from the repository):
 - 2026-10-03: The Transparency Report showed `neyro-terminal.pages.dev` as unsafe ("trick visitors into sharing personal info or downloading software").
 - 2026-10-03: Ownership verified in Google Search Console as URL-prefix property `https://neyro-terminal.pages.dev/` using the HTML-file method. **Do not delete `web/public/google08b313b1fce1f1be.html`**: removing it drops verification.
 - 2026-10-03: The Security issues report shows one issue, **Deceptive pages**, with sample URLs **N/A** (a domain-level classifier, not a specific page). A review was requested the same day, describing the site as non-custodial and noting that it has no seed-phrase or key inputs, no downloads and first-party scripts only. The outcome arrives by email. Do not file a second request while this one is pending.
+
+## 2026-10-03 — Recipient registration recovery checkpoint
+Two defects in `web/src/execution/registration.ts` are fixed:
+1. **Hashless dead end.** When the wallet popup closed, the wallet reported failure, or signing was interrupted, a registration batch stayed `unknown`/`signing` with no hash. Reconciliation skipped it and execution refused to continue, so the session was stuck permanently.
+2. **Failed batches could never be retried.** The execution loop moved a `failed` batch straight to `signing`, but the state machine only allows `failed → pending`, so a retry threw `Invalid registration transition`.
+
+Resolution:
+- Registration is resolved from **chain state** rather than nonce evidence. A hashless batch whose recipients are all registered now (`storage_balance_of`) is marked `success`; otherwise it is marked `failed` and can be retried.
+- Retrying is safe because every `storage_deposit` call sends `registration_only: true`. Under NEP-145 the contract then refunds the full deposit for an account that is already registered, so a late duplicate transaction costs only gas.
+- A persisted `signing` batch is converted to `unknown` under the lock, then resolved the same way.
+- Execution and reconciliation hold the same cross-tab Web Lock as airdrop campaigns (`registration:<sessionId>`).
+- A retried batch starts from `pending` and clears the old hash.
+- UI: **Reconcile registration** also appears for interrupted `signing` batches.
+- Tests: `registration.test.ts` covers all registered → success, partially registered → failed then a successful retry, and interrupted signing.

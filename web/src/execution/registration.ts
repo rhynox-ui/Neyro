@@ -7,6 +7,7 @@ import {
 } from "./transaction-builder";
 import { getStorageBalance, getStorageBalanceBounds } from "../near/ft";
 import type { RegistrationStore } from "../campaign/storage";
+import { withCampaignLock } from "./campaign-lock";
 
 export type RegistrationBatchStatus =
   | "pending"
@@ -106,22 +107,40 @@ function makeBatches(
   return batches;
 }
 
+type RegistrationInput = {
+  tokenContract: string;
+  payerId: string;
+  recipientIds: readonly string[];
+  wallet: WebWalletConnector;
+  rpc: NearRpcClient;
+  store: RegistrationStore;
+  /** Cross-tab lock manager; defaults to `navigator.locks`. */
+  locks?: LockManager;
+};
+
+const lockName = (sessionId: string) => `registration:${sessionId}`;
+
 export async function executeRecipientRegistration(
-  input: {
-    tokenContract: string;
-    payerId: string;
-    recipientIds: readonly string[];
-    wallet: WebWalletConnector;
-    rpc: NearRpcClient;
-    store: RegistrationStore;
-  }
+  input: RegistrationInput
 ): Promise<RegistrationSession> {
   const recipients = [...new Set(input.recipientIds.map((id) => id.trim().toLowerCase()).filter(Boolean))];
   if (recipients.length === 0) throw new Error("No recipients require registration");
 
+  const sessionId = await registrationSessionId(input.tokenContract, input.payerId, recipients);
+  return withCampaignLock(
+    lockName(sessionId),
+    () => executeRegistrationLocked(input, recipients, sessionId),
+    input.locks
+  );
+}
+
+async function executeRegistrationLocked(
+  input: RegistrationInput,
+  recipients: string[],
+  sessionId: string
+): Promise<RegistrationSession> {
   const bounds = await getStorageBalanceBounds(input.rpc, input.tokenContract);
   const deposit = BigInt(bounds.min);
-  const sessionId = await registrationSessionId(input.tokenContract, input.payerId, recipients);
   let session = await input.store.getRegistration(sessionId);
 
   if (!session) {
@@ -173,7 +192,12 @@ export async function executeRecipientRegistration(
       throw new Error("Registration payer does not have enough NEAR for the next registration batch");
     }
 
-    session.batches[index] = transition(batch, "signing");
+    // A confirmed failure re-enters the normal path through pending; the old
+    // failed hash belongs to the previous attempt and must not be reused.
+    const retryable = batch.status === "failed"
+      ? { ...transition(batch, "pending"), transactionHash: undefined }
+      : batch;
+    session.batches[index] = transition(retryable, "signing");
     session.status = "running";
     session.updatedAt = Date.now();
     await input.store.putRegistration(session);
@@ -236,41 +260,71 @@ export async function executeRecipientRegistration(
   return session;
 }
 
+/**
+ * Resolves unresolved registration batches.
+ *
+ * A batch with a hash is resolved from its final transaction status. A batch
+ * without one (wallet closed, interrupted signing) is resolved from chain
+ * state instead: if every recipient is now registered the batch succeeded,
+ * otherwise it is marked failed and may be retried. Retrying is safe because
+ * the builder sends `registration_only: true`, and NEP-145 refunds the whole
+ * deposit for an account that is already registered, so a late duplicate
+ * costs only gas.
+ */
 export async function reconcileRecipientRegistration(
   sessionId: string,
   store: RegistrationStore,
-  rpc: NearRpcClient
+  rpc: NearRpcClient,
+  locks?: LockManager
 ): Promise<RegistrationSession> {
-  const session = await store.getRegistration(sessionId);
-  if (!session) throw new Error(`Registration session ${sessionId} was not found`);
+  return withCampaignLock(lockName(sessionId), async () => {
+    const session = await store.getRegistration(sessionId);
+    if (!session) throw new Error(`Registration session ${sessionId} was not found`);
 
-  for (let index = 0; index < session.batches.length; index += 1) {
-    const batch = session.batches[index];
-    if ((batch.status !== "unknown" && batch.status !== "submitted") || !batch.transactionHash) continue;
-
-    try {
-      const result = await rpc.transactionStatus(batch.transactionHash, batch.payerId);
-      if (hasFailure(result.status)) {
-        session.batches[index] = transition(batch, "failed", {
-          error: `Registration transaction ${batch.transactionHash} failed on-chain`
+    for (let index = 0; index < session.batches.length; index += 1) {
+      let batch = session.batches[index];
+      if (batch.status === "signing") {
+        // Holding the lock means no tab is signing: this attempt was interrupted.
+        batch = transition(batch, "unknown", {
+          error: "Signing was interrupted before the wallet returned a transaction hash"
         });
-      } else if (hasSuccess(result.status)) {
-        session.batches[index] = transition(batch, "success", { error: undefined });
       }
-    } catch (error) {
-      session.batches[index] = {
-        ...batch,
-        error: error instanceof Error ? error.message : "Registration reconciliation failed",
-        updatedAt: Date.now()
-      };
+      if (batch.status !== "unknown" && batch.status !== "submitted") continue;
+
+      try {
+        if (batch.transactionHash) {
+          const result = await rpc.transactionStatus(batch.transactionHash, batch.payerId);
+          if (hasFailure(result.status)) {
+            batch = transition(batch, "failed", {
+              error: `Registration transaction ${batch.transactionHash} failed on-chain`
+            });
+          } else if (hasSuccess(result.status)) {
+            batch = transition(batch, "success", { error: undefined });
+          }
+        } else {
+          const missing = await verifyRegisteredRecipients(rpc, batch.tokenContract, batch.recipientIds);
+          batch = missing.length === 0
+            ? transition(batch, "success", { error: undefined })
+            : transition(batch, "failed", {
+              error: `${missing.length} of ${batch.recipientIds.length} recipients are not registered; retrying is safe (already-registered accounts are refunded)`
+            });
+        }
+      } catch (error) {
+        batch = {
+          ...batch,
+          error: error instanceof Error ? error.message : "Registration reconciliation failed",
+          updatedAt: Date.now()
+        };
+      }
+
+      session.batches[index] = batch;
+      session.status = session.batches.every((item) => item.status === "success") ? "completed" : "paused";
+      session.updatedAt = Date.now();
+      await store.putRegistration(session);
     }
 
-    session.status = session.batches.every((item) => item.status === "success") ? "completed" : "paused";
-    session.updatedAt = Date.now();
-    await store.putRegistration(session);
-  }
-
-  return session;
+    return session;
+  }, locks);
 }
 
 export async function verifyRegisteredRecipients(

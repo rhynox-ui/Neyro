@@ -1047,7 +1047,7 @@ function App() {
                               {registrationSession.status}
                             </span>
                           </div>
-                          {registrationSession.status !== "completed" && registrationSession.batches.some((batch) => batch.status === "unknown" || batch.status === "submitted") && (
+                          {registrationSession.status !== "completed" && registrationSession.batches.some((batch) => batch.status === "unknown" || batch.status === "submitted" || batch.status === "signing") && (
                             <button onClick={() => void reconcileRegistration()} disabled={registrationBusy}>
                               {registrationBusy ? "Working…" : "Reconcile registration"}
                             </button>
