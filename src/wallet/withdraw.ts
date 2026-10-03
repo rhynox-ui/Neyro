@@ -92,9 +92,11 @@ export class WithdrawService {
     return { kind: "ft", contractId: token.contractAddress ?? token.address, symbol: token.symbol, decimals: token.decimals };
   }
 
-  async prepare(userId: number, amountText: string, assetQuery: string, toText: string): Promise<WithdrawPlan> {
-    const wallet = await this.walletService.getWallet(userId);
-    if (!wallet) throw new UserFacingError("Create a Neyro wallet first with /wallet");
+  async prepare(userId: number, amountText: string, assetQuery: string, toText: string, sourceAccountId?: string): Promise<WithdrawPlan> {
+    const wallet = sourceAccountId
+      ? (await this.walletService.listWallets(userId)).find((item) => item.accountId === sourceAccountId)
+      : await this.walletService.getWallet(userId);
+    if (!wallet) throw new UserFacingError("The selected Neyro wallet no longer exists");
 
     const to = toText.trim().toLowerCase();
     if (!isValidAccountId(to)) throw new UserFacingError("That is not a valid NEAR account id");
