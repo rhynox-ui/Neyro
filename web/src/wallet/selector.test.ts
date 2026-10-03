@@ -8,7 +8,11 @@ function fakeWallet(accounts: Array<{ accountId: string }> = []) {
     signOut: vi.fn(async () => {}),
     signAndSendTransaction: vi.fn(async () => ({
       transaction: { hash: "tx-hash" }
-    }))
+    })),
+    signAndSendTransactions: vi.fn(async () => [
+      { transaction: { hash: "first" } },
+      undefined
+    ])
   };
 }
 
@@ -65,5 +69,16 @@ describe("WalletSelectorConnector", () => {
         deposit: 1n
       }]
     })).rejects.toThrow("Every action receiver");
+  });
+
+  it("signs several transactions in one approval and keeps positional hashes", async () => {
+    const wallet = fakeWallet([{ accountId: "alice.near" }]);
+    const connector = new WalletSelectorConnector({} as never, wallet as never);
+
+    await expect(connector.signAndSendMany([
+      { signerId: "alice.near", receiverId: "a.near", actions: [{ type: "Transfer", receiverId: "a.near", deposit: 1n }] },
+      { signerId: "alice.near", receiverId: "b.near", actions: [{ type: "Transfer", receiverId: "b.near", deposit: 1n }] }
+    ])).resolves.toEqual([{ transactionHash: "first" }, { transactionHash: undefined }]);
+    expect(wallet.signAndSendTransactions).toHaveBeenCalledTimes(1);
   });
 });

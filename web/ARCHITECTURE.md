@@ -1149,3 +1149,44 @@ If a wallet signing window stays open and is approved **after** the validity win
 2. Testnet end-to-end run of the release gates in Stage 2/3 with a real My NEAR Wallet popup: closed popup, rejection, success, and a forced post-sign RPC failure.
 3. Memory-bounded planning (Stage 4).
 
+
+## 2026-10-03 — Create Token, navigation and Safe Browsing checkpoint
+
+### Create Token is now live (factory-backed)
+Research summary: the established Solana creators (SlerfTools, Smithii, Solminter, FluxBeam) share one layout: a single form (name, symbol, logo, decimals, supply), a live preview with an itemised cost, and one sign action. Their "revoke mint/freeze authority" and "tax" switches are SPL Token / Token-2022 concepts. **NEP-141 has no equivalent**, so the previous Mint/Freeze/Metadata-authority and tax toggles were removed rather than kept as misleading UI.
+
+On NEAR the no-code path is a token factory:
+- Source of truth: `near-examples/token-factory` `contracts/factory/src/lib.rs` (Token Farm, `tkn.near`, repo commit `c8c2a0c`). The official NEAR docs (`docs/primitives/ft/ft.mdx`) use the same `create_token({ args })` call on `token.primitives.near`.
+- `create_token({ args: { owner_id, total_supply, metadata } })`, payable. It deploys the canonical NEP-141 contract at `<lowercase symbol>.<factory>` and credits the full supply to `owner_id`.
+- `get_required_deposit({ args, account_id })` view returns the exact deposit. The NEAR docs' two examples disagree by 1000× (0.0022 vs 2.23 NEAR), so Neyro never hardcodes it.
+- `get_token({ token_id })` returns null when the symbol is free. The lowercase symbol must match `[a-z0-9]+`.
+- The deployed token has a fixed supply with no mint, freeze or burn authority and no tax.
+
+Implementation:
+- `web/src/token-tools/token-factory.ts` holds args building, validation, the live quote and transaction building, with tests in `token-factory.test.ts`.
+- `web/src/views/mint-view.tsx` is the form plus a sticky live summary. The logo is cropped to 96×96 and stored as a data URL of at most 16 KB, because it is stored on-chain and paid for in the deposit.
+- Flow: **Check availability & cost** calls the factory views, `view_account` and `gas_price`. **Create token** re-quotes immediately before signing, then sends two transactions in one wallet approval (`signAndSendMany` → Wallet Selector `signAndSendTransactions`): the factory call first, then the 1 NEAR fee to `widekingdom6862.near`. Success is reported only when the new contract answers `ft_metadata` with the expected symbol.
+- Safety: a failed factory-view check keeps creation disabled. A missing fee hash is shown with a "check wallet activity" message and no automatic re-send, so the user is never charged twice.
+- **Not live-verified in this session:** this container's egress policy blocks NEAR RPC. Before announcing the feature, confirm on mainnet that `tkn.near` and `token.primitives.near` both answer `get_required_deposit` and `get_token`, and run one real creation.
+
+### Navigation and broken views
+- New groups: Workspace (Overview), Trade (Swap, Portfolio), Launch (Create Token, NEARly Launch), Token Tools (Airdrop, Burn, Token Locker), History (Campaigns, Transactions), Developer (Contract Inspector), Resources (Docs).
+- Fixed: Campaigns, Transactions and Contract Inspector had views but no nav entry, so they were unreachable. "Unlock" opened a generic placeholder. "Airdrop" and "Bulk Transfer" were two nav items for the same screen.
+- Fixed: the sidebar nav could not scroll (a flex child with `min-height: auto`), so lower groups were hidden behind the wallet box on short screens.
+- Fixed: the logo preview used `blob:` URLs, which the production CSP (`img-src 'self' https: data:`) blocks.
+- `<select>` elements are now themed in both dark and light mode.
+- Sections are hash-routed (`#/create-token`, `#/airdrop`, …), so they are linkable and survive reloads.
+- Removed the dead `TokenMintView`, which used guessed `mint_*` method profiles and was not routed anywhere.
+
+### Chrome "Dangerous site" warning on neyro-terminal.pages.dev
+The red interstitial is **Google Safe Browsing** (social-engineering category), not Cloudflare. Cloudflare's own phishing block is a different, Cloudflare-branded page. This container cannot reach the Transparency Report or the live site, so the exact classification was not read. The code audit found no seed-phrase or private-key fields, no brand impersonation and no scripts from other origins (the CSP is `script-src 'self'`). The likely cause is automated pattern matching: a new free `*.pages.dev` subdomain plus "Connect wallet", "Airdrop" and token creation is the profile of the wallet-drainer kits mass-hosted on `pages.dev`.
+
+What was changed in code: `index.html` now ships static, crawlable text that states what Neyro is and that it never asks for a seed phrase or private key. React replaces it on load.
+
+What the owner must do (this cannot be done from the repository):
+1. Check status: https://transparencyreport.google.com/safe-browsing/search?url=neyro-terminal.pages.dev
+2. Add the site to Google Search Console as a URL-prefix property and verify it with the HTML-file method (put Google's file in `web/public/`) or the meta-tag method (add it to `web/index.html`).
+3. Open Search Console → Security & Manual Actions → **Security issues**, read the reason, then click **Request review** and explain that the site is a non-custodial NEAR tool with source in this repository.
+4. Also report the false positive: https://safebrowsing.google.com/safebrowsing/report_error/
+5. Strongly recommended: serve the terminal from a custom domain owned by Neyro (a Cloudflare Pages custom domain). Shared `pages.dev` subdomains carry the reputation of the drainer kits hosted there.
+6. Check the Cloudflare account email and dashboard for any Trust & Safety notice about the Pages project.

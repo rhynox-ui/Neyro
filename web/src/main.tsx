@@ -26,11 +26,11 @@ import {
   TerminalModuleView,
   TokenBurnView,
   TokenLockView,
-  MintView,
   NearlyLaunchView,
   SwapView,
   DocsView
 } from "./terminal-views";
+import { MintView } from "./views/mint-view";
 
 type Row = {
   line: number;
@@ -58,11 +58,23 @@ type NavGroup = {
 const NAV_GROUPS: NavGroup[] = [
   { label: "WORKSPACE", items: ["Overview"] },
   { label: "TRADE", items: ["Swap", "Portfolio"] },
-  { label: "LAUNCH", items: ["Launch NEARly token"] },
-  { label: "TOKEN", items: ["Mint / Create Token"] },
-  { label: "TOKEN TOOLS", items: ["Burn", "Lock", "Unlock", "Airdrop", "Bulk Transfer"] },
+  { label: "LAUNCH", items: ["Create Token", "NEARly Launch"] },
+  { label: "TOKEN TOOLS", items: ["Airdrop", "Burn", "Token Locker"] },
+  { label: "HISTORY", items: ["Campaigns", "Transactions"] },
+  { label: "DEVELOPER", items: ["Contract Inspector"] },
   { label: "RESOURCES", items: ["Docs"] },
 ];
+
+const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
+
+function viewSlug(view: string): string {
+  return view.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function viewFromHash(): string {
+  const slug = typeof location === "undefined" ? "" : location.hash.replace(/^#\/?/, "");
+  return NAV_ITEMS.find((item) => viewSlug(item) === slug) ?? "Overview";
+}
 
 const ACCOUNT_ID =
   /^(?=.{2,64}$)(?:[a-z\d]+(?:[-_][a-z\d]+)*\.)*[a-z\d]+(?:[-_][a-z\d]+)*$/;
@@ -255,7 +267,19 @@ async function parseFile(
 }
 
 function App() {
-  const [activeView, setActiveView] = useState("Overview");
+  const [activeView, setActiveViewState] = useState(viewFromHash);
+
+  function setActiveView(view: string) {
+    setActiveViewState(view);
+    const hash = `#/${viewSlug(view)}`;
+    if (location.hash !== hash) history.replaceState(null, "", hash);
+  }
+
+  useEffect(() => {
+    const onHash = () => setActiveViewState(viewFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
       return localStorage.getItem("neyro-theme") === "light" ? "light" : "dark";
@@ -801,7 +825,6 @@ function App() {
           <div className="wallet-box">
             <span>WEB WALLET</span>
             <strong>{accountId || "Not connected"}</strong>
-            <small>Browser-wallet custody stays separate from Telegram signing.</small>
             {accountId ? (
               <button onClick={() => void disconnectWallet()} disabled={walletBusy}>
                 {walletBusy ? "Working…" : "Disconnect"}
@@ -853,7 +876,7 @@ function App() {
           <PortfolioView accountId={accountId} tokenContract={token} />
         ) : activeView === "Swap" ? (
           <SwapView accountId={accountId} wallet={wallet} />
-        ) : activeView === "Launch NEARly token" ? (
+        ) : activeView === "NEARly Launch" ? (
           <NearlyLaunchView accountId={accountId} wallet={wallet} />
         ) : activeView === "Contract Inspector" ? (
           <ContractInspectorView />
@@ -861,24 +884,24 @@ function App() {
           <PersistedTransactionsView campaigns={campaigns} />
         ) : activeView === "Burn" ? (
           <TokenBurnView accountId={accountId} wallet={wallet} />
-        ) : activeView === "Lock" ? (
+        ) : activeView === "Token Locker" ? (
           <TokenLockView accountId={accountId} />
-        ) : activeView === "Mint / Create Token" ? (
-          <MintView accountId={accountId} />
-        ) : activeView === "Airdrop Campaigns" ? (
+        ) : activeView === "Create Token" ? (
+          <MintView accountId={accountId} wallet={wallet} />
+        ) : activeView === "Campaigns" ? (
           <CampaignHistoryView
             campaigns={campaigns}
             onOpen={(campaign) => {
               setExecutionCampaign(campaign);
-              setActiveView("Bulk Transfer");
+              setActiveView("Airdrop");
               setMessage(`Loaded campaign ${campaign.id} from local history.`);
             }}
           />
-        ) : activeView === "Bulk Transfer" || activeView === "Airdrop" ? (
+        ) : activeView === "Airdrop" ? (
           <section className="grid">
             <div className="card hero">
               <div>
-                <span className="eyebrow">{activeView === "Airdrop" ? "NEP-141 / AIRDROP" : "NEP-141 / BULK TRANSFER"}</span>
+                <span className="eyebrow">NEP-141 / AIRDROP &amp; BULK TRANSFER</span>
                 <h2>Build and execute a multi-sender transfer.</h2>
                 <p>
                   Load a verified token, add senders and recipients, then run fresh preflight checks before the browser wallet is asked to sign.

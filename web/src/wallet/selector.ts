@@ -50,40 +50,51 @@ export class WalletSelectorConnector implements WebWalletConnector {
     }));
   }
 
-  async signAndSend(request: SignAndSendRequest) {
+  private async assertSignable(request: SignAndSendRequest): Promise<void> {
     const accounts = await this.getAccounts();
     if (!accounts.some((account) => account.accountId === request.signerId)) {
       throw new Error("Signer account is not connected to the browser wallet");
     }
-
     for (const action of request.actions) {
       if (action.receiverId !== request.receiverId) {
         throw new Error("Every action receiver must match the transaction receiver");
       }
     }
+  }
 
-    const actions = request.actions.map((action) => {
-      if (action.type === "FunctionCall") {
-        return actionCreators.functionCall(
-          action.methodName,
-          action.args,
-          action.gas,
-          action.deposit
-        );
-      }
-
-      return actionCreators.transfer(action.deposit);
-    });
-
-    const outcome = await this.wallet.signAndSendTransaction({
+  private toSelectorTransaction(request: SignAndSendRequest) {
+    return {
       signerId: request.signerId,
       receiverId: request.receiverId,
-      actions
-    }) as ExecutionOutcome | void;
+      actions: request.actions.map((action) =>
+        action.type === "FunctionCall"
+          ? actionCreators.functionCall(action.methodName, action.args, action.gas, action.deposit)
+          : actionCreators.transfer(action.deposit)
+      )
+    };
+  }
+
+  async signAndSend(request: SignAndSendRequest) {
+    await this.assertSignable(request);
+    const outcome = await this.wallet.signAndSendTransaction(
+      this.toSelectorTransaction(request)
+    ) as ExecutionOutcome | void;
 
     return {
       transactionHash: outcome?.transaction?.hash
     };
+  }
+
+  async signAndSendMany(requests: SignAndSendRequest[]) {
+    if (requests.length === 0) throw new Error("No transactions to sign");
+    for (const request of requests) await this.assertSignable(request);
+    const outcomes = await this.wallet.signAndSendTransactions({
+      transactions: requests.map((request) => this.toSelectorTransaction(request))
+    }) as Array<ExecutionOutcome | undefined> | void;
+
+    return requests.map((_, index) => ({
+      transactionHash: outcomes?.[index]?.transaction?.hash
+    }));
   }
 }
 

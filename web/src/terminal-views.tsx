@@ -111,7 +111,7 @@ export function OverviewView({
             <div><span>Batches</span><strong>{latest.batches.length.toLocaleString()}</strong></div>
           </div>
         ) : (
-          <p className="muted">Build a campaign from Bulk Transfer and its state will appear here.</p>
+          <p className="muted">Build a campaign from Airdrop and its state will appear here.</p>
         )}
       </div>
 
@@ -245,7 +245,7 @@ export function PortfolioView({
         <div>
           <span className="eyebrow">PORTFOLIO</span>
           <h2>Live holdings from the connected NEAR account.</h2>
-          <p>No fabricated token rows or USD valuations. Neyro reads native NEAR and the token contract currently loaded in Bulk Transfer.</p>
+          <p>No fabricated token rows or USD valuations. Neyro reads native NEAR and the token contract currently loaded in Airdrop.</p>
         </div>
         <div className="hero-state">
           <span className={accountId ? "status-dot live" : "status-dot"} />
@@ -280,7 +280,7 @@ export function PortfolioView({
                 <div><span>Balance</span><strong>{formatTokenBase(tokenBalance ?? 0n, tokenMetadata.decimals)}</strong></div>
               </div>
             ) : (
-              <p className="muted">Load a NEP-141 token in Bulk Transfer, then return here to read its balance.</p>
+              <p className="muted">Load a NEP-141 token in Airdrop, then return here to read its balance.</p>
             )}
             {error && <p className="message warning">{error}</p>}
           </div>
@@ -598,307 +598,6 @@ function toTokenBase(value: string, decimals: number): bigint {
 }
 
 
-export function TokenMintView({
-  accountId,
-  wallet
-}: {
-  accountId: string;
-  wallet: WebWalletConnector | null;
-}) {
-  type MintProfile = "mint_receiver_id" | "mint_account_id" | "custom";
-  type TokenState = { name: string; symbol: string; decimals: number; spec: string; totalSupply: bigint; balance: bigint; icon?: string | null };
-
-  const [token, setToken] = useState("");
-  const [recipient, setRecipient] = useState(accountId);
-  const [amount, setAmount] = useState("");
-  const [profile, setProfile] = useState<MintProfile>("mint_receiver_id");
-  const [customMethod, setCustomMethod] = useState("mint");
-  const [customArgs, setCustomArgs] = useState("{}");
-  const [gasTgas, setGasTgas] = useState("100");
-  const [depositNear, setDepositNear] = useState("0");
-  const [state, setState] = useState<TokenState | null>(null);
-  const [recipientStorage, setRecipientStorage] = useState<"registered" | "not-registered" | "unsupported" | "unknown">("unknown");
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [txHash, setTxHash] = useState("");
-  const [submittedAmount, setSubmittedAmount] = useState("");
-
-  useEffect(() => { if (!recipient && accountId) setRecipient(accountId); }, [accountId, recipient]);
-
-  function clearFeedback() { setError(""); setMessage(""); setTxHash(""); }
-
-  async function verifyToken() {
-    const contract = token.trim().toLowerCase();
-    if (!contract) { setError("Enter the token contract."); return; }
-    setLoading(true); setError(""); setMessage(""); setTxHash(""); setState(null); setRecipientStorage("unknown");
-    try {
-      const rpc = new NearRpcClient();
-      const [metadata, totalSupply, balance] = await Promise.all([
-        rpc.viewFunction<{spec:string;name:string;symbol:string;decimals:number;icon?:string|null}>(contract, "ft_metadata", {}),
-        rpc.viewFunction<string>(contract, "ft_total_supply", {}),
-        accountId ? rpc.viewFunction<string>(contract, "ft_balance_of", { account_id: accountId }) : Promise.resolve("0")
-      ]);
-      if (metadata.spec !== "ft-1.0.0") throw new Error("Contract does not report the NEP-141 metadata spec ft-1.0.0.");
-      if (!metadata.name || !metadata.symbol || !Number.isInteger(metadata.decimals) || metadata.decimals < 0 || metadata.decimals > 24) throw new Error("Token metadata is incomplete or invalid.");
-      if (!/^\d+$/.test(totalSupply) || !/^\d+$/.test(balance)) throw new Error("Token returned an invalid supply or balance.");
-      let storage: typeof recipientStorage = "unsupported";
-      if (recipient.trim()) {
-        try {
-          const result = await rpc.viewFunction<{total?:string}|null>(contract, "storage_balance_of", { account_id: recipient.trim().toLowerCase() });
-          storage = result && typeof result === "object" ? "registered" : "not-registered";
-        } catch { storage = "unsupported"; }
-      }
-      setState({ name: metadata.name, symbol: metadata.symbol, decimals: metadata.decimals, spec: metadata.spec, totalSupply: BigInt(totalSupply), balance: BigInt(balance), icon: metadata.icon });
-      setRecipientStorage(storage);
-      setMessage("Token loaded from live NEAR mainnet state. Mint authority is checked by the token contract when the transaction executes.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Token verification failed.");
-    } finally { setLoading(false); }
-  }
-
-  function buildMintArgs(): Record<string, unknown> {
-    const receiver = recipient.trim().toLowerCase();
-    const base = toTokenBase(amount, state?.decimals ?? 0);
-    if (profile === "mint_receiver_id") return { receiver_id: receiver, amount: base.toString() };
-    if (profile === "mint_account_id") return { account_id: receiver, amount: base.toString() };
-    let parsed: unknown;
-    try { parsed = JSON.parse(customArgs); } catch { throw new Error("Custom mint args must be valid JSON."); }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Custom mint args must be a JSON object.");
-    return parsed as Record<string, unknown>;
-  }
-
-  function mintMethod(): string {
-    if (profile === "mint_receiver_id" || profile === "mint_account_id") return "mint";
-    const method = customMethod.trim();
-    if (!method) throw new Error("Enter the custom mint method.");
-    if (!/^[a-zA-Z0-9_$:-]{1,128}$/.test(method)) throw new Error("Mint method contains invalid characters.");
-    return method;
-  }
-
-  function gas(): bigint {
-    const value = Number(gasTgas);
-    if (!Number.isFinite(value) || value < 1 || value > 300) throw new Error("Gas must be between 1 and 300 Tgas.");
-    return BigInt(Math.round(value * 1_000_000_000_000));
-  }
-
-  function deposit(): bigint { return toNearYocto(depositNear); }
-
-  function afterSupply(): string {
-    if (!state || !amount.trim()) return "—";
-    try { return formatTokenBase(state.totalSupply + toTokenBase(amount, state.decimals), state.decimals); }
-    catch { return "Invalid amount"; }
-  }
-
-  async function mint() {
-    if (!wallet || !accountId) { setError("Connect the browser wallet first."); return; }
-    if (!state) { setError("Load the token before minting."); return; }
-    const contract = token.trim().toLowerCase();
-    const receiver = recipient.trim().toLowerCase();
-    if (!/^(?=.{2,64}$)(?:[a-z\d]+(?:[-_][a-z\d]+)*\.)*[a-z\d]+(?:[-_][a-z\d]+)*$/.test(receiver)) { setError("Enter a valid NEAR recipient account."); return; }
-    let args: Record<string, unknown>; let method: string; let callGas: bigint; let attached: bigint;
-    try { args = buildMintArgs(); method = mintMethod(); callGas = gas(); attached = deposit(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Mint parameters are invalid."); return; }
-    setBusy(true); setError(""); setMessage(""); setTxHash("");
-    try {
-      const result = await wallet.signAndSend({ signerId: accountId, receiverId: contract, actions: [{ type:"FunctionCall", receiverId:contract, methodName:method, args, gas:callGas, deposit:attached }] });
-      if (!result.transactionHash) throw new Error("Wallet did not return a transaction hash. If the wallet redirected for signing, verify the transaction before retrying.");
-      const submittedHash = result.transactionHash;
-      setTxHash(submittedHash);
-      setSubmittedAmount(previewAmount === "Invalid amount" ? amount.trim() : previewAmount);
-      setMessage("Mint transaction submitted. Wait for finality, then reload the token state to confirm the new supply.");
-      setError("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Mint transaction failed."); }
-    finally { setBusy(false); }
-  }
-
-  const previewAmount = state && amount.trim() ? (() => { try { return formatTokenBase(toTokenBase(amount, state.decimals), state.decimals); } catch { return "Invalid amount"; } })() : "—";
-
-  return (
-    <section className="grid terminal-page mint-page">
-      <div className="card hero full">
-        <div><span className="eyebrow">TOKEN TOOLS / MINT</span><h2>Mint additional token supply.</h2><p>Use this for a token you already control. Load the NEP-141 contract, choose the recipient and amount, then sign the token's mint method from your browser wallet.</p></div>
-        <div className="hero-state"><span className={accountId ? "status-dot live" : "status-dot"} /><span>{accountId ? "Wallet connected" : "Connect wallet"}</span></div>
-      </div>
-
-      <div className="card full mint-token-card">
-        <div className="section-head"><div><span className="eyebrow">01 / TOKEN</span><h3>Choose token</h3></div><button onClick={() => void verifyToken()} disabled={loading || !token.trim()}>{loading ? "Loading…" : "Load token"}</button></div>
-        <div className="mint-contract-row">
-          <div><label>Token contract</label><input value={token} onChange={(event) => { setToken(event.target.value.trim().toLowerCase()); setState(null); clearFeedback(); }} placeholder="your-token.near" spellCheck={false} /><small>Paste the NEP-141 contract that contains the mint authority you control.</small></div>
-          {state && <div className="mint-token-identity">{state.icon?.startsWith("data:image/") || state.icon?.startsWith("https://") ? <img src={state.icon} alt="" className="mint-token-icon" /> : <span className="mint-token-icon mint-token-icon-fallback">{state.symbol.slice(0,2)}</span>}<div><strong>{state.name}</strong><span>{state.symbol} · {state.spec}</span></div></div>}
-        </div>
-        {state && <div className="mint-stats"><div><span>Current supply</span><strong>{formatTokenBase(state.totalSupply,state.decimals)} {state.symbol}</strong></div><div><span>Your balance</span><strong>{formatTokenBase(state.balance,state.decimals)} {state.symbol}</strong></div><div><span>Decimals</span><strong>{state.decimals}</strong></div><div><span>Standard</span><strong className="ready">NEP-141</strong></div></div>}
-        {state && txHash && <div className="mint-confirmation"><div><span>Submitted mint</span><strong>{submittedAmount || "—"} {state.symbol}</strong></div><button type="button" onClick={() => void verifyToken()} disabled={loading}>Reload token state</button></div>}
-      </div>
-
-      {state ? <>
-        <div className="card mint-form-card">
-          <div className="section-head"><div><span className="eyebrow">02 / MINT</span><h3>Issue supply</h3></div><span className="mint-live">TOKEN CONTRACT</span></div>
-          <div className="mint-field"><label>Mint to</label><div className="mint-recipient-row"><input value={recipient} onChange={(event) => { setRecipient(event.target.value.trim().toLowerCase()); setRecipientStorage("unknown"); clearFeedback(); }} placeholder={accountId || "recipient.near"} spellCheck={false} />{accountId && <button type="button" onClick={() => { setRecipient(accountId); setRecipientStorage("unknown"); }}>My wallet</button>}</div><small>{recipientStorage === "registered" ? "Recipient storage is registered." : recipientStorage === "not-registered" ? "Recipient is not registered under NEP-145; the token's mint method must handle registration or the call may fail." : recipientStorage === "unsupported" ? "Token does not expose the standard storage_balance_of view." : "Load the token again after changing the recipient to inspect storage state."}</small></div>
-          <div className="mint-field"><label>Amount <span className="optional">in {state.symbol}</span></label><div className="mint-amount-row"><input inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); clearFeedback(); }} placeholder="1,000" /><span>{state.symbol}</span></div></div>
-          <div className="mint-supply-preview"><div><span>Current supply</span><strong>{formatTokenBase(state.totalSupply,state.decimals)} {state.symbol}</strong></div><div className="mint-supply-arrow">→</div><div><span>After mint</span><strong>{afterSupply()} {state.symbol}</strong></div></div>
-          <div className="mint-field"><label>Mint method</label><select value={profile} onChange={(event) => { setProfile(event.target.value as MintProfile); clearFeedback(); }}><option value="mint_receiver_id">mint(receiver_id, amount)</option><option value="mint_account_id">mint(account_id, amount)</option><option value="custom">Custom contract method</option></select><small>NEP-141 does not define a universal mint method. Use the preset only when your token implements that exact interface.</small></div>
-          {profile === "custom" && <div className="mint-custom-grid"><div className="mint-field"><label>Method</label><input value={customMethod} onChange={(event) => setCustomMethod(event.target.value)} placeholder="mint" spellCheck={false} /></div><div className="mint-field full-field"><label>Arguments JSON</label><textarea value={customArgs} onChange={(event) => setCustomArgs(event.target.value)} rows={5} spellCheck={false} placeholder='{"receiver_id":"alice.near","amount":"1000000"}' /></div></div>}
-          <details className="mint-advanced"><summary>Advanced transaction settings</summary><div className="two"><div className="mint-field"><label>Gas (Tgas)</label><input inputMode="decimal" value={gasTgas} onChange={(event) => setGasTgas(event.target.value)} /></div><div className="mint-field"><label>Attached deposit (NEAR)</label><input inputMode="decimal" value={depositNear} onChange={(event) => setDepositNear(event.target.value)} /></div></div></details>
-        </div>
-
-        <div className="card mint-review-card">
-          <div className="section-head"><div><span className="eyebrow">03 / REVIEW</span><h3>Mint transaction</h3></div><span className="mint-interface-status warning">VERIFY METHOD</span></div>
-          <div className="mint-review-list"><div><span>Token</span><strong>{state.name} ({state.symbol})</strong></div><div><span>Contract</span><strong>{shortId(token.trim().toLowerCase())}</strong></div><div><span>Method</span><strong>{mintMethodLabel(profile,customMethod)}</strong></div><div><span>Mint to</span><strong>{shortId(recipient.trim().toLowerCase() || "—")}</strong></div><div><span>Amount</span><strong>{previewAmount} {state.symbol}</strong></div><div><span>Attached deposit</span><strong>{depositNear || "0"} NEAR</strong></div><div><span>Network</span><strong>NEAR mainnet</strong></div></div>
-          <div className="mint-note"><strong>Minting is contract-controlled.</strong> NEP-141 defines the fungible-token interface, not who may mint or what the mint method is called. Neyro never assumes that a token is mintable just because it is NEP-141. The transaction is sent to the exact method and arguments you selected.</div>
-          <button className="primary mint-submit" onClick={() => void mint()} disabled={busy || !wallet || !accountId || !amount.trim()}>{busy ? "Submitting mint…" : "Mint " + state.symbol}</button>
-          {!accountId && <p className="muted">Connect the browser wallet that controls the token's mint authority.</p>}
-          {txHash && <p className="message success">Submitted: <span className="mono-value">{txHash}</span></p>}
-          {message && <p className="message">{message}</p>}
-          {error && <p className="message warning">{error}</p>}
-        </div>
-      </> : <div className="card full mint-empty-state"><span className="eyebrow">HOW IT WORKS</span><h3>Already have a mintable token?</h3><p>Paste its contract above. Neyro will read the live token metadata and supply first; then you choose where to mint and how much to issue.</p><div className="mint-empty-steps"><span><b>1</b> Connect the owner wallet</span><span><b>2</b> Load your token contract</span><span><b>3</b> Enter 1,000 (or any amount)</span><span><b>4</b> Review and sign</span></div></div>}
-    </section>
-  );
-}
-
-function mintMethodLabel(profile: "mint_receiver_id" | "mint_account_id" | "custom", customMethod: string): string {
-  if (profile === "mint_receiver_id") return "mint(receiver_id, amount)";
-  if (profile === "mint_account_id") return "mint(account_id, amount)";
-  return customMethod.trim() || "custom method";
-}
-
-function toNearYocto(value: string): bigint {
-  const clean = value.trim() || "0";
-  if (!/^\d+(?:\.\d+)?$/.test(clean)) throw new Error("Attached deposit must be a valid NEAR amount.");
-  const [whole, fraction = ""] = clean.split(".");
-  if (fraction.length > 24) throw new Error("Attached deposit supports at most 24 decimals.");
-  return BigInt(whole) * 10n ** 24n + BigInt(fraction.padEnd(24, "0") || "0");
-}
-
-
-export function MintView({ accountId }: { accountId: string }) {
-  const [name, setName] = useState("");
-  const [symbol, setSymbol] = useState("");
-  const [decimals, setDecimals] = useState("18");
-  const [supply, setSupply] = useState("");
-  const [recipient, setRecipient] = useState(accountId);
-  const [metadata, setMetadata] = useState("");
-  const [description, setDescription] = useState("");
-  const [logoPreview, setLogoPreview] = useState("");
-  const [logoName, setLogoName] = useState("");
-  const [keepMintAuthority, setKeepMintAuthority] = useState(true);
-  const [keepFreezeAuthority, setKeepFreezeAuthority] = useState(false);
-  const [keepMetadataAuthority, setKeepMetadataAuthority] = useState(true);
-  const [taxEnabled, setTaxEnabled] = useState(false);
-  const [buyTax, setBuyTax] = useState("0");
-  const [sellTax, setSellTax] = useState("0");
-
-  useEffect(() => {
-    if (!recipient && accountId) setRecipient(accountId);
-  }, [accountId, recipient]);
-
-  useEffect(() => () => {
-    if (logoPreview) URL.revokeObjectURL(logoPreview);
-  }, [logoPreview]);
-
-  const validDecimals = /^\d+$/.test(decimals) && Number(decimals) >= 0 && Number(decimals) <= 24;
-  const validSupply = /^\d+(?:\.\d+)?$/.test(supply.trim()) && !/^0+(?:\.0+)?$/.test(supply.trim());
-  const validTax = (value: string) => /^\d+(?:\.\d{1,2})?$/.test(value) && Number(value) >= 0 && Number(value) <= 100;
-  const ready = Boolean(name.trim() && symbol.trim() && validDecimals && validSupply && recipient.trim() && (!taxEnabled || (validTax(buyTax) && validTax(sellTax))));
-
-  function handleLogo(file: File | undefined) {
-    if (!file) return;
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) return;
-    if (file.size > 2 * 1024 * 1024) return;
-    if (logoPreview) URL.revokeObjectURL(logoPreview);
-    setLogoPreview(URL.createObjectURL(file));
-    setLogoName(file.name);
-  }
-
-  return (
-    <section className="grid terminal-page">
-      <div className="card hero full">
-        <div>
-          <span className="eyebrow">NEAR MAINNET / TOKEN CREATION</span>
-          <h2>Create a fresh token</h2>
-          <p>Mint here means creating a brand-new developer-owned token contract. It does not mean issuing more supply into an existing token. Set the identity, initial supply, logo, authority policy and optional tax configuration.</p>
-        </div>
-        <div className="hero-state"><span className="status-dot" /><span>Fresh token deployment</span></div>
-      </div>
-
-      <div className="card create-token-form">
-        <div className="section-head"><div><span className="eyebrow">01 / TOKEN</span><h3>Token details</h3></div><span className="module-status">NEP-141</span></div>
-
-        <div className="two">
-          <div className="mint-field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Protocol Token" maxLength={64} /></div>
-          <div className="mint-field"><label>Symbol</label><input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="MPT" maxLength={16} /></div>
-        </div>
-        <div className="two">
-          <div className="mint-field"><label>Decimals</label><input inputMode="numeric" value={decimals} onChange={(e) => setDecimals(e.target.value.replace(/[^0-9]/g, ""))} placeholder="18" /><small>Fixed token precision chosen at creation.</small></div>
-          <div className="mint-field"><label>Initial supply</label><input inputMode="decimal" value={supply} onChange={(e) => setSupply(e.target.value)} placeholder="1000000" /><small>Initial supply assigned on creation.</small></div>
-        </div>
-        <div className="mint-field">
-          <label>Initial supply recipient</label>
-          <div className="mint-recipient-row"><input value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="your-account.near" spellCheck={false} />{accountId && <button type="button" onClick={() => setRecipient(accountId)}>My wallet</button>}</div>
-        </div>
-        <div className="mint-field">
-          <label>Token logo <span className="optional">PNG / JPG / WEBP · max 2 MB</span></label>
-          <div className="logo-upload-row">
-            <div className="token-logo-preview">{logoPreview ? <img src={logoPreview} alt="Token logo preview" /> : <span>{symbol.slice(0, 2) || "TK"}</span>}</div>
-            <label className="upload-button">Upload image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => handleLogo(e.target.files?.[0])} /></label>
-            {logoName && <span className="upload-name">{logoName}</span>}
-          </div>
-          <small>The selected image is prepared as token metadata when the verified factory supports logo data.</small>
-        </div>
-        <div className="mint-field"><label>Description <span className="optional">optional</span></label><textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this token represent?" rows={3} maxLength={500} /></div>
-        <div className="mint-field"><label>Metadata reference <span className="optional">optional</span></label><input value={metadata} onChange={(e) => setMetadata(e.target.value)} placeholder="https://example.com/token.json" spellCheck={false} /></div>
-      </div>
-
-      <div className="card create-token-review">
-        <div className="section-head"><div><span className="eyebrow">02 / TOKEN POLICY</span><h3>Authorities & tax</h3></div><span className="module-status">CONFIGURABLE</span></div>
-        <div className="policy-option">
-          <div><strong>Mint authority</strong><span>{keepMintAuthority ? "Creator keeps authority to issue additional supply." : "Mint authority is revoked after the initial supply is created."}</span></div>
-          <button type="button" className={keepMintAuthority ? "toggle on" : "toggle"} onClick={() => setKeepMintAuthority((value) => !value)} aria-pressed={keepMintAuthority}><span /></button>
-        </div>
-        <div className="policy-note"><strong>{keepMintAuthority ? "Mintable token" : "Fixed-supply token"}</strong><span>Authority behavior depends on the verified token implementation. Neyro will not claim a revocation unless the deployed contract supports it.</span></div>
-        <div className="policy-option">
-          <div><strong>Freeze authority</strong><span>{keepFreezeAuthority ? "Creator may freeze transfers where the implementation supports it." : "No freeze authority requested."}</span></div>
-          <button type="button" className={keepFreezeAuthority ? "toggle on" : "toggle"} onClick={() => setKeepFreezeAuthority((value) => !value)} aria-pressed={keepFreezeAuthority}><span /></button>
-        </div>
-        <div className="policy-option">
-          <div><strong>Metadata authority</strong><span>{keepMetadataAuthority ? "Creator can update mutable metadata." : "Metadata is intended to become immutable after creation."}</span></div>
-          <button type="button" className={keepMetadataAuthority ? "toggle on" : "toggle"} onClick={() => setKeepMetadataAuthority((value) => !value)} aria-pressed={keepMetadataAuthority}><span /></button>
-        </div>
-        <div className="policy-option">
-          <div><strong>Token tax</strong><span>Optional buy/sell tax for implementations that support trading-tax configuration.</span></div>
-          <button type="button" className={taxEnabled ? "toggle on" : "toggle"} onClick={() => setTaxEnabled((value) => !value)} aria-pressed={taxEnabled}><span /></button>
-        </div>
-        {taxEnabled && <div className="two tax-fields">
-          <div className="mint-field"><label>Buy tax %</label><div className="suffix-input"><input inputMode="decimal" value={buyTax} onChange={(e) => setBuyTax(e.target.value)} /><span>%</span></div></div>
-          <div className="mint-field"><label>Sell tax %</label><div className="suffix-input"><input inputMode="decimal" value={sellTax} onChange={(e) => setSellTax(e.target.value)} /><span>%</span></div></div>
-        </div>}
-        <div className="mint-interface-warning"><strong>Implementation-specific options.</strong><span>Mint authority revocation and buy/sell tax are not defined by NEP-141 itself. These settings will only be sent when Neyro's verified token implementation explicitly supports them.</span></div>
-      </div>
-
-      <div className="card create-token-review">
-        <div className="section-head"><div><span className="eyebrow">03 / REVIEW</span><h3>Token creation preview</h3></div><span className={ready ? "ready" : "muted"}>{ready ? "Ready" : "Incomplete"}</span></div>
-        <div className="mint-review-list">
-          <div><span>Name</span><strong>{name || "—"}</strong></div>
-          <div><span>Symbol</span><strong>{symbol || "—"}</strong></div>
-          <div><span>Initial supply</span><strong>{supply || "—"} {symbol || ""}</strong></div>
-          <div><span>Decimals</span><strong>{validDecimals ? decimals : "—"}</strong></div>
-          <div><span>Creator / owner</span><strong>{accountId || "Connect wallet"}</strong></div>
-          <div><span>Recipient</span><strong>{recipient || "—"}</strong></div>
-          <div><span>Logo</span><strong>{logoName || "Not uploaded"}</strong></div>
-          <div><span>Mint authority</span><strong>{keepMintAuthority ? "Keep" : "Revoke after creation"}</strong></div>
-          <div><span>Freeze authority</span><strong>{keepFreezeAuthority ? "Keep" : "None"}</strong></div>
-          <div><span>Metadata authority</span><strong>{keepMetadataAuthority ? "Mutable" : "Immutable"}</strong></div>
-          <div><span>Tax</span><strong>{taxEnabled ? ("Buy " + buyTax + "% · Sell " + sellTax + "%") : "Disabled"}</strong></div>
-        </div>
-        <div className="mint-interface-warning"><strong>Fresh-token creation is intentionally gated.</strong><span>Neyro does not currently have a verified mainnet token-factory/deployment interface for this product. No guessed contract call is exposed here.</span></div>
-        <button className="mint-submit" type="button" disabled={!ready}>Create token — verified factory required</button>
-      </div>
-    </section>
-  );
-}
-
 export function TokenLockView({ accountId }: { accountId: string }) {
   const today = new Date();
   const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
@@ -1074,7 +773,7 @@ export function TerminalModuleView({
     Mint: {
       eyebrow: "TOKEN / MINT",
       title: "Create a fresh developer-owned NEP-141 token.",
-      body: "Mint is Neyro's fresh-token creation flow. Define the token identity, decimals, initial supply, recipient and metadata, then deploy through Neyro's verified token implementation when the on-chain factory is connected.",
+      body: "Create Token deploys a fresh fixed-supply NEP-141 token through a NEAR token factory.",
       details: [
         ["Identity", "Name, symbol and decimals"],
         ["Initial supply", "Created for the selected recipient"],
@@ -1354,15 +1053,15 @@ export function DocsView() {
       <section id="bot"><h3>Neyro Telegram bot</h3><p>The Neyro bot is the Telegram-facing part of the project. It provides the conversational interface for on-chain workflows while the web terminal remains a separate browser-wallet execution surface.</p><p>Use the bot to access Neyro from Telegram: <a href="https://t.me/Testirhbot" target="_blank" rel="noreferrer"><strong>@Testirhbot</strong></a>.</p><p>Follow product updates and releases on X: <a href="https://x.com/Neyrotrade" target="_blank" rel="noreferrer"><strong>@Neyrotrade</strong></a>.</p><div className="docs-note"><strong>Wallet boundary:</strong> the web terminal does not import Telegram wallet keys or use Telegram signing as a fallback. The browser wallet remains the signer for web execution.</div></section>
       <section id="getting-started"><h3>Getting started</h3><ol><li>Connect a supported NEAR browser wallet.</li><li>Select an operation.</li><li>Load the relevant token or protocol data.</li><li>Review live state, parameters, fees, deposits and transaction actions.</li><li>Approve the transaction in your wallet.</li><li>Wait for confirmation and verify the resulting chain state.</li></ol><div className="docs-note"><strong>Important:</strong> Neyro never asks for your seed phrase or private key.</div></section>
       <section id="wallet"><h3>Wallet & security</h3><p>The browser wallet is the signer. Neyro receives the connected account and requests explicit signatures.</p><ul><li>No Telegram wallet keys are imported.</li><li>No seed phrases are stored in localStorage.</li><li>No private key is sent to a backend.</li><li>Campaign state can be persisted locally for recovery.</li><li>Unknown transaction outcomes are never blindly resent.</li></ul></section>
-      <section id="token-creation"><h3>Token creation</h3><p><strong>Mint in Neyro means creating a fresh new token.</strong> It is not the interface for issuing additional supply into an existing token.</p><p>The creation form defines name, symbol, decimals, initial supply, recipient, logo, description, metadata reference, authority policy and optional tax configuration.</p><h4>Authority controls</h4><p>Mint, freeze and metadata authority are implementation-specific. They are not universal NEP-141 capabilities and are only sent when the verified token implementation supports them.</p><h4>Why creation is gated</h4><p>NEP-141 defines the fungible-token interface, not one universal factory ABI. Neyro will not guess a factory address or contract arguments. Creation becomes executable after the supported deployment/factory interface is verified.</p></section>
+      <section id="token-creation"><h3>Token creation</h3><p><strong>Create Token deploys a brand-new NEP-141 token</strong> through a NEAR fungible-token factory (Token Farm <code>tkn.near</code>, or the <code>token.primitives.near</code> factory from the official NEAR docs). It is not a way to issue more supply into an existing token.</p><h4>What you get</h4><ul><li>A token contract at <code>&lt;symbol&gt;.&lt;factory&gt;</code>, for example <code>abc.tkn.near</code>.</li><li>The full supply credited to the recipient you choose.</li><li>A fixed supply: the canonical contract has no mint, freeze or burn authority and no transfer tax. Those are Solana-style options that do not exist on this contract.</li></ul><h4>Cost</h4><p>The storage deposit is read live from the factory's <code>get_required_deposit</code> view, so it depends on your metadata and logo size. Neyro adds a 1 NEAR fee and you pay network gas. One wallet approval sends the factory call first, then the fee.</p><h4>Safety checks</h4><p>Before you sign, Neyro calls the factory's own views to confirm its interface, checks that the symbol is free and that your spendable balance covers the total. It repeats that check immediately before opening the wallet, and only reports success after the new token contract answers <code>ft_metadata</code>.</p></section>
       <section id="nearly"><h3>NEARly launch</h3><p>NEARly is a separate launch path for creating and launching a token through the verified NEARly protocol. The interface supports live launch pairs, metadata, optional first buy and optional tax configuration where supported.</p><p>Launch costs are read from the protocol quote rather than treated as an invented fixed number.</p></section>
       <section id="trading"><h3>Trading</h3><p>Swap reads balances, requests live routes or quotes, applies supported slippage controls and submits through the browser wallet. Quotes can expire and on-chain state can change between quote and confirmation.</p></section>
       <section id="airdrops"><h3>Airdrops & bulk transfers</h3><p>The NEP-141 transfer engine supports CSV, TXT and JSON input, account validation, duplicate detection, exact bigint arithmetic, deterministic sender allocation and conservative gas-aware batches.</p><p>Before signing, fresh balances and registration state are checked. Unknown outcomes require reconciliation before retry.</p></section>
       <section id="token-tools"><h3>Token tools</h3><h4>Burn</h4><p>Burn permanently removes tokens from the connected holder when the verified token contract exposes the supported operation.</p><h4>Lock</h4><p>A lock must be enforced by an on-chain locker contract. The calendar selects the intended unlock schedule; a database flag is not a lock.</p><h4>Unlock</h4><p>Unlock/claim will use the verified locker contract and browser-wallet signing.</p></section>
-      <section id="fees"><h3>Fees</h3><p>Product fees are separate from token amounts, storage deposits and gas.</p><table><thead><tr><th>Operation</th><th>Current fee</th><th>Status</th></tr></thead><tbody><tr><td>Token creation / Mint</td><td>1 NEAR</td><td>Modeled; factory gated</td></tr><tr><td>Token Lock</td><td>1 NEAR</td><td>Modeled; locker gated</td></tr><tr><td>Airdrop</td><td>Gas/protocol dependent</td><td>User pays gas</td></tr><tr><td>Trading / Launch</td><td>Protocol quote</td><td>Read live</td></tr></tbody></table><p>Configured product-fee recipient: <code>widekingdom6862.near</code>. This is a fee recipient, not a browser signing key or automatic gas sponsor.</p></section>
+      <section id="fees"><h3>Fees</h3><p>Product fees are separate from token amounts, storage deposits and gas.</p><table><thead><tr><th>Operation</th><th>Current fee</th><th>Status</th></tr></thead><tbody><tr><td>Create Token</td><td>1 NEAR + factory storage deposit</td><td>Live via token factory</td></tr><tr><td>Token Lock</td><td>1 NEAR</td><td>Modeled; locker gated</td></tr><tr><td>Airdrop</td><td>Gas/protocol dependent</td><td>User pays gas</td></tr><tr><td>Trading / Launch</td><td>Protocol quote</td><td>Read live</td></tr></tbody></table><p>Configured product-fee recipient: <code>widekingdom6862.near</code>. This is a fee recipient, not a browser signing key or automatic gas sponsor.</p></section>
       <section id="execution"><h3>Execution model</h3><ol><li>Read live protocol state.</li><li>Build an immutable plan.</li><li>Validate account, balances, storage, gas and parameters.</li><li>Show the user what will be signed.</li><li>Request browser-wallet approval.</li><li>Persist the transaction hash or unresolved state.</li><li>Wait for finality and reconcile against NEAR RPC.</li></ol><p>The web terminal never falls back to Telegram signing.</p></section>
       <section id="safety"><h3>Safety & current limitations</h3><ul><li>Never enter a seed phrase or private key.</li><li>Verify receiver, token, amount, deposit and gas before signing.</li><li>Do not assume an uncertain transaction failed.</li><li>Large campaigns require bounded-memory planning and recovery validation before million-wallet execution.</li><li>Protocol-specific features are enabled only after their contract interfaces are verified.</li></ul><div className="docs-note warning"><strong>Current status:</strong> some modules are fully wired while token creation, locking and other protocol-specific operations remain gated until their exact contracts are verified.</div></section>
-      <section id="roadmap"><h3>Roadmap</h3><ol><li>Execution foundation and reconciliation.</li><li>Campaign resume, export and failure recovery.</li><li>Verified fresh-token factory/deployment adapter.</li><li>Verified lock, unlock, burn and related operations.</li><li>Complete NEARly browser launch lifecycle.</li><li>Trading, portfolio and transaction history.</li><li>Developer contract inspection and safe transaction building.</li><li>Bounded-memory million-wallet planning.</li></ol></section>
+      <section id="roadmap"><h3>Roadmap</h3><ol><li>Execution foundation and reconciliation.</li><li>Campaign resume, export and failure recovery.</li><li>Fresh-token creation through a verified factory (live).</li><li>Verified lock, unlock, burn and related operations.</li><li>Complete NEARly browser launch lifecycle.</li><li>Trading, portfolio and transaction history.</li><li>Developer contract inspection and safe transaction building.</li><li>Bounded-memory million-wallet planning.</li></ol></section>
       <footer className="docs-footer">Protocol behavior can change. Live chain state and verified contract interfaces take precedence over cached examples.</footer>
     </article></div>
   </section>;

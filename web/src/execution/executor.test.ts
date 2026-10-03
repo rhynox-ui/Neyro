@@ -68,7 +68,10 @@ function walletStub(
     connect: async () => ({ accountId: "sender.near" }),
     disconnect: async () => {},
     getAccounts: async () => [{ accountId: "sender.near" }],
-    signAndSend
+    signAndSend,
+    signAndSendMany: async () => {
+      throw new Error("not used by airdrop execution");
+    }
   };
 }
 

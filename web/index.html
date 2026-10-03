@@ -16,7 +16,16 @@
     <title>Neyro Terminal</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static description for crawlers and no-JS visitors; React replaces it on load. -->
+      <main style="max-width:720px;margin:48px auto;padding:0 16px;font-family:system-ui,sans-serif;color:#e7ebf0;background:#07090d">
+        <h1>Neyro Terminal</h1>
+        <p>Neyro Terminal is a non-custodial web interface for the NEAR blockchain. It lets token creators and holders create NEP-141 tokens through a public NEAR token factory, send tokens to many accounts, and launch tokens on NEARly.</p>
+        <p>Every transaction is reviewed and signed in your own NEAR wallet. Neyro never asks for a seed phrase, recovery phrase or private key, and never takes custody of funds.</p>
+        <p>Product updates: <a href="https://x.com/Neyrotrade">x.com/Neyrotrade</a>.</p>
+        <noscript><p>Neyro Terminal requires JavaScript.</p></noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

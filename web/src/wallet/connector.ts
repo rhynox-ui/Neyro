@@ -29,6 +29,12 @@ export interface WebWalletConnector {
   disconnect(): Promise<void>;
   getAccounts(): Promise<WalletAccount[]>;
   signAndSend(request: SignAndSendRequest): Promise<{ transactionHash?: string }>;
+  /**
+   * Signs several transactions in one wallet approval and sends them in
+   * order. Results are positional; a missing hash means that transaction's
+   * outcome is unknown, not that it failed.
+   */
+  signAndSendMany(requests: SignAndSendRequest[]): Promise<Array<{ transactionHash?: string }>>;
 }
 
 export class LockedWalletConnector implements WebWalletConnector {
@@ -45,6 +51,10 @@ export class LockedWalletConnector implements WebWalletConnector {
   }
 
   async signAndSend(): Promise<{ transactionHash?: string }> {
+    throw new Error("Transaction signing is disabled until a browser wallet is configured");
+  }
+
+  async signAndSendMany(): Promise<Array<{ transactionHash?: string }>> {
     throw new Error("Transaction signing is disabled until a browser wallet is configured");
   }
 }
