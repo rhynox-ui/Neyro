@@ -1,0 +1,1394 @@
+import { useEffect, useState } from "react";
+import type { Campaign } from "./campaign/model";
+import { NearRpcClient } from "./near/rpc";
+import type { WebWalletConnector } from "./wallet/connector";
+import { formatTokenToolFee, getTokenToolFee } from "./token-tools/fees";
+import { TOKEN_TOOL_FEE_RECIPIENT } from "./token-tools/fee-recipient";
+import { getNearlyLaunchQuotes, launchNearlyToken, quoteNearlyLaunch, NEARLY_WNEAR, type LaunchForm, type NearlyQuoteAsset, type LaunchCost } from "./protocol/nearly";
+
+function formatNear(yocto: string): string {
+  const value = BigInt(yocto);
+  const divisor = 10n ** 24n;
+  const whole = value / divisor;
+  const fraction = (value % divisor).toString().padStart(24, "0").slice(0, 4).replace(/0+$/, "");
+  return fraction ? `${whole.toString()}.${fraction} NEAR` : `${whole.toString()} NEAR`;
+}
+
+function shortId(value: string): string {
+  return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value;
+}
+
+function statusClass(status: Campaign["status"]): string {
+  return status === "completed" ? "ready" : status === "failed" ? "warning" : "muted";
+}
+
+export function OverviewView({
+  accountId,
+  campaigns,
+  tokenSymbol
+}: {
+  accountId: string;
+  campaigns: Campaign[];
+  tokenSymbol?: string;
+}) {
+  const [nativeBalance, setNativeBalance] = useState<string | null>(null);
+  const [balanceBusy, setBalanceBusy] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) {
+      setNativeBalance(null);
+      return;
+    }
+
+    let cancelled = false;
+    setBalanceBusy(true);
+    void new NearRpcClient().viewAccount(accountId)
+      .then((account) => {
+        if (!cancelled) setNativeBalance(account.amount);
+      })
+      .catch(() => {
+        if (!cancelled) setNativeBalance(null);
+      })
+      .finally(() => {
+        if (!cancelled) setBalanceBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
+
+  const completed = campaigns.filter((campaign) => campaign.status === "completed").length;
+  const active = campaigns.filter((campaign) => campaign.status === "running" || campaign.status === "paused").length;
+  const recipients = campaigns.reduce((sum, campaign) => sum + campaign.recipientCount, 0);
+  const latest = [...campaigns].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+
+  return (
+    <section className="grid overview">
+      <div className="card hero">
+        <div>
+          <span className="eyebrow">TERMINAL OVERVIEW</span>
+          <h2>Real wallet state. Real campaign state.</h2>
+          <p>
+            Neyro reads the connected browser wallet and locally persisted execution history.
+            Nothing on this screen is a demo balance or fabricated transaction.
+          </p>
+        </div>
+        <div className="hero-state">
+          <span className={accountId ? "status-dot live" : "status-dot"} />
+          <span>{accountId ? "Wallet connected" : "Connect wallet to begin"}</span>
+        </div>
+      </div>
+
+      <div className="stats">
+        <div className="card stat"><span>Network</span><strong>NEAR mainnet</strong></div>
+        <div className="card stat"><span>Native balance</span><strong>{balanceBusy ? "Reading…" : nativeBalance ? formatNear(nativeBalance) : "—"}</strong></div>
+        <div className="card stat"><span>Campaigns</span><strong>{campaigns.length.toLocaleString()}</strong></div>
+        <div className="card stat"><span>Recipients tracked</span><strong>{recipients.toLocaleString()}</strong></div>
+      </div>
+
+      <div className="card">
+        <div className="row-title">
+          <div><span className="eyebrow">EXECUTION HISTORY</span><h3>Campaign state</h3></div>
+          <span className="muted">{active.toLocaleString()} active</span>
+        </div>
+        <div className="overview-list">
+          <div><span>Completed campaigns</span><strong>{completed.toLocaleString()}</strong></div>
+          <div><span>Active / paused</span><strong>{active.toLocaleString()}</strong></div>
+          <div><span>Persisted recipient rows</span><strong>{recipients.toLocaleString()}</strong></div>
+          <div><span>Storage</span><strong>Browser IndexedDB</strong></div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="row-title">
+          <div><span className="eyebrow">LATEST CAMPAIGN</span><h3>{latest ? shortId(latest.id) : "No campaign yet"}</h3></div>
+          {latest && <span className={statusClass(latest.status)}>{latest.status}</span>}
+        </div>
+        {latest ? (
+          <div className="overview-list">
+            <div><span>Token</span><strong>{tokenSymbol ?? shortId(latest.tokenContract)}</strong></div>
+            <div><span>Recipients</span><strong>{latest.recipientCount.toLocaleString()}</strong></div>
+            <div><span>Senders</span><strong>{latest.senderIds.length.toLocaleString()}</strong></div>
+            <div><span>Batches</span><strong>{latest.batches.length.toLocaleString()}</strong></div>
+          </div>
+        ) : (
+          <p className="muted">Build a campaign from Multisender and its state will appear here.</p>
+        )}
+      </div>
+
+      <div className="card full">
+        <div className="row-title">
+          <div><span className="eyebrow">WALLET BOUNDARY</span><h3>Browser signing only</h3></div>
+          <span className={accountId ? "ready" : "muted"}>{accountId ? "connected" : "not connected"}</span>
+        </div>
+        <p className="muted">
+          Telegram wallet custody and Worker services are not exposed to the web terminal.
+          {accountId ? ` Connected account: ${accountId}.` : " Connect a browser wallet when you are ready to sign."}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export function CampaignHistoryView({
+  campaigns,
+  onOpen
+}: {
+  campaigns: Campaign[];
+  onOpen: (campaign: Campaign) => void;
+}) {
+  const sorted = [...campaigns].sort((a, b) => b.updatedAt - a.updatedAt);
+
+  return (
+    <section className="grid overview">
+      <div className="card hero">
+        <div>
+          <span className="eyebrow">PERSISTED CAMPAIGNS</span>
+          <h2>Execution history from this browser.</h2>
+          <p>
+            Campaigns are stored locally so Neyro can resume or reconcile execution after a reload.
+            No private keys are stored here.
+          </p>
+        </div>
+        <div className="hero-state"><span className="status-dot live" /><span>{campaigns.length} stored</span></div>
+      </div>
+
+      <div className="card full">
+        {sorted.length === 0 ? (
+          <p className="muted">No campaigns have been created in this browser yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Campaign</th><th>Token</th><th>Recipients</th><th>Batches</th><th>Status</th><th>Updated</th><th /></tr>
+              </thead>
+              <tbody>
+                {sorted.map((campaign) => (
+                  <tr key={campaign.id}>
+                    <td>{shortId(campaign.id)}</td>
+                    <td>{campaign.tokenContract}</td>
+                    <td>{campaign.recipientCount.toLocaleString()}</td>
+                    <td>{campaign.batches.length.toLocaleString()}</td>
+                    <td className={statusClass(campaign.status)}>{campaign.status}</td>
+                    <td>{new Date(campaign.updatedAt).toLocaleString()}</td>
+                    <td><button onClick={() => onOpen(campaign)}>Open</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+
+export function PortfolioView({
+  accountId,
+  tokenContract
+}: {
+  accountId: string;
+  tokenContract: string;
+}) {
+  const [nativeBalance, setNativeBalance] = useState<string | null>(null);
+  const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
+  const [tokenMetadata, setTokenMetadata] = useState<{ symbol: string; name: string; decimals: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    if (!accountId) {
+      setNativeBalance(null);
+      setTokenBalance(null);
+      setTokenMetadata(null);
+      setError("");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    const rpc = new NearRpcClient();
+    try {
+      const account = await rpc.viewAccount(accountId);
+      setNativeBalance(account.amount);
+
+      const contract = tokenContract.trim().toLowerCase();
+      if (contract) {
+        const metadata = await rpc.viewFunction<{ symbol: string; name: string; decimals: number }>(
+          contract,
+          "ft_metadata"
+        );
+        const balance = await rpc.viewFunction<string>(contract, "ft_balance_of", {
+          account_id: accountId
+        });
+        if (!/^\d+$/.test(balance)) throw new Error("Token returned an invalid balance.");
+        setTokenMetadata(metadata);
+        setTokenBalance(BigInt(balance));
+      } else {
+        setTokenMetadata(null);
+        setTokenBalance(null);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Portfolio read failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, [accountId, tokenContract]);
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero">
+        <div>
+          <span className="eyebrow">PORTFOLIO</span>
+          <h2>Live holdings from the connected NEAR account.</h2>
+          <p>No fabricated token rows or USD valuations. Neyro reads native NEAR and the token contract currently loaded in Multisender.</p>
+        </div>
+        <div className="hero-state">
+          <span className={accountId ? "status-dot live" : "status-dot"} />
+          <span>{accountId ? "Connected" : "Connect wallet"}</span>
+        </div>
+      </div>
+
+      {!accountId ? (
+        <div className="card full empty-state">
+          <h3>Connect a browser wallet</h3>
+          <p className="muted">Portfolio reads are account-specific and stay read-only.</p>
+        </div>
+      ) : (
+        <>
+          <div className="stats">
+            <div className="card stat"><span>Account</span><strong className="mono-value">{shortId(accountId)}</strong></div>
+            <div className="card stat"><span>NEAR balance</span><strong>{busy && nativeBalance === null ? "Reading…" : nativeBalance ? formatNear(nativeBalance) : "—"}</strong></div>
+            <div className="card stat"><span>Loaded token</span><strong>{tokenMetadata?.symbol ?? "—"}</strong></div>
+            <div className="card stat"><span>Token balance</span><strong>{tokenBalance !== null && tokenMetadata ? formatTokenBase(tokenBalance, tokenMetadata.decimals) : "—"}</strong></div>
+          </div>
+
+          <div className="card full">
+            <div className="row-title">
+              <div><span className="eyebrow">TOKEN HOLDING</span><h3>{tokenMetadata ? tokenMetadata.name : "No token loaded"}</h3></div>
+              <button onClick={() => void refresh()} disabled={busy}>{busy ? "Reading…" : "Refresh"}</button>
+            </div>
+            {tokenMetadata ? (
+              <div className="overview-list">
+                <div><span>Contract</span><strong>{tokenContract.trim().toLowerCase()}</strong></div>
+                <div><span>Symbol</span><strong>{tokenMetadata.symbol}</strong></div>
+                <div><span>Decimals</span><strong>{tokenMetadata.decimals}</strong></div>
+                <div><span>Balance</span><strong>{formatTokenBase(tokenBalance ?? 0n, tokenMetadata.decimals)}</strong></div>
+              </div>
+            ) : (
+              <p className="muted">Load a NEP-141 token in Multisender, then return here to read its balance.</p>
+            )}
+            {error && <p className="message warning">{error}</p>}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function formatTokenBase(value: bigint, decimals: number): string {
+  if (decimals === 0) return value.toString();
+  const divisor = 10n ** BigInt(decimals);
+  const whole = value / divisor;
+  const fraction = (value % divisor).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
+}
+
+export function ContractInspectorView() {
+  const [contract, setContract] = useState("");
+  const [method, setMethod] = useState("");
+  const [args, setArgs] = useState("{}");
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function inspect() {
+    const contractId = contract.trim().toLowerCase();
+    const methodName = method.trim();
+    if (!contractId || !methodName) {
+      setError("Enter a contract and read-only method.");
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(args);
+    } catch {
+      setError("Args must be valid JSON.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      const value = await new NearRpcClient().viewFunction<unknown>(contractId, methodName, parsed);
+      setResult(JSON.stringify(value, null, 2));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "View call failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero">
+        <div>
+          <span className="eyebrow">DEVELOPER / READ ONLY</span>
+          <h2>Inspect a NEAR contract without signing anything.</h2>
+          <p>Calls use final NEAR mainnet RPC state. This tool never sends a transaction.</p>
+        </div>
+        <div className="hero-state"><span className="status-dot live" /><span>Read-only</span></div>
+      </div>
+
+      <div className="card full">
+        <div className="two">
+          <div><label>Contract ID</label><input value={contract} onChange={(e) => setContract(e.target.value)} placeholder="contract.near" spellCheck={false} /></div>
+          <div><label>Method</label><input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="ft_metadata" spellCheck={false} /></div>
+        </div>
+        <div className="field-spacer">
+          <label>Args (JSON)</label>
+          <textarea value={args} onChange={(e) => setArgs(e.target.value)} rows={7} spellCheck={false} />
+        </div>
+        <button onClick={() => void inspect()} disabled={busy}>{busy ? "Reading…" : "Call view method"}</button>
+        {error && <p className="message warning">{error}</p>}
+      </div>
+
+      {result !== null && (
+        <div className="card full">
+          <div className="section-head"><div><span className="eyebrow">RESULT</span><h3>Final RPC response</h3></div></div>
+          <pre className="code-output">{result}</pre>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function PersistedTransactionsView({ campaigns }: { campaigns: Campaign[] }) {
+  const rows = campaigns
+    .flatMap((campaign) => campaign.batches
+      .filter((batch) => batch.transactionHash)
+      .map((batch) => ({
+        campaignId: campaign.id,
+        batchId: batch.id,
+        senderId: batch.senderId,
+        transactionHash: batch.transactionHash!,
+        status: batch.status,
+        updatedAt: campaign.updatedAt
+      })))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero">
+        <div>
+          <span className="eyebrow">TRANSACTIONS</span>
+          <h2>Transactions persisted by the web execution layer.</h2>
+          <p>This list is derived only from browser-persisted campaign batches. No demo transaction hashes are shown.</p>
+        </div>
+        <div className="hero-state"><span className="status-dot live" /><span>{rows.length} recorded</span></div>
+      </div>
+      <div className="card full">
+        {rows.length === 0 ? (
+          <div className="empty-state"><h3>No submitted transactions</h3><p className="muted">Execute a campaign and confirmed or submitted transaction hashes will appear here.</p></div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Campaign</th><th>Batch</th><th>Sender</th><th>Status</th><th>Transaction</th></tr></thead>
+              <tbody>{rows.map((row) => (
+                <tr key={row.campaignId + row.batchId}><td>{shortId(row.campaignId)}</td><td>{row.batchId}</td><td>{row.senderId}</td><td className={row.status === "success" ? "ready" : row.status === "failed" ? "warning" : "muted"}>{row.status}</td><td className="mono-value">{row.transactionHash}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function TokenBurnView({
+  accountId,
+  wallet
+}: {
+  accountId: string;
+  wallet: WebWalletConnector | null;
+}) {
+  const [token, setToken] = useState("");
+  const [metadata, setMetadata] = useState<{ name?: string; symbol: string; decimals: number } | null>(null);
+  const [balance, setBalance] = useState<bigint | null>(null);
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [txHash, setTxHash] = useState("");
+
+  async function loadToken() {
+    const contract = token.trim().toLowerCase();
+    if (!contract) {
+      setError("Enter a token contract.");
+      return;
+    }
+    if (!accountId) {
+      setError("Connect a browser wallet first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setMessage("");
+    setMetadata(null);
+    setBalance(null);
+    try {
+      const rpc = new NearRpcClient();
+      const launch = await rpc.viewFunction<Record<string, unknown> | null>(
+        "nearlytrade.near",
+        "get_launch_by_token",
+        { token: contract }
+      );
+      if (!launch || launch.token !== contract || launch.step !== "Done") {
+        throw new Error("Burn is currently enabled only for completed NEARly launches.");
+      }
+
+      const meta = await rpc.viewFunction<{ spec?: string; name?: string; symbol?: string; decimals?: number }>(
+        contract,
+        "ft_metadata",
+        {}
+      );
+      if (meta.spec !== "ft-1.0.0" && meta.spec !== "ft-1.0.0".toLowerCase() && !String(meta.spec ?? "").startsWith("ft-")) {
+        throw new Error("Contract is not exposing a NEP-141 token interface.");
+      }
+      const symbol = meta.symbol;
+      const decimals = meta.decimals;
+      if (typeof symbol !== "string" || typeof decimals !== "number" || !Number.isInteger(decimals) || decimals < 0 || decimals > 64) {
+        throw new Error("Token metadata is invalid.");
+      }
+
+      const rawBalance = await rpc.viewFunction<string>(contract, "ft_balance_of", { account_id: accountId });
+      if (!/^\d+$/.test(rawBalance)) throw new Error("Token returned an invalid balance.");
+
+      setMetadata({
+        symbol,
+        decimals,
+        ...(typeof meta.name === "string" ? { name: meta.name } : {})
+      });
+      setBalance(BigInt(rawBalance));
+      setMessage("NEARly launch verified. Burn removes tokens from your own balance permanently.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to verify token.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function burn() {
+    const contract = token.trim().toLowerCase();
+    if (!wallet || !accountId || !metadata || balance === null) {
+      setError("Load a verified NEARly token and connect the browser wallet.");
+      return;
+    }
+
+    let base: bigint;
+    try {
+      base = toTokenBase(amount, metadata.decimals);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Enter a valid burn amount.");
+      return;
+    }
+    if (base > balance) {
+      setError("Burn amount exceeds your current token balance.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setTxHash("");
+    try {
+      // One approval: the burn first, then the Neyro fee, so a wallet that
+      // stops at the first failure never charges for a burn that did not happen.
+      const [result, fee] = await wallet.signAndSendMany([
+        {
+          signerId: accountId,
+          receiverId: contract,
+          actions: [{
+            type: "FunctionCall",
+            receiverId: contract,
+            methodName: "burn",
+            args: { amount: base.toString() },
+            gas: 30_000_000_000_000n,
+            deposit: 0n
+          }]
+        },
+        {
+          signerId: accountId,
+          receiverId: TOKEN_TOOL_FEE_RECIPIENT,
+          actions: [{ type: "Transfer", receiverId: TOKEN_TOOL_FEE_RECIPIENT, deposit: getTokenToolFee("burn") }]
+        }
+      ]);
+      if (!result?.transactionHash) throw new Error("Wallet did not return a transaction hash. Check your wallet activity before trying again.");
+      setTxHash(result.transactionHash);
+      setMessage(
+        `Burn transaction submitted${fee?.transactionHash ? ` (fee tx ${fee.transactionHash})` : "; the wallet did not return the fee hash"}. Wait for finality, then use Verify token to refresh the on-chain balance.`
+      );
+      setAmount("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Burn transaction failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero">
+        <div>
+          <span className="eyebrow">TOKEN TOOLS / BURN</span>
+          <h2>Burn tokens from your own NEARly balance.</h2>
+          <p>NEARly launch tokens have fixed supply. A holder can permanently burn tokens they own; Neyro never submits a burn for another account.</p>
+        </div>
+        <div className="hero-state"><span className={accountId ? "status-dot live" : "status-dot"} /><span>{accountId ? "Wallet connected" : "Connect wallet"}</span></div>
+      </div>
+
+      <div className="card full">
+        <div className="section-head">
+          <div><span className="eyebrow">NEARLY TOKEN</span><h3>Verify token</h3></div>
+          <button onClick={() => void loadToken()} disabled={loading}>{loading ? "Reading…" : "Verify token"}</button>
+        </div>
+        <label>Token contract</label>
+        <input value={token} onChange={(e) => { setToken(e.target.value.trim().toLowerCase()); setMetadata(null); setBalance(null); setError(""); setMessage(""); }} placeholder="ticker.nearlytrade.near" spellCheck={false} />
+        {metadata && (
+          <div className="token-tool-summary">
+            <div><span>Token</span><strong>{metadata.name ?? metadata.symbol} · {metadata.symbol}</strong></div>
+            <div><span>Balance</span><strong>{formatTokenBase(balance ?? 0n, metadata.decimals)} {metadata.symbol}</strong></div>
+            <div><span>Decimals</span><strong>{metadata.decimals}</strong></div>
+          </div>
+        )}
+      </div>
+
+      {metadata && balance !== null && (
+        <div className="card full burn-card">
+          <div className="section-head"><div><span className="eyebrow">IRREVERSIBLE ACTION</span><h3>Burn your tokens</h3></div></div>
+          <div className="two">
+            <div>
+              <label>Amount</label>
+              <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+            </div>
+            <div className="tool-balance">
+              <span>Available</span>
+              <strong>{formatTokenBase(balance, metadata.decimals)} {metadata.symbol}</strong>
+              <button type="button" onClick={() => setAmount(formatTokenBase(balance, metadata.decimals))}>Use full balance</button>
+            </div>
+          </div>
+          <div className="burn-warning">Burning permanently reduces total supply. The transaction cannot be reversed.</div>
+          <small>Neyro fee: {formatTokenToolFee("burn")} to {TOKEN_TOOL_FEE_RECIPIENT}, approved together with the burn. You also pay network gas.</small>
+          <button className="primary" onClick={() => void burn()} disabled={busy || !wallet || !accountId}>
+            {busy ? "Submitting burn…" : "Burn tokens"}
+          </button>
+          {txHash && <p className="message success">Submitted: <span className="mono-value">{txHash}</span></p>}
+          {message && <p className="message">{message}</p>}
+          {error && <p className="message warning">{error}</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function toTokenBase(value: string, decimals: number): bigint {
+  const clean = value.trim();
+  if (!/^\d+(?:\.\d+)?$/.test(clean)) throw new Error("Enter a valid token amount.");
+  const [whole, fraction = ""] = clean.split(".");
+  if (fraction.length > decimals) throw new Error(`Amount supports at most ${decimals} decimals.`);
+  const base = BigInt(whole) * 10n ** BigInt(decimals) + BigInt(fraction.padEnd(decimals, "0") || "0");
+  if (base <= 0n) throw new Error("Amount must be greater than zero.");
+  return base;
+}
+
+
+export function TokenLockView({ accountId }: { accountId: string }) {
+  const today = new Date();
+  const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [time, setTime] = useState("12:00");
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [token, setToken] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const monthLabel = month.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const cells = Array.from({ length: firstDay + daysInMonth }, (_, index) => index < firstDay ? null : index - firstDay + 1);
+
+  function selectDay(day: number) {
+    const next = new Date(month.getFullYear(), month.getMonth(), day);
+    next.setHours(Number(time.slice(0, 2)), Number(time.slice(3, 5)), 0, 0);
+    setSelectedDate(next);
+    setCalendarOpen(false);
+  }
+
+  function changeMonth(offset: number) {
+    setMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  }
+
+  function isBeforeToday(day: number) {
+    const candidate = new Date(month.getFullYear(), month.getMonth(), day);
+    const floor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    return candidate < floor;
+  }
+
+  function formatSelected() {
+    if (!selectedDate) return "Select unlock date";
+    return selectedDate.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+  }
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero full">
+        <div>
+          <span className="eyebrow">TOKEN TOOLS / LOCK</span>
+          <h2>Token Locker</h2>
+          <p>Lock your tokens until a scheduled unlock date. The calendar only selects the schedule; deployment remains gated until Neyro's verified locker contract is connected.</p>
+        </div>
+        <div className="hero-state"><span className="status-dot" /><span>Locker deployment gate</span></div>
+      </div>
+
+      <div className="card locker-load full">
+        <div className="locker-token-select"><span className="locker-token-badge">NEAR</span><span className="locker-token-caret">⌄</span></div>
+        <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="Enter token contract or locker address" spellCheck={false} />
+        <button className="primary" type="button" disabled={!token.trim()}>LOAD</button>
+      </div>
+
+      <div className="card locker-state full">
+        <span className="locker-state-icon">⌁</span>
+        <strong>Load a token to view</strong>
+        <span>Live token balance and existing lockers will appear here when a verified locker protocol is connected.</span>
+      </div>
+
+      <div className="card locker-create">
+        <div className="section-head">
+          <div><span className="eyebrow">01 / LOCK</span><h3>Create Locker</h3></div>
+          <span className="module-status">NON-CUSTODIAL</span>
+        </div>
+
+        <div className="mint-field">
+          <div className="field-row-label"><label>Token Amount</label><span className="locker-balance">Balance —</span></div>
+          <div className="amount-max">
+            <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+            <button type="button" onClick={() => {}} disabled>MAX</button>
+          </div>
+        </div>
+
+        <div className="mint-field">
+          <label>Unlock Schedule</label>
+          <div className="calendar-field">
+            <button type="button" className={selectedDate ? "calendar-trigger selected" : "calendar-trigger"} onClick={() => setCalendarOpen((open) => !open)}>
+              <span className="calendar-icon">📅</span>
+              <span>{formatSelected()}</span>
+              <span className="calendar-chevron">⌄</span>
+            </button>
+
+            {calendarOpen && (
+              <div className="modern-calendar" role="dialog" aria-label="Unlock date calendar">
+                <div className="calendar-head">
+                  <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous month">‹</button>
+                  <strong>{monthLabel}</strong>
+                  <button type="button" onClick={() => changeMonth(1)} aria-label="Next month">›</button>
+                </div>
+                <div className="calendar-weekdays">
+                  {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => <span key={day}>{day}</span>)}
+                </div>
+                <div className="calendar-grid">
+                  {cells.map((day, index) => day === null ? <span key={index} /> : (
+                    <button
+                      key={day}
+                      type="button"
+                      className={[
+                        selectedDate && selectedDate.getFullYear() === month.getFullYear() && selectedDate.getMonth() === month.getMonth() && selectedDate.getDate() === day ? "selected" : "",
+                        new Date().getFullYear() === month.getFullYear() && new Date().getMonth() === month.getMonth() && new Date().getDate() === day ? "today" : ""
+                      ].filter(Boolean).join(" ")}
+                      disabled={isBeforeToday(day)}
+                      onClick={() => selectDay(day)}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
+                <div className="calendar-time">
+                  <label>Unlock time</label>
+                  <input type="time" value={time} onChange={(e) => {
+                    setTime(e.target.value);
+                    if (selectedDate) {
+                      const next = new Date(selectedDate);
+                      next.setHours(Number(e.target.value.slice(0, 2)), Number(e.target.value.slice(3, 5)), 0, 0);
+                      setSelectedDate(next);
+                    }
+                  }} />
+                </div>
+                <button type="button" className="calendar-today" onClick={() => {
+                  const next = new Date();
+                  next.setHours(Number(time.slice(0, 2)), Number(time.slice(3, 5)), 0, 0);
+                  setMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+                  setSelectedDate(next);
+                  setCalendarOpen(false);
+                }}>Today</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="locker-summary">
+          <span>Unlock</span>
+          <strong>{selectedDate ? `${selectedDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · ${selectedDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "Not scheduled"}</strong>
+        </div>
+
+        <div className="mint-interface-warning">
+          <strong>Locker deployment is intentionally gated.</strong>
+          <span>Neyro does not currently expose a verified generic token-locker contract here. No guessed locker address or lock method is used.</span>
+        </div>
+        <button className="mint-submit" type="button" disabled={!accountId || !token.trim() || !amount.trim() || !selectedDate}>Create Locker</button>
+      </div>
+
+      <div className="card locker-existing">
+        <div className="section-head"><div><span className="eyebrow">02 / LOCKERS</span><h3>Existing Lockers</h3></div><span className="module-status">LIVE DATA</span></div>
+        <div className="locker-empty">
+          <span className="locker-empty-icon">◌</span>
+          <strong>No lockers loaded</strong>
+          <span>Connect a verified locker protocol to read existing locks.</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function TerminalModuleView({
+  view,
+  onNavigate
+}: {
+  view: string;
+  onNavigate: (view: string) => void;
+}) {
+  const descriptions: Record<string, {
+    eyebrow: string;
+    title: string;
+    body: string;
+    details: Array<[string, string]>;
+  }> = {
+    Mint: {
+      eyebrow: "TOKEN / MINT",
+      title: "Create a fresh developer-owned NEP-141 token.",
+      body: "Create Token deploys a fresh fixed-supply NEP-141 token through a NEAR token factory.",
+      details: [
+        ["Identity", "Name, symbol and decimals"],
+        ["Initial supply", "Created for the selected recipient"],
+        ["Deployment", "Enabled only after the Neyro token implementation is verified"]
+      ]
+    },
+    Lock: {
+      eyebrow: "TOKEN TOOLS / LOCK",
+      title: "Token locking is not a NEARly token operation.",
+      body: "NEARly's lock contracts hold launch liquidity positions. They are not a general-purpose token locker and Neyro will not send user tokens into them.",
+      details: [
+        ["NEARly locker", "Holds the launch Rhea position"],
+        ["User tokens", "No supported deposit-to-lock flow"],
+        ["Neyro", "No irreversible transfer to an unrelated locker"]
+      ]
+    },
+    Unlock: {
+      eyebrow: "TOKEN TOOLS / UNLOCK",
+      title: "There is no user-token unlock flow in NEARly.",
+      body: "The NEARly liquidity locker has no liquidity withdrawal operation. Neyro therefore does not expose an unlock transaction that could imply a false recovery path.",
+      details: [
+        ["Liquidity", "Locked by the launch protocol"],
+        ["Withdrawal", "No supported locker withdrawal method"],
+        ["Safety", "No guessed contract call"]
+      ]
+    },
+    "Contract Call": {
+      eyebrow: "DEVELOPER / WRITE",
+      title: "Generic contract writes remain intentionally scoped.",
+      body: "The terminal exposes verified protocol operations rather than an arbitrary method-and-arguments signer.",
+      details: [
+        ["Read", "Contract Inspector is live"],
+        ["Write", "Protocol-specific builders only"],
+        ["Review", "Receiver, method, gas and deposit are explicit"]
+      ]
+    },
+    "Transaction Builder": {
+      eyebrow: "DEVELOPER / BUILDER",
+      title: "Transaction building uses verified action primitives.",
+      body: "Arbitrary contract execution is not presented as a safe generic form. Supported operations are built from explicit receiver, method, gas and deposit values.",
+      details: [
+        ["Actions", "FunctionCall and Transfer"],
+        ["Validation", "Gas, deposit and argument bounds"],
+        ["Wallet", "Browser signing only"]
+      ]
+    },
+    "Token Operations": {
+      eyebrow: "TOKEN TOOLS / HISTORY",
+      title: "Token operation history comes from real execution records.",
+      body: "No synthetic token transactions are shown. Confirmed operations can be persisted and reconciled before appearing in history.",
+      details: [
+        ["Source", "Browser execution state"],
+        ["Status", "Submitted, confirmed, failed or unknown"],
+        ["Safety", "Unknown transactions are reconciled before retry"]
+      ]
+    },
+    Swap: {
+      eyebrow: "TRADE / SWAP",
+      title: "Swap quotes are live; execution is the remaining signing gate.",
+      body: "Neyro already reads live RHEA routes. The final execution path must handle token registration, wrapping and multi-action reconciliation before signing is enabled.",
+      details: [
+        ["Quote", "Live RHEA SmartRouter response"],
+        ["Controls", "Slippage, expiry and minimum received"],
+        ["Execution", "Browser signing after lifecycle verification"]
+      ]
+    }
+  };
+
+  const copy = descriptions[view] ?? {
+    eyebrow: "TERMINAL",
+    title: "Module not available.",
+    body: "No route is exposed for this module yet.",
+    details: [
+      ["State", "No fabricated data"],
+      ["Safety", "No unverified transaction"],
+      ["Next", "Use an implemented terminal section"]
+    ]
+  };
+
+  return (
+    <section className="module-placeholder card">
+      <span className="eyebrow">{copy.eyebrow}</span>
+      <h2>{copy.title}</h2>
+      <p>{copy.body}</p>
+      <span className="module-status">Protocol behavior verified</span>
+      <div className="module-details">
+        {copy.details.map(([title, body]) => (
+          <div className="module-detail" key={title}>
+            <strong>{title}</strong>
+            <span>{body}</span>
+          </div>
+        ))}
+      </div>
+      <div className="action-row">
+        {view === "Burn" && <button className="primary" onClick={() => onNavigate("Burn")}>Open burn tool</button>}
+      </div>
+    </section>
+  );
+}
+
+export function NearlyLaunchView({
+  accountId,
+  wallet
+}: {
+  accountId: string;
+  wallet: WebWalletConnector | null;
+}) {
+  const emptyForm: LaunchForm = {
+    name: "",
+    symbol: "",
+    description: "",
+    icon: "",
+    website: "",
+    twitter: "",
+    telegram: "",
+    quote: NEARLY_WNEAR,
+    devBuyNear: "0",
+    buyBps: 0,
+    sellBps: 0,
+    creatorBps: 10000,
+    burnBps: 0,
+    holdersBps: 0
+  };
+  const [form, setForm] = useState<LaunchForm>(emptyForm);
+  const [quotes, setQuotes] = useState<NearlyQuoteAsset[]>([]);
+  const [cost, setCost] = useState<LaunchCost | null>(null);
+  const [txHash, setTxHash] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loadingPairs, setLoadingPairs] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingPairs(true);
+    getNearlyLaunchQuotes()
+      .then((items) => { if (!cancelled) setQuotes(items); })
+      .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load NEARly pairs."); })
+      .finally(() => { if (!cancelled) setLoadingPairs(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  function patch<K extends keyof LaunchForm>(key: K, value: LaunchForm[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+    setCost(null);
+    setTxHash("");
+    setMessage("");
+    setError("");
+  }
+
+  async function quote() {
+    setBusy(true); setError(""); setMessage(""); setTxHash("");
+    try {
+      const next = await quoteNearlyLaunch(form);
+      setCost(next);
+      setMessage("Live NEARly launch cost loaded from the factory.");
+    } catch (cause) {
+      setCost(null);
+      setError(cause instanceof Error ? cause.message : "Launch quote failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function launch() {
+    if (!wallet) { setError("Connect your browser wallet first."); return; }
+    setBusy(true); setError(""); setMessage(""); setTxHash("");
+    try {
+      const result = await launchNearlyToken(form, accountId, wallet);
+      setCost(result.cost);
+      setTxHash(result.txHash);
+      setMessage("Launch transaction submitted. Check the transaction before submitting another launch.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Launch failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const updateTax = (key: "buyBps" | "sellBps", percent: string) => {
+    const parsed = Number(percent);
+    patch(key, Number.isFinite(parsed) ? Math.round(parsed * 100) : 0);
+  };
+
+  return (
+    <section className="grid terminal-page">
+      <div className="card hero full">
+        <div>
+          <span className="eyebrow">LAUNCH / NEARLY</span>
+          <h2>Launch a token directly from the browser wallet.</h2>
+          <p>Pairs and launch costs are read live from the NEARly factory. The launch transaction is signed by the connected account; Neyro does not custody the wallet.</p>
+        </div>
+        <div className="hero-state"><span className={accountId ? "status-dot live" : "status-dot"} /><span>{accountId ? shortId(accountId) : "Connect wallet"}</span></div>
+      </div>
+
+      <div className="card">
+        <div className="section-head"><div><span className="eyebrow">TOKEN</span><h3>Identity</h3></div></div>
+        <div className="form-grid">
+          <div><label>Name</label><input value={form.name} onChange={(e) => patch("name", e.target.value)} placeholder="Token name" /></div>
+          <div><label>Symbol</label><input value={form.symbol} onChange={(e) => patch("symbol", e.target.value.toUpperCase())} placeholder="TICKER" /></div>
+          <div className="full-field"><label>Description</label><textarea rows={3} value={form.description} onChange={(e) => patch("description", e.target.value)} placeholder="Optional description" /></div>
+          <div className="full-field"><label>Logo URL or uploaded image</label><input value={form.icon} onChange={(e) => patch("icon", e.target.value)} placeholder="https://… or ipfs://…" /></div>
+          <div><label>Website</label><input value={form.website} onChange={(e) => patch("website", e.target.value)} placeholder="https://…" /></div>
+          <div><label>X</label><input value={form.twitter} onChange={(e) => patch("twitter", e.target.value)} placeholder="https://x.com/…" /></div>
+          <div><label>Telegram</label><input value={form.telegram} onChange={(e) => patch("telegram", e.target.value)} placeholder="https://t.me/…" /></div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="section-head"><div><span className="eyebrow">PAIR & FIRST BUY</span><h3>Launch settings</h3></div></div>
+        <div className="form-grid">
+          <div className="full-field">
+            <label>Launch pair</label>
+            <select value={form.quote} onChange={(e) => patch("quote", e.target.value)}>
+              {loadingPairs && <option value={form.quote}>Loading live pairs…</option>}
+              {quotes.map((q) => <option key={q.accountId} value={q.accountId}>{q.symbol} · {q.accountId}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>First buy (NEAR)</label>
+            <input inputMode="decimal" value={form.devBuyNear} onChange={(e) => patch("devBuyNear", e.target.value)} placeholder="0" />
+            <small>Native first buy is used by the factory only for the NEAR pair.</small>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="section-head"><div><span className="eyebrow">OPTIONAL TAX</span><h3>Buy / sell tax</h3></div></div>
+        <div className="form-grid">
+          <div><label>Buy tax (%)</label><input inputMode="decimal" min="0" max="4" step="0.01" value={form.buyBps / 100} onChange={(e) => updateTax("buyBps", e.target.value)} /></div>
+          <div><label>Sell tax (%)</label><input inputMode="decimal" min="0" max="4" step="0.01" value={form.sellBps / 100} onChange={(e) => updateTax("sellBps", e.target.value)} /></div>
+          {(form.buyBps || form.sellBps) > 0 && (
+            <>
+              <div><label>Creator share (%)</label><input inputMode="decimal" value={form.creatorBps / 100} onChange={(e) => patch("creatorBps", Math.round(Number(e.target.value || 0) * 100))} /></div>
+              <div><label>Burn share (%)</label><input inputMode="decimal" value={form.burnBps / 100} onChange={(e) => patch("burnBps", Math.round(Number(e.target.value || 0) * 100))} /></div>
+              <div><label>Holders share (%)</label><input inputMode="decimal" value={form.holdersBps / 100} onChange={(e) => patch("holdersBps", Math.round(Number(e.target.value || 0) * 100))} /></div>
+              <div className="tax-total"><span>Distribution</span><strong>{((form.creatorBps + form.burnBps + form.holdersBps) / 100).toFixed(2)}%</strong></div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="card full">
+        <div className="row-title">
+          <div><span className="eyebrow">FACTORY QUOTE</span><h3>{cost ? "Live launch cost" : "Quote before signing"}</h3></div>
+          <button onClick={() => void quote()} disabled={busy}>{busy ? "Reading…" : "Get launch cost"}</button>
+        </div>
+        {cost && (
+          <div className="overview-list">
+            <div><span>Launch fee</span><strong>{formatNear(cost.launch_fee)}</strong></div>
+            <div><span>Token storage</span><strong>{formatNear(cost.token_storage)}</strong></div>
+            <div><span>Pool creation</span><strong>{formatNear(cost.pool_create)}</strong></div>
+            <div><span>DCL storage</span><strong>{formatNear(cost.dcl_storage)}</strong></div>
+            <div><span>First buy</span><strong>{formatNear(cost.dev_buy)}</strong></div>
+            <div><span>Total</span><strong>{formatNear(cost.total)}</strong></div>
+          </div>
+        )}
+        <div className="action-row">
+          <button className="primary" onClick={() => void launch()} disabled={busy || !accountId}>{busy ? "Working…" : "Launch token"}</button>
+        </div>
+        {txHash && <p className="message success">Submitted: <span className="mono-value">{txHash}</span></p>}
+        {message && <p className="message">{message}</p>}
+        {error && <p className="message warning">{error}</p>}
+      </div>
+    </section>
+  );
+}
+
+
+export function DocsView() {
+  const sections = [["Overview","overview"],["Bot & Telegram","bot"],["Getting started","getting-started"],["Wallet & security","wallet"],["Token creation","token-creation"],["NEARly launch","nearly"],["Trading","trading"],["Multisender","multisender"],["Token tools","token-tools"],["Fees","fees"],["Execution model","execution"],["Safety & limitations","safety"],["Roadmap","roadmap"]] as const;
+  return <section className="docs-page">
+    <div className="card docs-hero"><span className="eyebrow">NEYRO / DOCUMENTATION</span><h2>On-chain tools for NEAR.</h2><p>Neyro is a non-custodial terminal for creating, launching, trading and managing tokens on NEAR. The web terminal uses your browser wallet for signing and reads protocol state directly from the network.</p><div className="docs-meta"><span>NEAR mainnet</span><span>Browser wallet</span><span>Non-custodial</span></div></div>
+    <div className="docs-layout"><aside className="card docs-sidebar"><span className="eyebrow">CONTENTS</span>{sections.map(([label,id])=><a key={id} href={"#"+id}>{label}</a>)}</aside>
+    <article className="card docs-content">
+      <section id="overview"><h3>What is Neyro?</h3><p>Neyro is a web terminal built around direct interaction with NEAR protocols and smart contracts. It brings token, launch and trading operations into one interface while keeping signing in the connected browser wallet.</p><p>The terminal is built around <strong>non-custodial signing</strong>, <strong>verified on-chain state</strong> and <strong>explicit transaction review</strong>.</p></section>
+      <section id="bot"><h3>Neyro Telegram bot</h3><p>The Neyro bot is the Telegram-facing part of the project. It provides the conversational interface for on-chain workflows while the web terminal remains a separate browser-wallet execution surface.</p><p>Use the bot to access Neyro from Telegram: <a href="https://t.me/Testirhbot" target="_blank" rel="noreferrer"><strong>@Testirhbot</strong></a>.</p><p>Follow product updates and releases on X: <a href="https://x.com/Neyrotrade" target="_blank" rel="noreferrer"><strong>@Neyrotrade</strong></a>.</p><div className="docs-note"><strong>Wallet boundary:</strong> the web terminal does not import Telegram wallet keys or use Telegram signing as a fallback. The browser wallet remains the signer for web execution.</div></section>
+      <section id="getting-started"><h3>Getting started</h3><ol><li>Connect a supported NEAR browser wallet.</li><li>Select an operation.</li><li>Load the relevant token or protocol data.</li><li>Review live state, parameters, fees, deposits and transaction actions.</li><li>Approve the transaction in your wallet.</li><li>Wait for confirmation and verify the resulting chain state.</li></ol><div className="docs-note"><strong>Important:</strong> Neyro never asks for your seed phrase or private key.</div></section>
+      <section id="wallet"><h3>Wallet & security</h3><p>The browser wallet is the signer. Neyro receives the connected account and requests explicit signatures.</p><ul><li>No Telegram wallet keys are imported.</li><li>No seed phrases are stored in localStorage.</li><li>No private key is sent to a backend.</li><li>Campaign state can be persisted locally for recovery.</li><li>Unknown transaction outcomes are never blindly resent.</li></ul></section>
+      <section id="token-creation"><h3>Token creation</h3><p><strong>Create Token deploys a brand-new NEP-141 token</strong> through a NEAR fungible-token factory (Token Farm <code>tkn.near</code>, or the <code>token.primitives.near</code> factory from the official NEAR docs). It is not a way to issue more supply into an existing token.</p><h4>What you get</h4><ul><li>A token contract at <code>&lt;symbol&gt;.&lt;factory&gt;</code>, for example <code>abc.tkn.near</code>.</li><li>The full supply credited to the recipient you choose.</li><li>A fixed supply: the canonical contract has no mint, freeze or burn authority and no transfer tax. Those are Solana-style options that do not exist on this contract.</li></ul><h4>Cost</h4><p>The storage deposit is read live from the factory's <code>get_required_deposit</code> view, so it depends on your metadata and logo size. Neyro adds a 1 NEAR fee and you pay network gas. One wallet approval sends the factory call first, then the fee.</p><h4>Safety checks</h4><p>Before you sign, Neyro calls the factory's own views to confirm its interface, checks that the symbol is free and that your spendable balance covers the total. It repeats that check immediately before opening the wallet, and only reports success after the new token contract answers <code>ft_metadata</code>.</p></section>
+      <section id="nearly"><h3>NEARly launch</h3><p>NEARly is a separate launch path for creating and launching a token through the verified NEARly protocol. The interface supports live launch pairs, metadata, optional first buy and optional tax configuration where supported.</p><p>Launch costs are read from the protocol quote rather than treated as an invented fixed number.</p></section>
+      <section id="trading"><h3>Trading</h3><p>Swap reads balances, requests live routes or quotes, applies supported slippage controls and submits through the browser wallet. Quotes can expire and on-chain state can change between quote and confirmation.</p></section>
+      <section id="multisender"><h3>Multisender (bulk token transfers)</h3><p>The NEP-141 transfer engine supports CSV, TXT and JSON input, account validation, duplicate detection, exact bigint arithmetic, deterministic sender allocation and conservative gas-aware batches.</p><p>Before signing, fresh balances and registration state are checked. Unknown outcomes require reconciliation before retry.</p></section>
+      <section id="token-tools"><h3>Token tools</h3><h4>Burn</h4><p>Burn permanently removes tokens from the connected holder when the verified token contract exposes the supported operation.</p><h4>Lock</h4><p>A lock must be enforced by an on-chain locker contract. The calendar selects the intended unlock schedule; a database flag is not a lock.</p><h4>Unlock</h4><p>Unlock/claim will use the verified locker contract and browser-wallet signing.</p></section>
+      <section id="fees"><h3>Fees</h3><p>Product fees are separate from token amounts, storage deposits and gas.</p><table><thead><tr><th>Operation</th><th>Current fee</th><th>Status</th></tr></thead><tbody><tr><td>Create Token</td><td>1 NEAR + factory storage deposit</td><td>Live via token factory</td></tr><tr><td>Token Lock</td><td>1 NEAR</td><td>Modeled; locker gated</td></tr><tr><td>Multisender</td><td>0.01 NEAR per recipient (min 1, max 250 NEAR), once per campaign</td><td>Live; charged before the first batch, never on resume</td></tr><tr><td>Burn</td><td>0.1 NEAR</td><td>Live; approved together with the burn</td></tr><tr><td>Recipient registration</td><td>No Neyro fee</td><td>Storage deposit goes to the token contract</td></tr><tr><td>Trading / Launch</td><td>Protocol quote only</td><td>No Neyro fee</td></tr><tr><td>Contract Inspector, Portfolio</td><td>Free</td><td>Read-only</td></tr></tbody></table><p>Configured product-fee recipient: <code>widekingdom6862.near</code>. This is a fee recipient, not a browser signing key or automatic gas sponsor.</p></section>
+      <section id="execution"><h3>Execution model</h3><ol><li>Read live protocol state.</li><li>Build an immutable plan.</li><li>Validate account, balances, storage, gas and parameters.</li><li>Show the user what will be signed.</li><li>Request browser-wallet approval.</li><li>Persist the transaction hash or unresolved state.</li><li>Wait for finality and reconcile against NEAR RPC.</li></ol><p>The web terminal never falls back to Telegram signing.</p></section>
+      <section id="safety"><h3>Safety & current limitations</h3><ul><li>Never enter a seed phrase or private key.</li><li>Verify receiver, token, amount, deposit and gas before signing.</li><li>Do not assume an uncertain transaction failed.</li><li>Large campaigns require bounded-memory planning and recovery validation before million-wallet execution.</li><li>Protocol-specific features are enabled only after their contract interfaces are verified.</li></ul><div className="docs-note warning"><strong>Current status:</strong> some modules are fully wired while token creation, locking and other protocol-specific operations remain gated until their exact contracts are verified.</div></section>
+      <section id="roadmap"><h3>Roadmap</h3><ol><li>Execution foundation and reconciliation.</li><li>Campaign resume, export and failure recovery.</li><li>Fresh-token creation through a verified factory (live).</li><li>Verified lock, unlock, burn and related operations.</li><li>Complete NEARly browser launch lifecycle.</li><li>Trading, portfolio and transaction history.</li><li>Developer contract inspection and safe transaction building.</li><li>Bounded-memory million-wallet planning.</li></ol></section>
+      <footer className="docs-footer">Protocol behavior can change. Live chain state and verified contract interfaces take precedence over cached examples.</footer>
+    </article></div>
+  </section>;
+}
+
+export function SwapView({
+  accountId,
+  wallet
+}: {
+  accountId: string;
+  wallet: WebWalletConnector | null;
+}) {
+  const [fromToken, setFromToken] = useState(NEARLY_WNEAR);
+  const [toToken, setToToken] = useState("");
+  const [amount, setAmount] = useState("");
+  const [slippage, setSlippage] = useState("1");
+  const [quote, setQuote] = useState<{amountIn:string;amountOut:string;minAmountOut:string;msg:string;signature:string;expiresAt:number;inputDecimals:number;outputDecimals:number}|null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [inputDecimals, setInputDecimals] = useState(24);
+  const [inputSymbol, setInputSymbol] = useState("wNEAR");
+  const [inputBalance, setInputBalance] = useState<bigint | null>(null);
+  const [balanceBusy, setBalanceBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const contract = fromToken.trim().toLowerCase();
+    if (!accountId || !contract) {
+      setInputBalance(null);
+      setInputDecimals(24);
+      setInputSymbol(contract === "near" ? "NEAR" : "wNEAR");
+      setBalanceBusy(false);
+      return;
+    }
+    setBalanceBusy(true);
+    const rpc = new NearRpcClient();
+    const load = async () => {
+      try {
+        if (contract === "near") {
+          const account = await rpc.viewAccount(accountId);
+          if (cancelled) return;
+          setInputDecimals(24);
+          setInputSymbol("NEAR");
+          setInputBalance(BigInt(account.amount));
+        } else {
+          const [metadata, balance] = await Promise.all([
+            rpc.viewFunction<{decimals:number; symbol:string}>(contract, "ft_metadata", {}),
+            rpc.viewFunction<string>(contract, "ft_balance_of", { account_id: accountId })
+          ]);
+          if (!/^\d+$/.test(balance)) throw new Error("Token returned an invalid balance.");
+          if (cancelled) return;
+          setInputDecimals(metadata.decimals);
+          setInputSymbol(metadata.symbol);
+          setInputBalance(BigInt(balance));
+        }
+      } catch {
+        if (!cancelled) {
+          setInputBalance(null);
+          setInputDecimals(24);
+          setInputSymbol(contract === "near" ? "NEAR" : "Token");
+        }
+      } finally {
+        if (!cancelled) setBalanceBusy(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [accountId, fromToken]);
+
+  useEffect(() => {
+    if (!quote) {
+      setSecondsLeft(0);
+      return;
+    }
+    const update = () => setSecondsLeft(Math.max(0, Math.ceil((quote.expiresAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 500);
+    return () => window.clearInterval(timer);
+  }, [quote]);
+
+  function switchTokens() {
+    setFromToken(toToken || NEARLY_WNEAR);
+    setToToken(fromToken === NEARLY_WNEAR ? "" : fromToken);
+    setQuote(null);
+    setNotice("");
+    setError("");
+  }
+
+  async function getQuote() {
+    if (!accountId) throw new Error("Connect your wallet to get a live route.");
+    const value = amount.trim();
+    if (!/^\d+(?:\.\d+)?$/.test(value) || Number(value) <= 0) throw new Error("Enter a valid amount.");
+    const target = toToken.trim().toLowerCase();
+    if (!target) throw new Error("Enter the output token contract.");
+    if (target === fromToken.trim().toLowerCase()) throw new Error("Choose two different tokens.");
+
+    const rpc = new NearRpcClient();
+    const inputContract = fromToken.trim().toLowerCase();
+    const resolvedInputDecimals = inputContract === "near"
+      ? 24
+      : (await rpc.viewFunction<{decimals:number}>(inputContract, "ft_metadata", {})).decimals;
+    const outputDecimals = (await rpc.viewFunction<{decimals:number}>(target, "ft_metadata", {}).catch(() => ({decimals: 24}))).decimals;
+    const base = toBase(value, resolvedInputDecimals);
+    const bps = Math.round(Number(slippage) * 100);
+    if (!Number.isInteger(bps) || bps < 0 || bps > 1000) throw new Error("Slippage must be between 0% and 10%.");
+
+    const url = new URL("https://smartx.rhea.finance/swapMultiDexPath");
+    url.searchParams.set("amountIn", base.toString());
+    url.searchParams.set("tokenIn", fromToken === "near" ? NEARLY_WNEAR : fromToken);
+    url.searchParams.set("tokenOut", target);
+    url.searchParams.set("slippage", String(bps / 10000));
+    url.searchParams.set("user", accountId);
+    url.searchParams.set("receiveUser", accountId);
+    url.searchParams.set("skipUnwrapNativeToken", "false");
+
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    const body = await response.json().catch(() => null) as Record<string, unknown> | null;
+    if (!response.ok) throw new Error("RHEA quote HTTP " + response.status);
+
+    const data = (body?.result_data && typeof body.result_data === "object" ? body.result_data : body) as Record<string, unknown>;
+    const amountIn = String(data?.amount_in ?? data?.amountIn ?? "");
+    const amountOut = String(data?.amount_out ?? data?.amountOut ?? "");
+    const minAmountOut = String(data?.min_amount_out ?? data?.minAmountOut ?? "");
+    const msg = String(data?.msg ?? "");
+    const signature = String(data?.signature ?? "");
+
+    if (!/^\d+$/.test(amountIn) || BigInt(amountIn) !== base) throw new Error("RHEA returned an invalid input amount.");
+    if (!/^\d+$/.test(amountOut) || BigInt(amountOut) <= 0n) throw new Error("RHEA returned no executable output.");
+    const minimum = /^\d+$/.test(minAmountOut)
+      ? minAmountOut
+      : (BigInt(amountOut) * BigInt(10000 - bps) / 10000n).toString();
+
+    if (BigInt(minimum) <= 0n || BigInt(minimum) > BigInt(amountOut) || !msg || !signature) {
+      throw new Error("RHEA returned an incomplete executable route.");
+    }
+
+    setQuote({ amountIn, amountOut, minAmountOut: minimum, msg, signature, expiresAt: Date.now() + 45000, inputDecimals: resolvedInputDecimals, outputDecimals });
+  }
+
+  async function runQuote() {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await getQuote();
+      setNotice("Live RHEA route loaded. Review the route before signing.");
+    } catch (cause) {
+      setQuote(null);
+      setError(cause instanceof Error ? cause.message : "Quote failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="swap-page">
+      <div className="swap-shell">
+        <div className="swap-heading">
+          <div>
+            <span className="eyebrow">TRADE / RHEA</span>
+            <h2>Swap tokens</h2>
+            <p>Live routing through RHEA SmartRouter. Quotes are fetched when you request them.</p>
+          </div>
+          <div className="swap-wallet-status">
+            <span className={accountId ? "status-dot live" : "status-dot"} />
+            <span>{accountId ? shortId(accountId) : "Wallet not connected"}</span>
+          </div>
+        </div>
+
+        <div className="swap-card">
+          <div className="swap-card-top">
+            <span>Swap</span>
+            <button className={`icon-button${settingsOpen ? " active" : ""}`} type="button" aria-label="Swap settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}>⚙</button>
+          </div>
+
+          <div className="swap-token-box">
+            <div className="swap-token-label">
+              <span>From</span>
+              <span>{inputSymbol} · {balanceBusy ? "Reading balance…" : inputBalance !== null ? formatBaseValue(inputBalance.toString(), inputDecimals) : "Balance unavailable"}</span>
+            </div>
+            <div className="swap-token-row">
+              <input
+                className="swap-amount"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => { setAmount(e.target.value); setQuote(null); setNotice(""); }}
+                placeholder="0.00"
+              />
+              <input
+                className="swap-contract"
+                value={fromToken}
+                onChange={(e) => { setFromToken(e.target.value.trim().toLowerCase()); setQuote(null); }}
+                placeholder="wrap.near"
+                spellCheck={false}
+                aria-label="Input token contract"
+              />
+            </div>
+            <div className="swap-token-hint"><span>Contract · {fromToken || "not set"}</span>{inputBalance !== null && <button type="button" className="swap-max" onClick={() => { setAmount(formatBaseValue(inputBalance.toString(), inputDecimals)); setQuote(null); }}>MAX</button>}</div>
+          </div>
+
+          <button className="swap-switch" type="button" onClick={switchTokens} aria-label="Switch tokens">↓</button>
+
+          <div className="swap-token-box">
+            <div className="swap-token-label">
+              <span>To</span>
+              <span>NEP-141</span>
+            </div>
+            <div className="swap-token-row">
+              <div className="swap-output">{quote ? formatBaseValue(quote.amountOut, quote.outputDecimals) : "0.00"}</div>
+              <input
+                className="swap-contract"
+                value={toToken}
+                onChange={(e) => { setToToken(e.target.value.trim().toLowerCase()); setQuote(null); }}
+                placeholder="token.near"
+                spellCheck={false}
+                aria-label="Output token contract"
+              />
+            </div>
+            <div className="swap-token-hint">{quote ? (secondsLeft > 0 ? `Quoted output · expires in ${secondsLeft}s` : "Quote expired · refresh before signing") : "Enter the token contract to receive"}</div>
+          </div>
+
+          {settingsOpen && (
+            <div className="swap-settings-popover">
+              <div>
+                <span className="eyebrow">SWAP SETTINGS</span>
+                <strong>Slippage tolerance</strong>
+              </div>
+              <div className="swap-custom-slippage">
+                <input
+                  inputMode="decimal"
+                  value={slippage}
+                  onChange={(e) => { setSlippage(e.target.value); setQuote(null); }}
+                  aria-label="Custom slippage percentage"
+                />
+                <span>%</span>
+              </div>
+              <small>Maximum allowed: 10%. A quote is invalidated whenever slippage changes.</small>
+            </div>
+          )}
+
+          <div className="swap-settings-row">
+            <div>
+              <span>Slippage tolerance</span>
+              <strong>{slippage}%</strong>
+            </div>
+            <div className="swap-slippage">
+              {["0.5", "1", "2"].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={slippage === value ? "selected" : ""}
+                  onClick={() => { setSlippage(value); setQuote(null); }}
+                >
+                  {value}%
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button className="swap-primary" type="button" onClick={() => void runQuote()} disabled={busy || !wallet}>
+            {busy ? "Finding best route…" : quote ? "Refresh quote" : accountId ? "Get quote" : "Connect wallet to swap"}
+          </button>
+
+          {error && <p className="message warning">{error}</p>}
+          {notice && <p className="message">{notice}</p>}
+        </div>
+
+        {quote && (
+          <div className="swap-route-card">
+            <div className="swap-route-head">
+              <div>
+                <span className="eyebrow">ROUTE</span>
+                <h3>RHEA SmartRouter</h3>
+              </div>
+              <span className="route-live">LIVE</span>
+            </div>
+            <div className="swap-route-grid">
+              <div><span>You'll pay</span><strong>{formatBaseValue(quote.amountIn, quote.inputDecimals)}</strong></div>
+              <div><span>You'll receive</span><strong>{formatBaseValue(quote.amountOut, quote.outputDecimals)}</strong></div>
+              <div><span>Minimum received</span><strong>{formatBaseValue(quote.minAmountOut, quote.outputDecimals)}</strong></div>
+              <div><span>Quote expiry</span><strong>{secondsLeft > 0 ? `${secondsLeft}s` : "Expired"}</strong></div>
+            </div>
+            <button className="swap-review" type="button" disabled>
+              Review & sign — execution coming next
+            </button>
+            <p className="message">The route is live and validated. Signing remains disabled until wrapping, token registration and multi-transaction reconciliation are fully persisted.</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function formatBaseValue(value: string, decimals: number): string {
+  try {
+    const base = BigInt(value);
+    const divisor = 10n ** BigInt(decimals);
+    const whole = base / divisor;
+    const fraction = (base % divisor).toString().padStart(decimals, "0").slice(0, 6).replace(/0+$/, "");
+    return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
+  } catch {
+    return value;
+  }
+}
+
+function toBase(value:string, decimals:number):bigint {
+  if(!/^\d+(?:\.\d+)?$/.test(value) || decimals<0 || decimals>24) throw new Error("Invalid amount");
+  const [whole,fraction=""]=value.split(".");
+  if(fraction.length>decimals) throw new Error("Too many decimals");
+  const base=BigInt(whole)*10n**BigInt(decimals)+BigInt(fraction.padEnd(decimals,"0")||"0");
+  if(base<=0n) throw new Error("Amount must be greater than zero");
+  return base;
+}

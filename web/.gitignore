@@ -1,0 +1,6 @@
+# Local build outputs from `tsc -b` (vite.config.ts emits next to its source).
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+# CI installs from package.json pins without a lockfile.
+package-lock.json
