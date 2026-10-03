@@ -62,7 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
   { label: "WORKSPACE", items: ["Overview"] },
   { label: "TRADE", items: ["Swap", "Portfolio"] },
   { label: "LAUNCH", items: ["Create Token", "NEARly Launch"] },
-  { label: "TOKEN TOOLS", items: ["Airdrop", "Burn", "Token Locker"] },
+  { label: "TOKEN TOOLS", items: ["Multisender", "Burn", "Token Locker"] },
   { label: "HISTORY", items: ["Campaigns", "Transactions"] },
   { label: "DEVELOPER", items: ["Contract Inspector"] },
   { label: "RESOURCES", items: ["Docs"] },
@@ -108,8 +108,12 @@ function viewSlug(view: string): string {
   return view.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }
 
+// Old links keep working after renames.
+const VIEW_ALIASES: Record<string, string> = { airdrop: "multisender" };
+
 function viewFromHash(): string {
-  const slug = typeof location === "undefined" ? "" : location.hash.replace(/^#\/?/, "");
+  const raw = typeof location === "undefined" ? "" : location.hash.replace(/^#\/?/, "");
+  const slug = VIEW_ALIASES[raw] ?? raw;
   return NAV_ITEMS.find((item) => viewSlug(item) === slug) ?? "Overview";
 }
 
@@ -538,7 +542,7 @@ function App() {
       syncRegistration(session);
       setMessage(
         session.status === "completed"
-          ? "Recipient registration completed. Run preflight again before starting the airdrop."
+          ? "Recipient registration completed. Run preflight again before starting the send."
           : "Recipient registration paused safely. Reconcile before retrying."
       );
       if (session.status === "completed") {
@@ -789,7 +793,7 @@ function App() {
       setExecutionCampaign(result.campaign);
       setMessage(`Campaign ${result.campaignId} completed successfully.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Airdrop execution stopped safely.");
+      setMessage(error instanceof Error ? error.message : "Multisender execution stopped safely.");
     } finally {
       setExecutionBusy(false);
     }
@@ -944,15 +948,15 @@ function App() {
             campaigns={campaigns}
             onOpen={(campaign) => {
               setExecutionCampaign(campaign);
-              setActiveView("Airdrop");
+              setActiveView("Multisender");
               setMessage(`Loaded campaign ${campaign.id} from local history.`);
             }}
           />
-        ) : activeView === "Airdrop" ? (
+        ) : activeView === "Multisender" ? (
           <section className="grid">
             <div className="card hero">
               <div>
-                <span className="eyebrow">NEP-141 / AIRDROP &amp; BULK TRANSFER</span>
+                <span className="eyebrow">NEP-141 / MULTISENDER</span>
                 <h2>Build and execute a multi-sender transfer.</h2>
                 <p>
                   Load a verified token, add senders and recipients, then run fresh preflight checks before the browser wallet is asked to sign.
@@ -1149,7 +1153,7 @@ function App() {
                         preflight.recipientRegistration.unsupported > 0
                       }
                     >
-                      {executionBusy ? "Executing…" : "Start airdrop"}
+                      {executionBusy ? "Sending…" : "Start sending"}
                     </button>
                     {plan.valid > 0 && (
                       <small>

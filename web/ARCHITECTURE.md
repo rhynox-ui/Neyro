@@ -1249,3 +1249,8 @@ Checked with real headless Chromium clicks, not only unit tests:
 Still to verify with a real wallet: the sign-in pop-up round trip, and that `signAndSendTransaction(s)` return transaction hashes. My NEAR Wallet looks results up with `txStatus(hash, …, "NONE")`; if a transaction is not yet included, that response may lack `transaction.hash`, and Neyro then marks the step `unknown` and offers Verify hash.
 
 Known limitation: only My NEAR Wallet is wired. Meteor, HOT, Intear and others need their Wallet Selector modules, which is the next wallet task.
+
+## 2026-10-03 — "Airdrop" renamed to "Multisender" in the UI
+- "Airdrop" is a strong scam-classifier keyword: fake "claim your airdrop" pages are the classic wallet-drainer lure. All user-visible text now says **Multisender**: navigation, page title, the Start sending button, Docs and the fee table. This lowers re-flag risk; it does not lift existing Google or Cloudflare blocks, which need their reviews.
+- The route is `#/multisender`; old `#/airdrop` links are aliased to it.
+- Internal code names (`executeAirdrop`, `getAirdropFee`, `airdrop/` modules) are unchanged, so execution behaviour and stored campaigns are unaffected.

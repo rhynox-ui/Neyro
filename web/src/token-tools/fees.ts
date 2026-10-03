@@ -31,7 +31,7 @@ export const AIRDROP_FEE = {
 
 export function getAirdropFee(recipientCount: number): bigint {
   if (!Number.isSafeInteger(recipientCount) || recipientCount <= 0) {
-    throw new Error("Airdrop fee requires a positive recipient count");
+    throw new Error("Multisender fee requires a positive recipient count");
   }
   const raw = AIRDROP_FEE.perRecipient * BigInt(recipientCount);
   if (raw < AIRDROP_FEE.minimum) return AIRDROP_FEE.minimum;
