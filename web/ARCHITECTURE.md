@@ -1190,3 +1190,8 @@ What the owner must do (this cannot be done from the repository):
 4. Also report the false positive: https://safebrowsing.google.com/safebrowsing/report_error/
 5. Strongly recommended: serve the terminal from a custom domain owned by Neyro (a Cloudflare Pages custom domain). Shared `pages.dev` subdomains carry the reputation of the drainer kits hosted there.
 6. Check the Cloudflare account email and dashboard for any Trust & Safety notice about the Pages project.
+
+### Safe Browsing status log
+- 2026-10-03: The Transparency Report showed `neyro-terminal.pages.dev` as unsafe ("trick visitors into sharing personal info or downloading software").
+- 2026-10-03: Ownership verified in Google Search Console as URL-prefix property `https://neyro-terminal.pages.dev/` using the HTML-file method. **Do not delete `web/public/google08b313b1fce1f1be.html`**: removing it drops verification.
+- 2026-10-03: The Security issues report shows one issue, **Deceptive pages**, with sample URLs **N/A** (a domain-level classifier, not a specific page). A review was requested the same day, describing the site as non-custodial and noting that it has no seed-phrase or key inputs, no downloads and first-party scripts only. The outcome arrives by email. Do not file a second request while this one is pending.
