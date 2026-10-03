@@ -75,3 +75,24 @@ describe("campaign safety state machine", () => {
     ).toBe(false);
   });
 });
+
+describe("batch retry attempts", () => {
+  it("clears the failed attempt's hash and evidence before re-signing", () => {
+    const failed: CampaignBatch = {
+      id: "b",
+      senderId: "s.near",
+      recipientWallets: ["a.near"],
+      recipients: [{ wallet: "a.near", amountBase: "1" }],
+      totalAmount: "1",
+      actionCount: 1,
+      status: "failed",
+      transactionHash: "old-hash",
+      signingEvidence: { capturedAtBlockHeight: 1, accessKeyNonces: { k: "1" } },
+      updatedAt: 0
+    };
+    const retry = transitionBatch(failed, "pending");
+    expect(retry.transactionHash).toBeUndefined();
+    expect(retry.signingEvidence).toBeUndefined();
+    expect(retry.previousTransactionHashes).toEqual(["old-hash"]);
+  });
+});

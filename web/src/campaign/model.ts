@@ -1,3 +1,5 @@
+import type { SigningEvidence } from "../execution/signing-evidence";
+
 export type BatchStatus =
   | "pending"
   | "signing"
@@ -27,6 +29,10 @@ export type CampaignBatch = {
   actionCount: number;
   status: BatchStatus;
   transactionHash?: string;
+  /** Hashes of earlier attempts that were confirmed failed on-chain. */
+  previousTransactionHashes?: string[];
+  /** Sender chain state captured just before the latest signing attempt. */
+  signingEvidence?: SigningEvidence;
   error?: string;
   updatedAt: number;
 };
@@ -64,19 +70,35 @@ export function canTransitionBatch(
 export function transitionBatch(
   batch: CampaignBatch,
   status: BatchStatus,
-  patch: Partial<Pick<CampaignBatch, "transactionHash" | "error">> = {},
+  patch: Partial<Pick<CampaignBatch, "transactionHash" | "error" | "signingEvidence">> = {},
   now = Date.now()
 ): CampaignBatch {
   if (!canTransitionBatch(batch.status, status)) {
     throw new Error(`Invalid batch transition: ${batch.status} -> ${status}`);
   }
 
-  return {
+  const next: CampaignBatch = {
     ...batch,
     ...patch,
     status,
     updatedAt: now
   };
+
+  // A retry starts a new attempt: the old failed hash must not be reconciled
+  // as if it described the new signature, or a hashless retry could be
+  // misread as failed and resent.
+  if (batch.status === "failed" && status === "pending") {
+    if (batch.transactionHash) {
+      next.previousTransactionHashes = [
+        ...(batch.previousTransactionHashes ?? []),
+        batch.transactionHash
+      ];
+    }
+    delete next.transactionHash;
+    delete next.signingEvidence;
+  }
+
+  return next;
 }
 
 export function canRetryBatch(batch: CampaignBatch): boolean {

@@ -36,6 +36,15 @@ export type TxStatusResult = {
   receipts_outcome?: unknown[];
 };
 
+export type AccessKeyListResult = {
+  keys: Array<{
+    public_key: string;
+    access_key: { nonce: number | string; permission: unknown };
+  }>;
+  block_height: number;
+  block_hash: string;
+};
+
 export type GasPriceResult = {
   gas_price: string;
 };
@@ -143,5 +152,29 @@ export class NearRpcClient {
       sender_account_id: senderAccountId,
       wait_until: "FINAL"
     });
+  }
+
+  async viewAccessKeyList(accountId: string): Promise<AccessKeyListResult> {
+    return this.request<AccessKeyListResult>("query", {
+      request_type: "view_access_key_list",
+      finality: "final",
+      account_id: accountId
+    });
+  }
+
+  /**
+   * Number of blocks after which a transaction's referenced block hash is too
+   * old for inclusion. Read live from the network rather than hardcoded.
+   */
+  async transactionValidityPeriod(): Promise<number> {
+    const result = await this.request<{ transaction_validity_period?: unknown }>(
+      "EXPERIMENTAL_genesis_config",
+      {}
+    );
+    const period = result.transaction_validity_period;
+    if (typeof period !== "number" || !Number.isSafeInteger(period) || period <= 0) {
+      throw new Error("NEAR RPC returned an invalid transaction validity period");
+    }
+    return period;
   }
 }

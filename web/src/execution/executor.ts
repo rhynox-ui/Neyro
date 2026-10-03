@@ -15,6 +15,12 @@ import type { CampaignStore } from "../campaign/storage";
 import { campaignIdFromFingerprint } from "../campaign/storage";
 import { buildAirdropTransaction } from "./transaction-builder";
 import type { WebWalletConnector } from "../wallet/connector";
+import { withCampaignLock } from "./campaign-lock";
+import {
+  captureSigningEvidence,
+  checkNotExecuted,
+  transactionMatchesBatch
+} from "./signing-evidence";
 
 export type ExecutionProgress = {
   batch: CampaignBatch;
@@ -31,6 +37,8 @@ export type AirdropExecutionInput = {
   store: CampaignStore;
   maxActions?: number;
   onProgress?: (progress: ExecutionProgress) => void;
+  /** Cross-tab lock manager; defaults to `navigator.locks`. */
+  locks?: LockManager;
 };
 
 export type ExecutionResult = {
@@ -204,6 +212,20 @@ export async function executeAirdrop(
     .reduce((sum, allocation) => sum + allocation.totalAmount, 0n);
 
   const campaignId = await campaignIdFromFingerprint(input.sourceFingerprint);
+  return withCampaignLock(
+    campaignId,
+    () => executeLocked(input, campaignId, batches, totalAmount, now),
+    input.locks
+  );
+}
+
+async function executeLocked(
+  input: AirdropExecutionInput,
+  campaignId: string,
+  batches: CampaignBatch[],
+  totalAmount: bigint,
+  now: number
+): Promise<ExecutionResult> {
   let campaign = await input.store.get(campaignId);
 
   if (campaign) {
@@ -262,7 +284,14 @@ export async function executeAirdrop(
     if (current.status === "failed") {
       campaign.batches[index] = transitionBatch(current, "pending");
     }
-    campaign.batches[index] = transitionBatch(campaign.batches[index], "signing");
+    // Captured before `signing` is persisted: if it cannot be read, nothing is
+    // handed to the wallet and the batch stays pending.
+    const signingEvidence = await captureSigningEvidence(input.rpc, batch.senderId);
+    campaign.batches[index] = transitionBatch(
+      campaign.batches[index],
+      "signing",
+      { signingEvidence, error: undefined }
+    );
     await persist(input.store, campaign, input.onProgress);
 
     const transferBatch = batchToTransferBatch(batch);
@@ -336,55 +365,158 @@ export async function executeAirdrop(
 }
 
 
+const INTERRUPTED_SIGNING =
+  "Signing was interrupted before the wallet returned a transaction hash";
+
+/** Applies the final on-chain status of a hash-bearing batch, if available. */
+async function reconcileHashedBatch(
+  rpc: NearRpcClient,
+  batch: CampaignBatch
+): Promise<CampaignBatch> {
+  const hash = batch.transactionHash!;
+  try {
+    const result = await rpc.transactionStatus(hash, batch.senderId);
+    if (hasFailure(result.status)) {
+      return transitionBatch(batch, "failed", { error: `Transaction ${hash} failed on-chain` });
+    }
+    if (hasSuccess(result.status)) {
+      return transitionBatch(batch, "success", { error: undefined });
+    }
+    return { ...batch, error: `Transaction ${hash} is not final yet`, updatedAt: Date.now() };
+  } catch (error) {
+    return {
+      ...batch,
+      error: error instanceof Error ? error.message : "Reconciliation failed",
+      updatedAt: Date.now()
+    };
+  }
+}
+
+/** Resolves a batch that has no hash only when non-execution is proven. */
+async function reconcileHashlessBatch(
+  rpc: NearRpcClient,
+  batch: CampaignBatch
+): Promise<CampaignBatch> {
+  if (!batch.signingEvidence) {
+    return {
+      ...batch,
+      error: "No signing evidence was recorded for this attempt; supply its transaction hash to reconcile it",
+      updatedAt: Date.now()
+    };
+  }
+  try {
+    const check = await checkNotExecuted(rpc, batch.senderId, batch.signingEvidence);
+    if (check.proven) {
+      return transitionBatch(batch, "failed", {
+        error: `Proven not executed: no sender transaction was included through block ${check.checkedAtBlockHeight.toLocaleString()} and the signing window has expired`
+      });
+    }
+    return { ...batch, error: check.reason, updatedAt: Date.now() };
+  } catch (error) {
+    return {
+      ...batch,
+      error: error instanceof Error ? error.message : "Non-execution check failed",
+      updatedAt: Date.now()
+    };
+  }
+}
+
 export async function reconcileCampaign(
   campaignId: string,
   store: CampaignStore,
   rpc: NearRpcClient,
-  onProgress?: (progress: ExecutionProgress) => void
+  onProgress?: (progress: ExecutionProgress) => void,
+  locks?: LockManager
 ): Promise<Campaign> {
-  const campaign = await store.get(campaignId);
-  if (!campaign) throw new Error(`Campaign ${campaignId} was not found`);
+  return withCampaignLock(campaignId, async () => {
+    const campaign = await store.get(campaignId);
+    if (!campaign) throw new Error(`Campaign ${campaignId} was not found`);
 
-  for (let index = 0; index < campaign.batches.length; index += 1) {
-    const batch = campaign.batches[index];
-    if (
-      (batch.status !== "unknown" && batch.status !== "submitted") ||
-      !batch.transactionHash
-    ) {
-      continue;
-    }
+    for (let index = 0; index < campaign.batches.length; index += 1) {
+      let batch = campaign.batches[index];
 
-    try {
-      const result = await rpc.transactionStatus(
-        batch.transactionHash,
-        batch.senderId
-      );
-
-      if (hasFailure(result.status)) {
-        campaign.batches[index] = transitionBatch(
-          batch,
-          "failed",
-          { error: `Transaction ${batch.transactionHash} failed on-chain` }
-        );
-      } else if (hasSuccess(result.status)) {
-        campaign.batches[index] = transitionBatch(
-          batch,
-          "success",
-          { error: undefined }
-        );
+      // Holding the campaign lock means no tab is currently signing, so a
+      // persisted `signing` batch is an interrupted attempt.
+      if (batch.status === "signing") {
+        batch = transitionBatch(batch, "unknown", { error: INTERRUPTED_SIGNING });
       }
-    } catch (error) {
-      campaign.batches[index] = {
-        ...batch,
-        error: error instanceof Error ? error.message : "Reconciliation failed",
-        updatedAt: Date.now()
-      };
+
+      if (batch.status === "submitted" || batch.status === "unknown") {
+        batch = batch.transactionHash
+          ? await reconcileHashedBatch(rpc, batch)
+          : await reconcileHashlessBatch(rpc, batch);
+      } else {
+        continue;
+      }
+
+      campaign.batches[index] = batch;
+      campaign.status = campaignIsComplete(campaign) ? "completed" : "paused";
+      campaign.updatedAt = Date.now();
+      await store.put(campaign);
+      onProgress?.({ campaign, batch });
     }
 
-    campaign.status = campaignIsComplete(campaign) ? "completed" : "paused";
-    await store.put(campaign);
-    onProgress?.({ campaign, batch: campaign.batches[index] });
+    return campaign;
+  }, locks);
+}
+
+/**
+ * Binds a user-supplied transaction hash to a hashless unresolved batch, after
+ * verifying on-chain that the transaction is exactly that batch's transfers,
+ * then records its final status.
+ */
+export async function attachTransactionHash(
+  campaignId: string,
+  batchId: string,
+  transactionHash: string,
+  store: CampaignStore,
+  rpc: NearRpcClient,
+  locks?: LockManager
+): Promise<Campaign> {
+  const hash = transactionHash.trim();
+  if (!/^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(hash)) {
+    throw new Error("Transaction hash must be a base58 NEAR transaction hash");
   }
 
-  return campaign;
+  return withCampaignLock(campaignId, async () => {
+    const campaign = await store.get(campaignId);
+    if (!campaign) throw new Error(`Campaign ${campaignId} was not found`);
+
+    const index = campaign.batches.findIndex((candidate) => candidate.id === batchId);
+    if (index < 0) throw new Error(`Batch ${batchId} is not part of campaign ${campaignId}`);
+    let batch = campaign.batches[index];
+
+    if (batch.status === "signing") {
+      batch = transitionBatch(batch, "unknown", { error: INTERRUPTED_SIGNING });
+    }
+    if (batch.status !== "unknown" || batch.transactionHash) {
+      throw new Error(`Batch ${batchId} is not an unresolved batch without a transaction hash`);
+    }
+    const usedElsewhere = campaign.batches.some((candidate) =>
+      candidate.transactionHash === hash ||
+      candidate.previousTransactionHashes?.includes(hash)
+    );
+    if (usedElsewhere) {
+      throw new Error(`Transaction ${hash} is already recorded for this campaign`);
+    }
+
+    const result = await rpc.transactionStatus(hash, batch.senderId);
+    const match = transactionMatchesBatch(result, batch, campaign.tokenContract);
+    if (!match.matches) {
+      throw new Error(`Transaction ${hash} does not match batch ${batchId}: ${match.reason}`);
+    }
+
+    batch = transitionBatch(batch, "submitted", { transactionHash: hash, error: undefined });
+    if (hasFailure(result.status)) {
+      batch = transitionBatch(batch, "failed", { error: `Transaction ${hash} failed on-chain` });
+    } else if (hasSuccess(result.status)) {
+      batch = transitionBatch(batch, "success", { error: undefined });
+    }
+
+    campaign.batches[index] = batch;
+    campaign.status = campaignIsComplete(campaign) ? "completed" : "paused";
+    campaign.updatedAt = Date.now();
+    await store.put(campaign);
+    return campaign;
+  }, locks);
 }

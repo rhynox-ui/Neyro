@@ -595,7 +595,7 @@ This roadmap is the implementation order for the separate Neyro web terminal. It
 
 - [ ] Resume campaigns automatically after reload
 - [ ] Persist and restore active campaign selection
-- [ ] Prevent duplicate execution across tabs
+- [x] Prevent duplicate execution across tabs (Web Locks, see 2026-10-03 checkpoint)
 - [ ] Revalidate balances before every batch
 - [ ] Recalculate/reject stale allocations safely
 - [ ] Sender switching when multiple browser accounts are required
@@ -605,7 +605,7 @@ This roadmap is the implementation order for the separate Neyro web terminal. It
 - [ ] Persisted in-terminal recipient registration transaction
 - [ ] CSV result export
 - [ ] Network/RPC interruption recovery
-- [ ] Unknown transaction reconciliation UI
+- [x] Unknown transaction reconciliation UI, including hashless batches (2026-10-03)
 - [ ] Safe retry UI limited to confirmed failures
 - [ ] Clear pre-signing transaction summary
 
@@ -1109,3 +1109,43 @@ Remaining release work:
 - add automated browser-wallet/testnet execution coverage;
 - continue memory-bounded planning work for very large recipient sets;
 - do not claim million-wallet readiness from the registration flow alone.
+
+
+## 2026-10-03 — Hashless unknown batch recovery checkpoint
+
+### Verified starting state
+- PR #26 head `fb5d261e8a628bfb52c19c1306c1f201a52c3890`: Web Terminal CI runs 37058977855 (push) and 37058984360 (PR) passed; general CI 37058984501 passed.
+- Same commit verified locally: `npm install`, `npm run typecheck`, `npm test` (51 tests), `npm run build`.
+- Diff against `creator-fees-claim-2026-10-02` is confined to `web/**` and `.github/workflows/web-ci.yml`. Telegram and Worker code untouched.
+
+### Wallet behaviour finding
+`@near-wallet-selector/my-near-wallet` 10.1.4 does **not** redirect the page for signing. It opens a popup (`window.open`) and waits for a `postMessage` carrying `transactionHashes`, then calls `txStatus(hash, "unused", "NONE")`. The promise rejects without a hash when:
+- the popup is blocked or closed ("User closed the window");
+- the wallet posts `failure` (user rejection or wallet-side error);
+- the post-sign `txStatus` lookup fails, even though the wallet already broadcast the transaction.
+
+### Defect fixed
+Before this checkpoint every one of those cases left the batch `unknown` with no `transactionHash`. `reconcileCampaign` skipped hashless batches, and `executeAirdrop` refuses to run while any batch is `unknown`/`signing`, so the campaign was **permanently stuck**. A tab closed mid-signing left `signing` forever for the same reason.
+
+A second defect: retrying a `failed` batch kept the old failed transaction hash. If the retry then returned no hash, reconciliation would read the *old* failed transaction, mark the batch failed again, and allow another retry even if the new attempt had actually executed (possible double send). `transitionBatch(failed → pending)` now moves the old hash to `previousTransactionHashes` and clears the hash and signing evidence.
+
+### New recovery path
+- **Signing evidence** (`web/src/execution/signing-evidence.ts`): immediately before persisting `signing`, the executor records the sender's access-key nonces and the final block height (`view_access_key_list`). If this read fails, nothing is sent to the wallet and the batch stays `pending`.
+- **Proof of non-execution**: reconciliation of a hashless `unknown` batch marks it `failed` (retryable) only when the sender's key set is unchanged, **no** key nonce advanced, **and** the current final height is beyond `capturedAtBlockHeight + transaction_validity_period + 1000`. The validity period is read live from `EXPERIMENTAL_genesis_config`, not hardcoded. Any sender activity makes the batch ambiguous and it stays `unknown`.
+- **User-supplied hash** (`attachTransactionHash`): the user can paste the hash the wallet showed. It is accepted only if the on-chain transaction has the batch's signer, the token contract as receiver, and exactly the batch's ordered `ft_transfer` actions (`receiver_id`, `amount`, 1 yoctoNEAR deposit). Its final status is then recorded. Hashes already recorded in the campaign are rejected.
+- **Interrupted signing**: under the campaign lock, reconciliation converts a persisted `signing` batch into `unknown` and then applies the rules above.
+- **Cross-tab lock** (`web/src/execution/campaign-lock.ts`): execution, reconciliation and hash attachment hold an exclusive Web Locks lock per campaign (`ifAvailable`). A second tab gets an error instead of signing the same pending batch. The browser releases locks from closed or crashed tabs. If the Web Locks API is unavailable, execution is refused.
+- **UI**: the campaign panel shows **Reconcile** for `signing` batches too, and gives hashless `unknown` rows a hash input with a **Verify hash** button.
+
+### Residual risk (documented, not solved)
+If a wallet signing window stays open and is approved **after** the validity window has expired and the batch has been proven not executed and retried, a late approval would reference a newer block and could still execute. The UI tells the user to close wallet windows before reconciling. This needs real-wallet testing.
+
+### Verification
+- `npm run typecheck`, `npm test` (59 tests; new cases cover open window, advanced nonce, proven non-execution followed by retry, interrupted signing, matching and mismatching user-supplied hashes, a failed matching hash, and the cross-tab lock), `npm run build`.
+- **Not live-verified:** this container's network policy blocks NEAR RPC hosts. The response shapes for `view_access_key_list`, `EXPERIMENTAL_genesis_config` and `tx.transaction.actions` follow the NEAR RPC documentation. Confirm them on testnet before relying on this path.
+
+### Next items
+1. Apply the same signing-evidence/hashless recovery to `web/src/execution/registration.ts`, which has the same hashless dead end for storage-registration batches.
+2. Testnet end-to-end run of the release gates in Stage 2/3 with a real My NEAR Wallet popup: closed popup, rejection, success, and a forced post-sign RPC failure.
+3. Memory-bounded planning (Stage 4).
+

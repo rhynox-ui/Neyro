@@ -6,7 +6,7 @@ import { preflightSenders, type CampaignPreflight } from "./preflight";
 import { createMyNearWalletConnector } from "./wallet/selector";
 import type { WebWalletConnector } from "./wallet/connector";
 import { allocateRecipientsDetailed, type ValidRecipient } from "./airdrop-core";
-import { executeAirdrop, reconcileCampaign } from "./execution/executor";
+import { attachTransactionHash, executeAirdrop, reconcileCampaign } from "./execution/executor";
 import {
   executeRecipientRegistration,
   reconcileRecipientRegistration,
@@ -284,6 +284,7 @@ function App() {
   const [registrationSession, setRegistrationSession] = useState<RegistrationSession | null>(null);
   const [executionBusy, setExecutionBusy] = useState(false);
   const [executionCampaign, setExecutionCampaign] = useState<Campaign | null>(null);
+  const [batchHashInputs, setBatchHashInputs] = useState<Record<string, string>>({});
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   const campaignStore = useMemo(() => new IndexedDbCampaignStore(), []);
@@ -521,6 +522,30 @@ function App() {
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Campaign reconciliation failed");
+    } finally {
+      setExecutionBusy(false);
+    }
+  }
+
+  async function verifyBatchHash(batchId: string) {
+    if (!executionCampaign) return;
+    const hash = batchHashInputs[batchId] ?? "";
+    setExecutionBusy(true);
+    setMessage(`Verifying transaction ${hash.trim()} against batch ${batchId}…`);
+    try {
+      const campaign = await attachTransactionHash(
+        executionCampaign.id,
+        batchId,
+        hash,
+        campaignStore,
+        new NearRpcClient()
+      );
+      syncCampaign(campaign);
+      setBatchHashInputs((current) => ({ ...current, [batchId]: "" }));
+      const batch = campaign.batches.find((item) => item.id === batchId);
+      setMessage(`Batch ${batchId} reconciled from its on-chain transaction: ${batch?.status ?? "unknown"}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Transaction hash verification failed.");
     } finally {
       setExecutionBusy(false);
     }
@@ -1074,7 +1099,7 @@ function App() {
                         </button>
                         {executionCampaign.status !== "completed" &&
                           !executionCampaign.batches.some((batch) =>
-                            batch.status === "unknown" || batch.status === "submitted"
+                            batch.status === "unknown" || batch.status === "submitted" || batch.status === "signing"
                           ) && (
                             <button onClick={() => void resumeCampaign()} disabled={executionBusy || !wallet}>
                               {executionBusy ? "Working…" : "Resume"}
@@ -1082,7 +1107,7 @@ function App() {
                           )}
                         {(executionCampaign.status === "paused" ||
                           executionCampaign.batches.some((batch) =>
-                            batch.status === "unknown" || batch.status === "submitted"
+                            batch.status === "unknown" || batch.status === "submitted" || batch.status === "signing"
                           )) && (
                           <button onClick={() => void reconcileExecution()} disabled={executionBusy}>
                             {executionBusy ? "Working…" : "Reconcile"}
@@ -1105,7 +1130,28 @@ function App() {
                               <td className={batch.status === "success" ? "ready" : batch.status === "failed" ? "warning" : "muted"}>
                                 {batch.status}
                               </td>
-                              <td>{batch.transactionHash ?? batch.error ?? "—"}</td>
+                              <td>
+                                {batch.transactionHash ?? batch.error ?? "—"}
+                                {batch.status === "unknown" && !batch.transactionHash && (
+                                  <div className="header-actions">
+                                    <input
+                                      aria-label={`Transaction hash for batch ${batch.id}`}
+                                      placeholder="Transaction hash, if the wallet showed one"
+                                      value={batchHashInputs[batch.id] ?? ""}
+                                      onChange={(event) => setBatchHashInputs((current) => ({
+                                        ...current,
+                                        [batch.id]: event.target.value
+                                      }))}
+                                    />
+                                    <button
+                                      onClick={() => void verifyBatchHash(batch.id)}
+                                      disabled={executionBusy || !(batchHashInputs[batch.id] ?? "").trim()}
+                                    >
+                                      Verify hash
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1113,6 +1159,9 @@ function App() {
                     </div>
                     <small>
                       A submitted/unknown batch is never automatically resent. Reconcile it before retrying.
+                      A batch without a transaction hash becomes retryable only after Neyro proves on-chain that it was never executed
+                      (no sender nonce change and the transaction validity window has expired), or after you supply a hash that
+                      matches the batch exactly. Close any open wallet signing windows before reconciling.
                     </small>
                   </div>
                 )}
