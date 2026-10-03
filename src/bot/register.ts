@@ -5,7 +5,7 @@ import { getNearBalance, type NearBalance } from "../near/account.js";
 import { ftBalanceOf } from "../near/ft.js";
 import { functionCall } from "../near/actions.js";
 import { NearAccountSigner } from "../wallet/near-account-signer.js";
-import { looksLikeContractId } from "../near/tokens.js";
+import { isValidAccountId, looksLikeContractId } from "../near/tokens.js";
 
 const WRAPPED_NEAR = "wrap.near";
 const NEARLY_INLINE_ICON_GAS_SAFE_BYTES = 6 * 1024;
@@ -19,7 +19,7 @@ import { RateLimiter } from "./rate-limit.js";
 import { deleteIncoming, keepScreen, replyNotice, replyScreen, trackScreen } from "./screens.js";
 import { scheduleDeletion } from "./autodelete.js";
 import type { WalletSummary } from "../wallet/repository.js";
-import { WithdrawService, formatWithdrawAmount, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
+import { WithdrawService, formatWithdrawAmount, WITHDRAW_GAS_RESERVE, type WithdrawPlan, type WithdrawResult } from "../wallet/withdraw.js";
 import { describeRoute, priceImpactWarning } from "../trading/outcome.js";
 import { ageLabel, createTokenPanel, feeLabel, SLIPPAGE_PRESETS } from "./panel.js";
 import { SettingsService, type SlippagePrefs } from "../settings/service.js";
@@ -100,6 +100,77 @@ export function renderWithdrawConfirm(plan: WithdrawPlan): string {
     "",
     "⚠️ Check the address carefully. NEAR transfers can't be reversed. Don't send to an exchange deposit address that needs a memo."
   ].join("\n");
+}
+
+type WithdrawWizard = {
+  step: "destination" | "custom_amount";
+  assetQuery: "near";
+  to?: string;
+};
+
+const WITHDRAW_WIZARD_KEY = "withdraw-wizard";
+const withdrawWizardStore = () => defaultStateStore();
+
+function withdrawMaxNear(available: bigint): bigint {
+  return available > WITHDRAW_GAS_RESERVE ? available - WITHDRAW_GAS_RESERVE : 0n;
+}
+
+function withdrawPresetText(available: bigint, pct: number): string {
+  return formatNear((withdrawMaxNear(available) * BigInt(pct)) / 100n);
+}
+
+export function renderWithdrawStart(available: bigint) {
+  const max = withdrawMaxNear(available);
+  const text = [
+    "📤 <b>Withdraw</b>",
+    "",
+    "<b>NEAR</b>",
+    `Available: <b>${escapeHtml(formatNear(available))} NEAR</b>`,
+    `Maximum: <b>${escapeHtml(formatNear(max))} NEAR</b>`,
+    "",
+    "Step 1 of 2",
+    "<b>Where do you want to send it?</b>",
+    "",
+    "Paste a NEAR wallet address. Neyro will validate it before anything is sent."
+  ].join("\\n");
+
+  return {
+    text,
+    keyboard: new InlineKeyboard()
+      .text("📋 Paste wallet address", "wd:paste")
+      .row()
+      .text("❌ Cancel", "wd:ui:cancel")
+  };
+}
+
+export function renderWithdrawAmountScreen(to: string, available: bigint) {
+  const max = withdrawMaxNear(available);
+  const text = [
+    "📤 <b>Withdraw NEAR</b>",
+    "",
+    `To: ${code(to)}`,
+    `Available: <b>${escapeHtml(formatNear(available))} NEAR</b>`,
+    `Max: <b>${escapeHtml(formatNear(max))} NEAR</b>`,
+    "",
+    "Step 2 of 2",
+    "<b>Choose amount</b>",
+    "",
+    "Select a preset or enter a custom amount."
+  ].join("\\n");
+
+  const keyboard = new InlineKeyboard()
+    .text(`25% · ${withdrawPresetText(available, 25)}`, "wd:amt:25")
+    .text(`50% · ${withdrawPresetText(available, 50)}`, "wd:amt:50")
+    .row()
+    .text(`75% · ${withdrawPresetText(available, 75)}`, "wd:amt:75")
+    .text(`MAX · ${formatNear(max)}`, "wd:amt:max")
+    .row()
+    .text("✏️ Custom amount", "wd:amt:custom")
+    .row()
+    .text("← Change wallet", "wd:change")
+    .text("❌ Cancel", "wd:ui:cancel");
+
+  return { text, keyboard };
 }
 
 export function renderWithdrawResult(plan: Pick<WithdrawPlan, "asset" | "amount" | "to">, result: WithdrawResult): string {
@@ -729,23 +800,108 @@ export function registerBotHandlers(bot: Bot) {
 
   pm.command("withdraw", async (ctx) => {
     const parts = String(ctx.match ?? "").trim().split(/\s+/).filter(Boolean);
-    if (parts.length !== 3) {
-      return void await ctx.reply(
-        "📤 Usage: /withdraw <amount|all> <token> <to-account>\n\nExamples:\n/withdraw 5 near alice.near\n/withdraw all usdt.tether-token.near alice.near"
-      );
+
+    // Keep the explicit form working for power users/backwards compatibility.
+    if (parts.length === 3) {
+      try {
+        const plan = await withdrawService.prepare(ctx.from.id, parts[0]!, parts[1]!, parts[2]!);
+        await replyScreen(ctx, "withdraw", renderWithdrawConfirm(plan), {
+          ...HTML,
+          reply_markup: new InlineKeyboard()
+            .text("✅ Send", `wd:confirm:${plan.id}`)
+            .text("❌ Cancel", `wd:cancel:${plan.id}`)
+        });
+      } catch (error) {
+        console.error("Withdraw prepare error:", error);
+        await replyNotice(ctx, `❌ ${userMessage(error, "Withdrawal is temporarily unavailable")}`);
+      }
+      return;
     }
+
+    if (parts.length !== 0) {
+      return void await replyNotice(ctx, "Use /withdraw to open the simple withdrawal flow.");
+    }
+
+    await withdrawWizardStore().delete(ctx.from.id, WITHDRAW_WIZARD_KEY).catch(() => {});
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return;
     try {
-      const plan = await withdrawService.prepare(ctx.from.id, parts[0]!, parts[1]!, parts[2]!);
-      await replyScreen(ctx, "withdraw", renderWithdrawConfirm(plan), {
+      const balance = await getNearBalance(wallet.accountId);
+      const screen = renderWithdrawStart(balance.available);
+      await replyScreen(ctx, "withdraw", screen.text, { ...HTML, reply_markup: screen.keyboard });
+    } catch (error) {
+      console.error("Withdraw screen error:", error);
+      await replyNotice(ctx, `❌ ${userMessage(error, "Withdrawal is temporarily unavailable")}`);
+    }
+  });
+
+  pm.callbackQuery("wd:paste", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return void await ctx.answerCallbackQuery("Wallet not found");
+    await withdrawWizardStore().set(ctx.from.id, WITHDRAW_WIZARD_KEY, {
+      step: "destination",
+      assetQuery: "near"
+    } satisfies WithdrawWizard, 10 * 60 * 1000);
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(
+      "📤 <b>Withdraw NEAR</b>\n\n<b>Paste recipient wallet address</b>\n\nSend a NEAR account such as <code>alice.near</code> or a valid implicit account.",
+      { ...HTML, reply_markup: new InlineKeyboard().text("❌ Cancel", "wd:ui:cancel") }
+    );
+  });
+
+  pm.callbackQuery("wd:change", async (ctx) => {
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return void await ctx.answerCallbackQuery("Wallet not found");
+    const screen = renderWithdrawStart((await getNearBalance(wallet.accountId)).available);
+    await withdrawWizardStore().set(ctx.from.id, WITHDRAW_WIZARD_KEY, {
+      step: "destination",
+      assetQuery: "near"
+    } satisfies WithdrawWizard, 10 * 60 * 1000);
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(screen.text, { ...HTML, reply_markup: screen.keyboard });
+  });
+
+  pm.callbackQuery(/^wd:amt:(25|50|75|max|custom)$/, async (ctx) => {
+    const state = await withdrawWizardStore().get<WithdrawWizard>(ctx.from.id, WITHDRAW_WIZARD_KEY);
+    if (!state?.to) return void await ctx.answerCallbackQuery("Withdrawal session expired. Use /withdraw again.");
+    if (state.step !== "destination") return void await ctx.answerCallbackQuery("This withdrawal step is no longer active.");
+
+    const choice = ctx.match[1]!;
+    if (choice === "custom") {
+      await withdrawWizardStore().set(ctx.from.id, WITHDRAW_WIZARD_KEY, { ...state, step: "custom_amount" }, 10 * 60 * 1000);
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(
+        `📤 <b>Withdraw NEAR</b>\n\nTo: ${code(state.to)}\n\nEnter the amount in NEAR.\nExample: <code>0.1</code>`,
+        { ...HTML, reply_markup: new InlineKeyboard().text("← Change wallet", "wd:change").text("❌ Cancel", "wd:ui:cancel") }
+      );
+      return;
+    }
+
+    const wallet = await requireWallet(ctx);
+    if (!wallet) return void await ctx.answerCallbackQuery("Wallet not found");
+    const balance = await getNearBalance(wallet.accountId);
+    const amountText = choice === "max" ? "all" : withdrawPresetText(balance.available, Number(choice));
+
+    await ctx.answerCallbackQuery("Preparing withdrawal…");
+    try {
+      const plan = await withdrawService.prepare(ctx.from.id, amountText, state.assetQuery, state.to);
+      await withdrawWizardStore().delete(ctx.from.id, WITHDRAW_WIZARD_KEY).catch(() => {});
+      await ctx.editMessageText(renderWithdrawConfirm(plan), {
         ...HTML,
         reply_markup: new InlineKeyboard()
           .text("✅ Send", `wd:confirm:${plan.id}`)
           .text("❌ Cancel", `wd:cancel:${plan.id}`)
       });
     } catch (error) {
-      console.error("Withdraw prepare error:", error);
-      await replyNotice(ctx, `❌ ${userMessage(error, "Withdrawal is temporarily unavailable")}`);
+      console.error("Withdraw preset prepare error:", error);
+      await ctx.answerCallbackQuery(userMessage(error, "Couldn't prepare withdrawal"));
     }
+  });
+
+  pm.callbackQuery("wd:ui:cancel", async (ctx) => {
+    await withdrawWizardStore().delete(ctx.from.id, WITHDRAW_WIZARD_KEY).catch(() => {});
+    await ctx.answerCallbackQuery("Cancelled");
+    await ctx.editMessageText("❌ Withdrawal cancelled.", HTML);
   });
 
   pm.callbackQuery(/^wd:confirm:([a-f0-9]{16})$/, async (ctx) => {
@@ -1113,6 +1269,51 @@ export function registerBotHandlers(bot: Bot) {
   });
 
   pm.on("message:text", async (ctx, next) => {
+    const withdrawWizard = await withdrawWizardStore().get<WithdrawWizard>(ctx.from.id, WITHDRAW_WIZARD_KEY);
+    if (withdrawWizard) {
+      const text = ctx.message.text.trim();
+      if (text.startsWith("/")) return next();
+      await deleteIncoming(ctx);
+
+      try {
+        if (withdrawWizard.step === "destination") {
+          if (!isValidAccountId(text)) throw new UserFacingError("That is not a valid NEAR wallet address.");
+          const wallet = await requireWallet(ctx);
+          if (!wallet) return;
+          if (text.toLowerCase() === wallet.accountId.toLowerCase()) {
+            throw new UserFacingError("That is your active Neyro wallet. Enter a different recipient.");
+          }
+
+          const state: WithdrawWizard = { ...withdrawWizard, to: text.toLowerCase(), step: "destination" };
+          await withdrawWizardStore().set(ctx.from.id, WITHDRAW_WIZARD_KEY, state, 10 * 60 * 1000);
+          const balance = await getNearBalance(wallet.accountId);
+          const screen = renderWithdrawAmountScreen(state.to!, balance.available);
+          await replyScreen(ctx, "withdraw", screen.text, { ...HTML, reply_markup: screen.keyboard });
+          return;
+        }
+
+        if (withdrawWizard.step === "custom_amount") {
+          if (!/^\d+(\.\d+)?$/.test(text) || !(Number(text) > 0)) {
+            throw new UserFacingError("Enter a valid positive amount, e.g. 0.1");
+          }
+          if (!withdrawWizard.to) throw new UserFacingError("Recipient is missing. Start again with /withdraw.");
+          const plan = await withdrawService.prepare(ctx.from.id, text, withdrawWizard.assetQuery, withdrawWizard.to);
+          await withdrawWizardStore().delete(ctx.from.id, WITHDRAW_WIZARD_KEY).catch(() => {});
+          await replyScreen(ctx, "withdraw", renderWithdrawConfirm(plan), {
+            ...HTML,
+            reply_markup: new InlineKeyboard()
+              .text("✅ Send", `wd:confirm:${plan.id}`)
+              .text("❌ Cancel", `wd:cancel:${plan.id}`)
+          });
+          return;
+        }
+      } catch (error) {
+        console.error("Withdraw wizard error:", error);
+        await replyNotice(ctx, `❌ ${userMessage(error, "Withdrawal could not be prepared")}`);
+        return;
+      }
+    }
+
     const wizard = await defaultStateStore().get<LaunchWizard>(ctx.from.id, "launch-wizard");
     if (!wizard) return next();
     const text = ctx.message.text.trim();
