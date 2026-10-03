@@ -1209,3 +1209,10 @@ Resolution:
 - A retried batch starts from `pending` and clears the old hash.
 - UI: **Reconcile registration** also appears for interrupted `signing` batches.
 - Tests: `registration.test.ts` covers all registered → success, partially registered → failed then a successful retry, and interrupted signing.
+
+## 2026-10-03 — GitHub dark theme checkpoint
+- The dark theme was remapped onto GitHub's dark palette (Primer): canvas `#0d1117`, panels `#161b22`, raised surfaces `#21262d`, borders `#30363d`, subtle `#6e7681`, muted text `#9198a1`, secondary text `#d1d7e0`, primary text `#e6edf3`/`#f0f6fc`.
+- The remap was scripted by lightness bucket over every dark-mode rule (254 values). Rules scoped to `html[data-theme="light"]` and saturated accent colours (greens, ambers) were excluded.
+- Fixed: Create Token's cost table, logo tiles and preview rendered dark in light mode. They now have light-theme rules.
+- The sidebar wallet box was removed. It duplicated the header's Connect/Disconnect and account pill, and it covered nav items on shorter screens.
+- `index.html` `theme-color` and the pre-load description now use `#0d1117`.

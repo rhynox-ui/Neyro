@@ -821,22 +821,6 @@ function App() {
           </select>
         </label>
 
-        <div className="sidebar-bottom">
-          <div className="wallet-box">
-            <span>WEB WALLET</span>
-            <strong>{accountId || "Not connected"}</strong>
-            {accountId ? (
-              <button onClick={() => void disconnectWallet()} disabled={walletBusy}>
-                {walletBusy ? "Working…" : "Disconnect"}
-              </button>
-            ) : (
-              <button onClick={() => void connectWallet()} disabled={walletBusy}>
-                {walletBusy ? "Connecting…" : "Connect wallet"}
-              </button>
-            )}
-          </div>
-
-        </div>
       </aside>
 
       <main>
