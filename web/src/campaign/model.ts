@@ -37,6 +37,24 @@ export type CampaignBatch = {
   updatedAt: number;
 };
 
+/**
+ * Neyro service fee for a campaign, charged once as a separate native NEAR
+ * transfer before the first batch. Uses the batch status machine so an
+ * unresolved fee is reconciled, never blindly re-sent. Campaigns created
+ * before fees existed have no `serviceFee` and are never charged.
+ */
+export type ServiceFee = {
+  payerId: string;
+  receiverId: string;
+  amount: string;
+  status: BatchStatus;
+  transactionHash?: string;
+  previousTransactionHashes?: string[];
+  signingEvidence?: SigningEvidence;
+  error?: string;
+  updatedAt: number;
+};
+
 export type Campaign = {
   id: string;
   sourceFingerprint: string;
@@ -49,6 +67,7 @@ export type Campaign = {
   createdAt: number;
   updatedAt: number;
   batches: CampaignBatch[];
+  serviceFee?: ServiceFee;
 };
 
 const transitions: Record<BatchStatus, readonly BatchStatus[]> = {

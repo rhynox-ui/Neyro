@@ -16,6 +16,9 @@ import {
 import { IndexedDbCampaignStore } from "./campaign/storage";
 import type { Campaign } from "./campaign/model";
 import { campaignResultsCsv } from "./campaign/export";
+import { SERVICE_FEE_ID } from "./execution/service-fee";
+import { formatNearAmount, getAirdropFee } from "./token-tools/fees";
+import { TOKEN_TOOL_FEE_RECIPIENT } from "./token-tools/fee-recipient";
 import { getFtMetadata, type FtMetadata } from "./near/ft";
 import {
   OverviewView,
@@ -66,6 +69,40 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
+
+const UNRESOLVED = new Set(["unknown", "submitted", "signing"]);
+
+type ExecutionRow = {
+  id: string;
+  senderId: string;
+  detail: string;
+  status: string;
+  transactionHash?: string;
+  error?: string;
+};
+
+/** Fee row first (when the campaign has one), then the token batches. */
+function executionRows(campaign: Campaign): ExecutionRow[] {
+  const fee = campaign.serviceFee;
+  return [
+    ...(fee ? [{
+      id: SERVICE_FEE_ID,
+      senderId: fee.payerId,
+      detail: `Neyro fee ${formatNearAmount(BigInt(fee.amount))}`,
+      status: fee.status,
+      transactionHash: fee.transactionHash,
+      error: fee.error
+    }] : []),
+    ...campaign.batches.map((batch) => ({
+      id: batch.id,
+      senderId: batch.senderId,
+      detail: `${batch.actionCount} recipients`,
+      status: batch.status,
+      transactionHash: batch.transactionHash,
+      error: batch.error
+    }))
+  ];
+}
 
 function viewSlug(view: string): string {
   return view.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -965,6 +1002,7 @@ function App() {
                   <Stat name="Invalid" value={plan.invalid.toLocaleString()} />
                   <Stat name="Duplicates" value={plan.duplicates.toLocaleString()} />
                   <Stat name="Batches" value={plan.batches.toLocaleString()} />
+                  <Stat name="Neyro fee" value={plan.valid > 0 ? formatNearAmount(getAirdropFee(plan.valid)) : "—"} />
                 </div>
 
                 <div className="card">
@@ -1083,6 +1121,12 @@ function App() {
                     >
                       {executionBusy ? "Executing…" : "Start airdrop"}
                     </button>
+                    {plan.valid > 0 && (
+                      <small>
+                        One-time Neyro fee: {formatNearAmount(getAirdropFee(plan.valid))} (0.01 NEAR per recipient, min 1, max 250),
+                        paid by the first sender before any tokens move. You also pay network gas.
+                      </small>
+                    )}
                   </div>
                   <div className="table-wrap">
                     <table>
@@ -1105,17 +1149,13 @@ function App() {
                           Export CSV
                         </button>
                         {executionCampaign.status !== "completed" &&
-                          !executionCampaign.batches.some((batch) =>
-                            batch.status === "unknown" || batch.status === "submitted" || batch.status === "signing"
-                          ) && (
+                          !executionRows(executionCampaign).some((row) => UNRESOLVED.has(row.status)) && (
                             <button onClick={() => void resumeCampaign()} disabled={executionBusy || !wallet}>
                               {executionBusy ? "Working…" : "Resume"}
                             </button>
                           )}
                         {(executionCampaign.status === "paused" ||
-                          executionCampaign.batches.some((batch) =>
-                            batch.status === "unknown" || batch.status === "submitted" || batch.status === "signing"
-                          )) && (
+                          executionRows(executionCampaign).some((row) => UNRESOLVED.has(row.status))) && (
                           <button onClick={() => void reconcileExecution()} disabled={executionBusy}>
                             {executionBusy ? "Working…" : "Reconcile"}
                           </button>
@@ -1127,32 +1167,32 @@ function App() {
                     </div>
                     <div className="table-wrap">
                       <table>
-                        <thead><tr><th>Batch</th><th>Sender</th><th>Recipients</th><th>Status</th><th>Transaction</th></tr></thead>
+                        <thead><tr><th>Step</th><th>Signer</th><th>Detail</th><th>Status</th><th>Transaction</th></tr></thead>
                         <tbody>
-                          {executionCampaign.batches.map((batch) => (
-                            <tr key={batch.id}>
-                              <td>{batch.id}</td>
-                              <td>{batch.senderId}</td>
-                              <td>{batch.actionCount}</td>
-                              <td className={batch.status === "success" ? "ready" : batch.status === "failed" ? "warning" : "muted"}>
-                                {batch.status}
+                          {executionRows(executionCampaign).map((row) => (
+                            <tr key={row.id}>
+                              <td>{row.id}</td>
+                              <td>{row.senderId}</td>
+                              <td>{row.detail}</td>
+                              <td className={row.status === "success" ? "ready" : row.status === "failed" ? "warning" : "muted"}>
+                                {row.status}
                               </td>
                               <td>
-                                {batch.transactionHash ?? batch.error ?? "—"}
-                                {batch.status === "unknown" && !batch.transactionHash && (
+                                {row.transactionHash ?? row.error ?? "—"}
+                                {row.status === "unknown" && !row.transactionHash && (
                                   <div className="header-actions">
                                     <input
-                                      aria-label={`Transaction hash for batch ${batch.id}`}
+                                      aria-label={`Transaction hash for ${row.id}`}
                                       placeholder="Transaction hash, if the wallet showed one"
-                                      value={batchHashInputs[batch.id] ?? ""}
+                                      value={batchHashInputs[row.id] ?? ""}
                                       onChange={(event) => setBatchHashInputs((current) => ({
                                         ...current,
-                                        [batch.id]: event.target.value
+                                        [row.id]: event.target.value
                                       }))}
                                     />
                                     <button
-                                      onClick={() => void verifyBatchHash(batch.id)}
-                                      disabled={executionBusy || !(batchHashInputs[batch.id] ?? "").trim()}
+                                      onClick={() => void verifyBatchHash(row.id)}
+                                      disabled={executionBusy || !(batchHashInputs[row.id] ?? "").trim()}
                                     >
                                       Verify hash
                                     </button>
@@ -1165,7 +1205,8 @@ function App() {
                       </table>
                     </div>
                     <small>
-                      A submitted/unknown batch is never automatically resent. Reconcile it before retrying.
+                      The Neyro fee is charged once per campaign to {TOKEN_TOOL_FEE_RECIPIENT}, before the first batch, and is never charged again on resume.
+                      A submitted/unknown step is never automatically resent. Reconcile it before retrying.
                       A batch without a transaction hash becomes retryable only after Neyro proves on-chain that it was never executed
                       (no sender nonce change and the transaction validity window has expired), or after you supply a hash that
                       matches the batch exactly. Close any open wallet signing windows before reconciling.

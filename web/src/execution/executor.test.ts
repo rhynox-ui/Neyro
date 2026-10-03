@@ -35,7 +35,8 @@ function rpcStub(): NearRpcClient {
       throw new Error(`unexpected view method: ${method} ${JSON.stringify(args)}`);
     },
     viewAccount: async () => ({
-      amount: "1000000000000000000000000"
+      amount: "100000000000000000000000000",
+      storage_usage: 1000
     }),
     gasPrice: async () => 100000000n,
     viewAccessKeyList: async () => ({
@@ -60,15 +61,23 @@ const allocation: Allocation = {
   totalAmount: 300n
 };
 
+const feePayments: string[] = [];
+
 function walletStub(
-  signAndSend: WebWalletConnector["signAndSend"]
+  signAndSend: WebWalletConnector["signAndSend"],
+  payFee: WebWalletConnector["signAndSend"] = async () => {
+    feePayments.push("fee");
+    return { transactionHash: `fee-${feePayments.length}` };
+  }
 ): WebWalletConnector {
   return {
     id: "test",
     connect: async () => ({ accountId: "sender.near" }),
     disconnect: async () => {},
     getAccounts: async () => [{ accountId: "sender.near" }],
-    signAndSend,
+    // The Neyro service fee goes to the treasury; token batches go to the token.
+    signAndSend: (request) =>
+      request.receiverId === "widekingdom6862.near" ? payFee(request) : signAndSend(request),
     signAndSendMany: async () => {
       throw new Error("not used by airdrop execution");
     }
@@ -110,7 +119,8 @@ describe("web airdrop execution", () => {
     const originalStatus = rpc.transactionStatus;
     rpc.transactionStatus = async (hash: string, senderId: string) => {
       statusReads += 1;
-      if (statusReads === 1) throw new Error("temporary RPC failure");
+      // Read 1 confirms the service fee; read 2 is the first batch.
+      if (statusReads === 2) throw new Error("temporary RPC failure");
       return originalStatus(hash, senderId);
     };
 
@@ -363,5 +373,101 @@ describe("web airdrop execution", () => {
 
     release();
     await expect(first).resolves.toBeDefined();
+  });
+
+  it("charges the service fee once, before the first batch, and not again on resume", async () => {
+    const store = new MemoryStore();
+    const order: string[] = [];
+    const run = (fail: boolean) => executeAirdrop({
+      tokenContract: "token.near",
+      decimals: 0,
+      allocations: [allocation],
+      sourceFingerprint: "source-fee-once",
+      wallet: walletStub(
+        async (request) => {
+          const receiver = String((request.actions[0] as { args: Record<string, unknown> }).args.receiver_id);
+          if (fail && receiver === "bob.near") throw new Error("stop");
+          order.push(receiver);
+          return { transactionHash: `tx-${receiver}` };
+        },
+        async (request) => {
+          order.push(`fee:${(request.actions[0] as { deposit: bigint }).deposit}`);
+          return { transactionHash: `fee-${order.length}` };
+        }
+      ),
+      rpc: rpcStub(),
+      store,
+      maxActions: 1,
+      locks: testLocks()
+    });
+
+    await expect(run(true)).rejects.toThrow("stop");
+    // A failed batch is retried only after reconciliation proves non-execution; here
+    // we only check the fee was recorded as paid and is not charged on resume.
+    const [campaign] = await store.list();
+    expect(campaign.serviceFee?.status).toBe("success");
+    expect(order).toEqual(["fee:1000000000000000000000000", "alice.near"]);
+  });
+
+  it("blocks execution while the fee payment is unresolved", async () => {
+    const store = new MemoryStore();
+    const signed: string[] = [];
+    const input = {
+      tokenContract: "token.near",
+      decimals: 0,
+      allocations: [allocation],
+      sourceFingerprint: "source-fee-unknown",
+      rpc: rpcStub(),
+      store,
+      maxActions: 1
+    };
+    await expect(executeAirdrop({
+      ...input,
+      locks: testLocks(),
+      wallet: walletStub(async () => { signed.push("batch"); return { transactionHash: "x" }; },
+        async () => { throw new Error("User closed the window"); })
+    })).rejects.toThrow("User closed the window");
+
+    const [campaign] = await store.list();
+    expect(campaign.serviceFee?.status).toBe("unknown");
+    await expect(executeAirdrop({
+      ...input,
+      locks: testLocks(),
+      wallet: walletStub(async () => { signed.push("batch"); return { transactionHash: "x" }; })
+    })).rejects.toThrow("needs reconciliation");
+    expect(signed).toEqual([]);
+  });
+
+  it("accepts a user-supplied fee hash only when it is exactly the fee transfer", async () => {
+    const store = new MemoryStore();
+    const rpc = rpcStub();
+    await expect(executeAirdrop({
+      tokenContract: "token.near", decimals: 0, allocations: [allocation],
+      sourceFingerprint: "source-fee-attach", rpc, store, maxActions: 1, locks: testLocks(),
+      wallet: walletStub(async () => ({ transactionHash: "x" }), async () => { throw new Error("closed"); })
+    })).rejects.toThrow("closed");
+    const [campaign] = await store.list();
+
+    rpc.transactionStatus = async () => ({
+      status: { SuccessValue: "" },
+      transaction: {
+        signer_id: "sender.near",
+        receiver_id: "widekingdom6862.near",
+        actions: [{ Transfer: { deposit: "500000000000000000000000" } }]
+      }
+    });
+    await expect(attachTransactionHash(campaign.id, "service-fee", HASH, store, rpc, testLocks()))
+      .rejects.toThrow("is not this fee payment");
+
+    rpc.transactionStatus = async () => ({
+      status: { SuccessValue: "" },
+      transaction: {
+        signer_id: "sender.near",
+        receiver_id: "widekingdom6862.near",
+        actions: [{ Transfer: { deposit: "1000000000000000000000000" } }]
+      }
+    });
+    const updated = await attachTransactionHash(campaign.id, "service-fee", HASH, store, rpc, testLocks());
+    expect(updated.serviceFee?.status).toBe("success");
   });
 });

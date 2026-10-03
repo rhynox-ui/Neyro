@@ -1216,3 +1216,24 @@ Resolution:
 - Fixed: Create Token's cost table, logo tiles and preview rendered dark in light mode. They now have light-theme rules.
 - The sidebar wallet box was removed. It duplicated the header's Connect/Disconnect and account pill, and it covered nav items on shorter screens.
 - `index.html` `theme-color` and the pre-load description now use `#0d1117`.
+
+## 2026-10-03 — Service fees checkpoint
+Pricing is set in `web/src/token-tools/fees.ts` and paid to `widekingdom6862.near`:
+
+| Utility | Fee | When |
+|---|---|---|
+| Create Token | 1 NEAR | One wallet approval: the factory call first, then the fee |
+| Airdrop | 0.01 NEAR per recipient, min 1 NEAR, max 250 NEAR | Once per campaign, before the first batch |
+| Burn | 0.1 NEAR | One wallet approval: the burn first, then the fee |
+| Token Locker | 1 NEAR | Modeled; charged when a verified locker ships |
+| Recipient registration, Inspector, Portfolio, Swap quotes, NEARly Launch | No Neyro fee | — |
+
+The airdrop price was benchmarked against no-code multisenders: Smithii 0.001 SOL per wallet, Jumpbit 0.002–0.003 SOL per wallet, EVM tools about $0.30–1 per wallet. NEARly Launch carries no Neyro fee until NEARly's own fee and referral terms have been checked.
+
+Airdrop fee safety (`web/src/execution/service-fee.ts`):
+- The fee is stored on the campaign as `serviceFee` and moves through the same states as a batch (pending → signing → submitted → success, failed or unknown).
+- It is paid before any token batch, using the first sender's account. A resumed campaign whose fee is already `success` is never charged again.
+- An unresolved fee blocks execution until reconciled, using the same rules as batches: a hashed fee is read from final transaction status; a hashless fee is marked `failed` only after nonce/validity-window proof of non-execution; a user-supplied hash is accepted only if it is a single transfer of exactly the fee amount from the payer to the treasury.
+- Campaigns stored before fees existed have no `serviceFee` and are never charged retroactively.
+- UI: the Airdrop page shows the fee in the stats row and next to Start airdrop. The campaign table lists the fee as its own `service-fee` step, with Reconcile and Verify hash.
+- Tests cover single charge across a failed run and resume, blocking while the fee is unresolved, and fee-hash verification.

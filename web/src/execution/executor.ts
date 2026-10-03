@@ -17,6 +17,13 @@ import { buildAirdropTransaction } from "./transaction-builder";
 import type { WebWalletConnector } from "../wallet/connector";
 import { withCampaignLock } from "./campaign-lock";
 import {
+  attachFeeTransactionHash,
+  newAirdropServiceFee,
+  payServiceFee,
+  reconcileServiceFee,
+  SERVICE_FEE_ID
+} from "./service-fee";
+import {
   captureSigningEvidence,
   checkNotExecuted,
   transactionMatchesBatch
@@ -248,9 +255,34 @@ async function executeLocked(
       status: "planned",
       createdAt: now,
       updatedAt: now,
-      batches
+      batches,
+      serviceFee: newAirdropServiceFee(
+        batches[0].senderId,
+        batches.reduce((sum, batch) => sum + batch.actionCount, 0)
+      )
     };
     await input.store.put(campaign);
+  }
+
+  // Charged once per campaign, before any token leaves a sender. Campaigns
+  // created before fees existed have no serviceFee and are not charged.
+  if (campaign.serviceFee && campaign.serviceFee.status !== "success") {
+    const owned = campaign;
+    try {
+      owned.serviceFee = await payServiceFee(
+        owned.serviceFee!,
+        input.wallet,
+        input.rpc,
+        async (fee) => {
+          owned.serviceFee = fee;
+          await persist(input.store, owned, input.onProgress);
+        }
+      );
+    } catch (error) {
+      owned.status = "paused";
+      await input.store.put(owned);
+      throw error;
+    }
   }
 
   for (const batch of campaign.batches) {
@@ -432,6 +464,12 @@ export async function reconcileCampaign(
     const campaign = await store.get(campaignId);
     if (!campaign) throw new Error(`Campaign ${campaignId} was not found`);
 
+    if (campaign.serviceFee && campaign.serviceFee.status !== "success") {
+      campaign.serviceFee = await reconcileServiceFee(campaign.serviceFee, rpc);
+      campaign.updatedAt = Date.now();
+      await store.put(campaign);
+    }
+
     for (let index = 0; index < campaign.batches.length; index += 1) {
       let batch = campaign.batches[index];
 
@@ -481,6 +519,23 @@ export async function attachTransactionHash(
   return withCampaignLock(campaignId, async () => {
     const campaign = await store.get(campaignId);
     if (!campaign) throw new Error(`Campaign ${campaignId} was not found`);
+
+    const knownHashes = [
+      ...campaign.batches.flatMap((item) => [item.transactionHash, ...(item.previousTransactionHashes ?? [])]),
+      campaign.serviceFee?.transactionHash,
+      ...(campaign.serviceFee?.previousTransactionHashes ?? [])
+    ];
+    if (knownHashes.includes(hash)) {
+      throw new Error(`Transaction ${hash} is already recorded for this campaign`);
+    }
+
+    if (batchId === SERVICE_FEE_ID) {
+      if (!campaign.serviceFee) throw new Error("This campaign has no service fee");
+      campaign.serviceFee = await attachFeeTransactionHash(campaign.serviceFee, hash, rpc);
+      campaign.updatedAt = Date.now();
+      await store.put(campaign);
+      return campaign;
+    }
 
     const index = campaign.batches.findIndex((candidate) => candidate.id === batchId);
     if (index < 0) throw new Error(`Batch ${batchId} is not part of campaign ${campaignId}`);

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { Campaign } from "./campaign/model";
 import { NearRpcClient } from "./near/rpc";
 import type { WebWalletConnector } from "./wallet/connector";
+import { formatTokenToolFee, getTokenToolFee } from "./token-tools/fees";
+import { TOKEN_TOOL_FEE_RECIPIENT } from "./token-tools/fee-recipient";
 import { getNearlyLaunchQuotes, launchNearlyToken, quoteNearlyLaunch, NEARLY_WNEAR, type LaunchForm, type NearlyQuoteAsset, type LaunchCost } from "./protocol/nearly";
 
 function formatNear(yocto: string): string {
@@ -510,21 +512,32 @@ export function TokenBurnView({
     setMessage("");
     setTxHash("");
     try {
-      const result = await wallet.signAndSend({
-        signerId: accountId,
-        receiverId: contract,
-        actions: [{
-          type: "FunctionCall",
+      // One approval: the burn first, then the Neyro fee, so a wallet that
+      // stops at the first failure never charges for a burn that did not happen.
+      const [result, fee] = await wallet.signAndSendMany([
+        {
+          signerId: accountId,
           receiverId: contract,
-          methodName: "burn",
-          args: { amount: base.toString() },
-          gas: 30_000_000_000_000n,
-          deposit: 0n
-        }]
-      });
-      if (!result.transactionHash) throw new Error("Wallet did not return a transaction hash.");
+          actions: [{
+            type: "FunctionCall",
+            receiverId: contract,
+            methodName: "burn",
+            args: { amount: base.toString() },
+            gas: 30_000_000_000_000n,
+            deposit: 0n
+          }]
+        },
+        {
+          signerId: accountId,
+          receiverId: TOKEN_TOOL_FEE_RECIPIENT,
+          actions: [{ type: "Transfer", receiverId: TOKEN_TOOL_FEE_RECIPIENT, deposit: getTokenToolFee("burn") }]
+        }
+      ]);
+      if (!result?.transactionHash) throw new Error("Wallet did not return a transaction hash. Check your wallet activity before trying again.");
       setTxHash(result.transactionHash);
-      setMessage("Burn transaction submitted. Wait for finality, then use Verify token to refresh the on-chain balance.");
+      setMessage(
+        `Burn transaction submitted${fee?.transactionHash ? ` (fee tx ${fee.transactionHash})` : "; the wallet did not return the fee hash"}. Wait for finality, then use Verify token to refresh the on-chain balance.`
+      );
       setAmount("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Burn transaction failed.");
@@ -575,6 +588,7 @@ export function TokenBurnView({
             </div>
           </div>
           <div className="burn-warning">Burning permanently reduces total supply. The transaction cannot be reversed.</div>
+          <small>Neyro fee: {formatTokenToolFee("burn")} to {TOKEN_TOOL_FEE_RECIPIENT}, approved together with the burn. You also pay network gas.</small>
           <button className="primary" onClick={() => void burn()} disabled={busy || !wallet || !accountId}>
             {busy ? "Submitting burn…" : "Burn tokens"}
           </button>
@@ -1058,7 +1072,7 @@ export function DocsView() {
       <section id="trading"><h3>Trading</h3><p>Swap reads balances, requests live routes or quotes, applies supported slippage controls and submits through the browser wallet. Quotes can expire and on-chain state can change between quote and confirmation.</p></section>
       <section id="airdrops"><h3>Airdrops & bulk transfers</h3><p>The NEP-141 transfer engine supports CSV, TXT and JSON input, account validation, duplicate detection, exact bigint arithmetic, deterministic sender allocation and conservative gas-aware batches.</p><p>Before signing, fresh balances and registration state are checked. Unknown outcomes require reconciliation before retry.</p></section>
       <section id="token-tools"><h3>Token tools</h3><h4>Burn</h4><p>Burn permanently removes tokens from the connected holder when the verified token contract exposes the supported operation.</p><h4>Lock</h4><p>A lock must be enforced by an on-chain locker contract. The calendar selects the intended unlock schedule; a database flag is not a lock.</p><h4>Unlock</h4><p>Unlock/claim will use the verified locker contract and browser-wallet signing.</p></section>
-      <section id="fees"><h3>Fees</h3><p>Product fees are separate from token amounts, storage deposits and gas.</p><table><thead><tr><th>Operation</th><th>Current fee</th><th>Status</th></tr></thead><tbody><tr><td>Create Token</td><td>1 NEAR + factory storage deposit</td><td>Live via token factory</td></tr><tr><td>Token Lock</td><td>1 NEAR</td><td>Modeled; locker gated</td></tr><tr><td>Airdrop</td><td>Gas/protocol dependent</td><td>User pays gas</td></tr><tr><td>Trading / Launch</td><td>Protocol quote</td><td>Read live</td></tr></tbody></table><p>Configured product-fee recipient: <code>widekingdom6862.near</code>. This is a fee recipient, not a browser signing key or automatic gas sponsor.</p></section>
+      <section id="fees"><h3>Fees</h3><p>Product fees are separate from token amounts, storage deposits and gas.</p><table><thead><tr><th>Operation</th><th>Current fee</th><th>Status</th></tr></thead><tbody><tr><td>Create Token</td><td>1 NEAR + factory storage deposit</td><td>Live via token factory</td></tr><tr><td>Token Lock</td><td>1 NEAR</td><td>Modeled; locker gated</td></tr><tr><td>Airdrop</td><td>0.01 NEAR per recipient (min 1, max 250 NEAR), once per campaign</td><td>Live; charged before the first batch, never on resume</td></tr><tr><td>Burn</td><td>0.1 NEAR</td><td>Live; approved together with the burn</td></tr><tr><td>Recipient registration</td><td>No Neyro fee</td><td>Storage deposit goes to the token contract</td></tr><tr><td>Trading / Launch</td><td>Protocol quote only</td><td>No Neyro fee</td></tr><tr><td>Contract Inspector, Portfolio</td><td>Free</td><td>Read-only</td></tr></tbody></table><p>Configured product-fee recipient: <code>widekingdom6862.near</code>. This is a fee recipient, not a browser signing key or automatic gas sponsor.</p></section>
       <section id="execution"><h3>Execution model</h3><ol><li>Read live protocol state.</li><li>Build an immutable plan.</li><li>Validate account, balances, storage, gas and parameters.</li><li>Show the user what will be signed.</li><li>Request browser-wallet approval.</li><li>Persist the transaction hash or unresolved state.</li><li>Wait for finality and reconcile against NEAR RPC.</li></ol><p>The web terminal never falls back to Telegram signing.</p></section>
       <section id="safety"><h3>Safety & current limitations</h3><ul><li>Never enter a seed phrase or private key.</li><li>Verify receiver, token, amount, deposit and gas before signing.</li><li>Do not assume an uncertain transaction failed.</li><li>Large campaigns require bounded-memory planning and recovery validation before million-wallet execution.</li><li>Protocol-specific features are enabled only after their contract interfaces are verified.</li></ul><div className="docs-note warning"><strong>Current status:</strong> some modules are fully wired while token creation, locking and other protocol-specific operations remain gated until their exact contracts are verified.</div></section>
       <section id="roadmap"><h3>Roadmap</h3><ol><li>Execution foundation and reconciliation.</li><li>Campaign resume, export and failure recovery.</li><li>Fresh-token creation through a verified factory (live).</li><li>Verified lock, unlock, burn and related operations.</li><li>Complete NEARly browser launch lifecycle.</li><li>Trading, portfolio and transaction history.</li><li>Developer contract inspection and safe transaction building.</li><li>Bounded-memory million-wallet planning.</li></ol></section>
